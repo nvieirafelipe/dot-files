@@ -25,9 +25,9 @@ fnv_git_prompt() {
     local color=${GREEN}
     git diff --no-ext-diff --quiet --exit-code 2>/dev/null || \
         color=${RED}
-    local GIT_PROMPT=`__git_ps1 "${color}(%s)${NORMAL}"`
+    local GIT_PROMPT=`__git_ps1 "${color} (%s)${NORMAL}"`
     echo ${GIT_PROMPT}
   fi
 }
 
-PS1="${VIOLET}\u@\h${NORMAL} \w${NORMAL} $(fnv_git_prompt) ${YELLOW}\$ ${RESET}"
+PS1="${VIOLET}\u@\h${NORMAL} \w${NORMAL}\$(fnv_git_prompt) ${YELLOW}\$ ${RESET}"
