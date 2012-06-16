@@ -9,3 +9,6 @@ alias gs="git status"
 
 # os
 alias ls="ls -FG"
+
+# symfony
+alias symfony="php symfony"
