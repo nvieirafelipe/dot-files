@@ -12,3 +12,6 @@ alias ls="ls -FG"
 
 # symfony
 alias symfony="php symfony"
+
+# xcode
+alias xcode="open *.xcodeproj"
