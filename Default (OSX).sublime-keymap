@@ -1,4 +1,5 @@
 [
-	{ "keys": ["super+0"], "command": "toggle_side_bar" },
-	{ "keys": ["super+shift+o"], "command": "show_overlay", "args": {"overlay": "goto", "show_files": true} }
+  { "keys": ["super+0"], "command": "toggle_side_bar" },
+  { "keys": ["super+shift+o"], "command": "show_overlay", "args": {"overlay": "goto", "show_files": true} },
+  { "keys": ["super+shift+m"], "command": "show_overlay", "args": {"overlay": "goto", "text": "@"} }
 ]
