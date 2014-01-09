@@ -1,12 +1,17 @@
 [user]
-	name = Felipe Vieira
-	email = nvieirafelipe@gmail.com
+  name = Felipe Vieira
+  email = nvieirafelipe@gmail.com
 [credential]
-	helper = git-credential-osxkeychain
+  helper = git-credential-osxkeychain
 [help]
-	autocorrect = 1
+  autocorrect = 1
 [color]
-	ui = true
+  ui = true
 [core]
-	autocrlf = input
+  autocrlf = input
+  excludesfile = /Users/felipe/.gitignore_global
 [alias]
+[mergetool]
+  keepBackup = false
+[heroku]
+  account = nvieirafelipe
