@@ -4,8 +4,10 @@ alias gb="git branch"
 alias gc="git commit"
 alias gd="git diff"
 alias gl="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
-alias go="git checkout"
+alias gco="git checkout"
 alias gs="git status"
+alias gp="git push"
+alias gf="git fetch"
 
 # os
 alias ls="ls -FG"
@@ -13,5 +15,11 @@ alias ls="ls -FG"
 # symfony
 alias symfony="php symfony"
 
-# xcode
-alias xcode="open *.xcodeproj"
+# symfony 2
+alias sf="php app/console"
+
+# composer
+alias composer="php composer.phar"
+
+# finder
+alias developer="cd ~/Developer"
