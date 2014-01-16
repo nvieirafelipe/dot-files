@@ -32,5 +32,9 @@ function gp
 end
 
 function gf
-  git fetch $argv
+  if count $argv > 0
+    git fetch $argv
+  else
+    git fetch origin
+  end
 end
