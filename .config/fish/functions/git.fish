@@ -26,13 +26,12 @@ function gs
   git status $argv
 end
 
-
 function gp
   git push $argv
 end
 
 function gf
-  if count $argv > 0
+  if count $argv > /dev/null
     git fetch $argv
   else
     git fetch origin
