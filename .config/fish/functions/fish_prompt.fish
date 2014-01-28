@@ -1,9 +1,10 @@
 function fish_prompt --description 'Write out the prompt'
 	set -l last_status $status
 
+  set_color FF530D
+  echo -n (whoami)
   set_color magenta
-  echo -n (whoami)'@'(hostname -s)
-  set_color normal
+  echo -n '@'(hostname -s)
 
   echo -n ' '
 
