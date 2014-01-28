@@ -1,39 +1,17 @@
-function ga
-  git add $argv
-end
+alias ga="git add"
 
-function gb
-  git branch $argv
-end
+alias gb="git branch"
 
-function gc
-  git commit $argv
-end
+alias gc="git commit"
 
-function gd
-  git diff $argv
-end
+alias gd="git diff"
 
-function gl
-  git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative $argv
-end
+alias gl="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
 
-function gco
-  git checkout $argv
-end
+alias gco="git checkout"
 
-function gs
-  git status $argv
-end
+alias gs="git status"
 
-function gp
-  git push $argv
-end
+alias gp="git push"
 
-function gf
-  if count $argv > /dev/null
-    git fetch $argv
-  else
-    git fetch origin
-  end
-end
+alias gf="git fetch"
