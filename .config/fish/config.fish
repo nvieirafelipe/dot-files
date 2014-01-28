@@ -8,4 +8,5 @@ function fish_greeting
   echo
   fortune
   echo
+  envup
 end
