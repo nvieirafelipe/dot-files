@@ -10,3 +10,5 @@ function fish_greeting
   echo
   envup
 end
+
+. ~/.config/fish/functions/aliases.fish

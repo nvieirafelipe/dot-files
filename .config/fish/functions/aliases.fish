@@ -1,3 +1,5 @@
+# git
+
 alias ga="git add"
 
 alias gb="git branch"
@@ -15,3 +17,9 @@ alias gs="git status"
 alias gp="git push"
 
 alias gf="git fetch"
+
+# test suite
+
+alias tt="script/tests"
+
+alias ff="script/features"
