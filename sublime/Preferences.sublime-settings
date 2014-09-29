@@ -4,7 +4,7 @@
   "dictionary": "Packages/Languages/en_US.dic",
   "draw_white_space": "all",
   "font_face": "Consolas",
-  "font_size": 13.0,
+  "font_size": 10.0,
   "highlight_modified_tabs": true,
   "ignored_packages":
   [
@@ -14,7 +14,7 @@
   "remember_open_files": false,
   "rulers":
   [
-    100
+    80
   ],
   "spell_check": true,
   "tab_size": 2,
