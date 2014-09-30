@@ -1,11 +1,12 @@
-# Colors
-source ~/.myconfig/bash/.colors
+SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+source $SCRIPTDIR/.colors
 
 # alias
-source ~/.myconfig/bash/.aliases
+source $SCRIPTDIR/.aliases
 
 # Load envup function
-source ~/.myconfig/bash/.functions/envup
+source $SCRIPTDIR/.functions/envup
 
 # homebrew
 export PATH="/usr/local/sbin:$PATH"
@@ -31,7 +32,7 @@ export PATH="/usr/local/Cellar/postgresql/9.2.4/bin:$PATH"
 export PATH="/usr/local/share/npm/bin:$PATH"
 
 # git autocomplete
-source ~/.myconfig/bash/.git-completion
+source $SCRIPTDIR/.git-completion
 __git_complete ga _git_add
 __git_complete gb _git_branch
 __git_complete gc _git_commit
