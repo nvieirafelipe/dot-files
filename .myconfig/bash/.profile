@@ -1,11 +1,11 @@
 # Colors
-source ~/.colors
+source ~/.myconfig/bash/.colors
 
 # alias
-source ~/.aliases
+source ~/.myconfig/bash/.aliases
 
 # Load envup function
-source ~/.functions/envup
+source ~/.myconfig/bash/.functions/envup
 
 # homebrew
 export PATH="/usr/local/sbin:$PATH"
@@ -31,7 +31,7 @@ export PATH="/usr/local/Cellar/postgresql/9.2.4/bin:$PATH"
 export PATH="/usr/local/share/npm/bin:$PATH"
 
 # git autocomplete
-source ~/.git-completion
+source ~/.myconfig/bash/.git-completion
 __git_complete ga _git_add
 __git_complete gb _git_branch
 __git_complete gc _git_commit
