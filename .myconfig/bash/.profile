@@ -5,9 +5,6 @@ source $SCRIPTDIR/.colors
 # alias
 source $SCRIPTDIR/.aliases
 
-# Load envup function
-source $SCRIPTDIR/.functions/envup
-
 # homebrew
 export PATH="/usr/local/sbin:$PATH"
 export PATH="/usr/local/bin:$PATH"
@@ -31,6 +28,9 @@ export PATH="/usr/local/Cellar/postgresql/9.2.4/bin:$PATH"
 # Add npm
 export PATH="/usr/local/share/npm/bin:$PATH"
 
+# Setting PATH for brew Python
+export PATH="/usr/local/Cellar/python/2.7.5/bin:$PATH"
+
 # git autocomplete
 source $SCRIPTDIR/.git-completion
 __git_complete ga _git_add
@@ -53,20 +53,10 @@ fnv_git_prompt() {
 }
 
 PS1="${VIOLET}\u@\h${NORMAL} \W${NORMAL}\$(fnv_git_prompt) ${YELLOW}\$ ${RESET}"
-# Setting PATH for Python 3.3
-# The orginal version is saved in .profile.pysave
-# PATH="/Library/Frameworks/Python.framework/Versions/3.3/bin:${PATH}"
-# export PATH
-
-# Setting PATH for Python 2.7
-# The orginal version is saved in .profile.pysave
-# PATH="/Library/Frameworks/Python.framework/Versions/2.7/bin:${PATH}"
-# export PATH
-
-# Setting PATH for brew Python
-PATH="/usr/local/Cellar/python/2.7.5/bin:${PATH}"
-export PATH
 
 # rvm
 export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
 [[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
+
+# Use direnv (http://direnv.net/)
+eval "$(direnv hook bash)"
