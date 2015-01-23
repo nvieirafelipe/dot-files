@@ -1,3 +1,16 @@
+# rvm
+[[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm"
+
+# Path to the bash-it configuration
+export BASH_IT=$HOME/.bash_it
+
+# Lock and Load a custom theme file
+# location /.bash_it/themes/
+export BASH_IT_THEME='powerline-plain'
+
+# Load Bash It
+source $BASH_IT/bash_it.sh
+
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 source $SCRIPTDIR/.colors
@@ -30,33 +43,6 @@ export PATH="/usr/local/share/npm/bin:$PATH"
 
 # Setting PATH for brew Python
 export PATH="/usr/local/Cellar/python/2.7.5/bin:$PATH"
-
-# git autocomplete
-source $SCRIPTDIR/.git-completion
-__git_complete ga _git_add
-__git_complete gb _git_branch
-__git_complete gc _git_commit
-__git_complete gd _git_diff
-__git_complete gl _git_log
-__git_complete gco _git_checkout
-__git_complete gp _git_push
-
-fnv_git_prompt() {
-  local g="$(__gitdir)"
-  if [ -n "$g" ]; then
-    local color=${GREEN}
-    git diff --no-ext-diff --quiet --exit-code 2>/dev/null || \
-        color=${RED}
-    local GIT_PROMPT=`__git_ps1 "${color} (%s)${NORMAL}"`
-    echo ${GIT_PROMPT}
-  fi
-}
-
-PS1="${VIOLET}\u@\h${NORMAL} \W${NORMAL}\$(fnv_git_prompt) ${YELLOW}\$ ${RESET}"
-
-# rvm
-export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
-[[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
 
 # Use direnv (http://direnv.net/)
 eval "$(direnv hook bash)"
