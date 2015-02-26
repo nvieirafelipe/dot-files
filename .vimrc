@@ -53,7 +53,7 @@ set shiftwidth=2
 set nowrap
 set textwidth=80
 set linebreak
-set cursorline
+set cursorline cursorcolumn
 highlight ColorColumn ctermbg=magenta
 call matchadd('ColorColumn', '\%81v', 100)
 
@@ -64,3 +64,9 @@ set clipboard=unnamed
 colors Monokai
 let g:airline_powerline_fonts = 1
 let g:airline_theme='molokai'
+
+" CtrlP
+set wildignore+=*/tmp/*
+set wildignore+=vendor/bundle,vendor/ruby
+set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
+let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
