@@ -70,3 +70,6 @@ set wildignore+=*/tmp/*
 set wildignore+=vendor/bundle,vendor/ruby
 set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
 let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
+
+" ejs syntax
+au BufNewFile,BufRead *.ejs set filetype=html
