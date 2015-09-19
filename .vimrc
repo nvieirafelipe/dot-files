@@ -12,16 +12,22 @@ Plugin 'edsono/vim-matchit'
 Plugin 'ervandew/supertab'
 Plugin 'flazz/vim-colorschemes'
 Plugin 'gmarik/Vundle.vim'
+Plugin 'honza/vim-snippets'
 Plugin 'kchmck/vim-coffee-script'
 Plugin 'kien/ctrlp.vim'
+Plugin 'mustache/vim-mustache-handlebars'
 Plugin 'myusuf3/numbers.vim'
+Plugin 'othree/html5.vim'
 Plugin 'rking/ag.vim'
 Plugin 'scrooloose/syntastic'
+Plugin 'SirVer/ultisnips'
 Plugin 'tpope/vim-commentary'
 Plugin 'tpope/vim-endwise'
 Plugin 'tpope/vim-fugitive'
+Plugin 'tpope/vim-liquid'
 Plugin 'tpope/vim-rails'
 Plugin 'tpope/vim-surround'
+Plugin 'Valloric/YouCompleteMe'
 Plugin 'vim-ruby/vim-ruby'
 Plugin 'vim-scripts/bufkill.vim'
 
@@ -67,9 +73,17 @@ let g:airline_theme='molokai'
 
 " CtrlP
 set wildignore+=*/tmp/*
+set wildignore+=*/node_modules/*
+set wildignore+=*/bower_components/*
+set wildignore+=*/vendor/*
 set wildignore+=vendor/bundle,vendor/ruby
 set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
 let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
 
 " ejs syntax
 au BufNewFile,BufRead *.ejs set filetype=html
+
+" snippets
+let g:UltiSnipsExpandTrigger="<tab>"
+let g:UltiSnipsJumpForwardTrigger="<c-b>"
+let g:UltiSnipsJumpBackwardTrigger="<c-z>"

@@ -7,7 +7,7 @@
 	<key>AllowClipboardAccess</key>
 	<true/>
 	<key>AnimateDimming</key>
-	<false/>
+	<true/>
 	<key>AppleAntiAliasingThreshold</key>
 	<integer>1</integer>
 	<key>AppleScrollAnimationEnabled</key>
@@ -1045,11 +1045,11 @@
 	<key>NSWindow Frame NSFontPanel</key>
 	<string>929 110 445 497 0 0 1440 877 </string>
 	<key>NSWindow Frame Preferences</key>
-	<string>258 392 924 485 0 0 1440 877 </string>
+	<string>346 325 924 485 0 0 1440 877 </string>
 	<key>NSWindow Frame iTerm Window 0</key>
-	<string>0 419 572 452 0 0 1440 877 </string>
+	<string>-225 925 1916 1030 -227 900 1920 1057 </string>
 	<key>NSWindow Frame iTerm Window 1</key>
-	<string>-225 905 1916 1047 -227 900 1920 1057 </string>
+	<string>-225 1500 572 452 -227 900 1920 1057 </string>
 	<key>NSWindow Frame iTerm Window 2</key>
 	<string>204 45 572 452 0 0 1440 877 </string>
 	<key>New Bookmarks</key>
@@ -1782,6 +1782,10 @@
 	</array>
 	<key>NoSyncNeverRemindPrefsChangesCopy</key>
 	<true/>
+	<key>NoSyncTimeOfLastPromo</key>
+	<real>453510657.382285</real>
+	<key>NoSyncTimeOfLastPromoDownload</key>
+	<real>461856129.55103803</real>
 	<key>OnlyWhenMoreTabs</key>
 	<true/>
 	<key>OpenArrangementAtStartup</key>
@@ -1848,7 +1852,7 @@
 	<key>SUHasLaunchedBefore</key>
 	<true/>
 	<key>SULastCheckTime</key>
-	<date>2015-04-17T13:10:39Z</date>
+	<date>2015-08-21T13:21:49Z</date>
 	<key>SavePasteHistory</key>
 	<false/>
 	<key>Show Toolbelt</key>
@@ -1860,7 +1864,7 @@
 	<key>SmartPlacement</key>
 	<false/>
 	<key>SplitPaneDimmingAmount</key>
-	<real>0.60000002384185791</real>
+	<real>0.10540865361690521</real>
 	<key>SwitchTabModifier</key>
 	<integer>4</integer>
 	<key>SwitchWindowModifier</key>
@@ -1900,6 +1904,6 @@
 	<key>findRegex_iTerm</key>
 	<false/>
 	<key>iTerm Version</key>
-	<string>2.0.0.20141103</string>
+	<string>2.1.1</string>
 </dict>
 </plist>
