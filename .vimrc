@@ -5,7 +5,6 @@ filetype off
 set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
 
-Plugin 'Raimondi/delimitMate'
 Plugin 'airblade/vim-gitgutter'
 Plugin 'bling/vim-airline'
 Plugin 'edsono/vim-matchit'
@@ -18,6 +17,7 @@ Plugin 'kien/ctrlp.vim'
 Plugin 'mustache/vim-mustache-handlebars'
 Plugin 'myusuf3/numbers.vim'
 Plugin 'othree/html5.vim'
+Plugin 'Raimondi/delimitMate'
 Plugin 'rking/ag.vim'
 Plugin 'scrooloose/syntastic'
 Plugin 'SirVer/ultisnips'
