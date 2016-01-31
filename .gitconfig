@@ -4,3 +4,5 @@
 [user]
 	name = Felipe Vieira
 	email = nvieirafelipe@gmail.com
+[push]
+	default = simple
