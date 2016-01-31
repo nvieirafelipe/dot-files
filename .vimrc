@@ -6,12 +6,10 @@ set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
 
 Plugin 'airblade/vim-gitgutter'
-Plugin 'bling/vim-airline'
 Plugin 'edsono/vim-matchit'
 Plugin 'ervandew/supertab'
 Plugin 'flazz/vim-colorschemes'
 Plugin 'gmarik/Vundle.vim'
-Plugin 'honza/vim-snippets'
 Plugin 'kchmck/vim-coffee-script'
 Plugin 'kien/ctrlp.vim'
 Plugin 'mustache/vim-mustache-handlebars'
@@ -20,16 +18,13 @@ Plugin 'othree/html5.vim'
 Plugin 'Raimondi/delimitMate'
 Plugin 'rking/ag.vim'
 Plugin 'scrooloose/syntastic'
-Plugin 'SirVer/ultisnips'
-Plugin 'tpope/vim-commentary'
 Plugin 'tpope/vim-endwise'
 Plugin 'tpope/vim-fugitive'
 Plugin 'tpope/vim-liquid'
 Plugin 'tpope/vim-rails'
 Plugin 'tpope/vim-surround'
-Plugin 'Valloric/YouCompleteMe'
-Plugin 'vim-ruby/vim-ruby'
-Plugin 'vim-scripts/bufkill.vim'
+Plugin 'vim-airline/vim-airline'
+Plugin 'vim-airline/vim-airline-themes'
 
 call vundle#end()
 
@@ -57,7 +52,8 @@ set tabstop=2
 set softtabstop=2
 set shiftwidth=2
 set nowrap
-set textwidth=80
+set textwidth=0
+set wrapmargin=0
 set linebreak
 set cursorline cursorcolumn
 highlight ColorColumn ctermbg=magenta
@@ -71,12 +67,10 @@ colors Monokai
 let g:airline_powerline_fonts = 1
 let g:airline_theme='molokai'
 
+let g:powerline_pycmd='py3'
+
 " CtrlP
-set wildignore+=*/tmp/*
-set wildignore+=*/node_modules/*
-set wildignore+=*/bower_components/*
-set wildignore+=*/vendor/*
-set wildignore+=vendor/bundle,vendor/ruby
+set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*,*/vendor/*
 set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
 let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
 
