@@ -66,8 +66,18 @@ set clipboard=unnamed
 colors Monokai
 let g:airline_powerline_fonts = 1
 let g:airline_theme='molokai'
-
 let g:powerline_pycmd='py3'
+
+" Transparency
+hi Normal             ctermbg=NONE
+hi Statement          ctermbg=NONE
+hi Title              ctermbg=NONE
+hi Todo               ctermbg=NONE
+hi Underlined         ctermbg=NONE
+hi ErrorMsg           ctermbg=NONE
+hi LineNr             ctermbg=NONE
+hi TabLineFill        ctermbg=NONE
+hi NonText            ctermbg=NONE
 
 " CtrlP
 set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*,*/vendor/*
