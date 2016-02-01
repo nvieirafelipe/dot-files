@@ -1,0 +1,19 @@
+/* .config/gtk-3.0/gtk.css */
+
+TerminalWindow .notebook tab:active {
+  background-color: #444;
+}
+
+TerminalWindow .notebook {
+  padding: 0;
+}
+
+.header-bar.default-decoration {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.header-bar.default-decoration .button.titlebutton {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
