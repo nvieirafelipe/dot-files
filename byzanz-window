@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Record a gif with byzanz.
+# Prompts for window or screen region
+# Stops with ctrl+c
+
+IMAGE="$HOME/Desktop/screencast-$(date +'%F.%T').gif"
+
+function window_dimensions() {
+  info="$(xwininfo)"
+  x=$(echo "$info" | grep 'Absolute upper-left X' | cut -f 7 -d' ')
+  y=$(echo "$info" | grep 'Absolute upper-left Y' | cut -f 7 -d' ')
+  w=$(echo "$info" | grep Width | cut -f 4 -d' ')
+  h=$(echo "$info" | grep Height | cut -f 4 -d' ')
+
+  echo "-x $x -w $w -y $y -h $h"
+}
+
+function spinner() {
+  spinner=(/ - \\ \| / - \\ \| )
+  pos=0
+  while :
+  do
+    printf "\b"${spinner[$spinnerpos]}
+    (( pos=(pos + 1)%8 ))
+    sleep 0.2
+  done
+}
+export -f spinner
+
+function open_image() {
+  if [ -f $IMAGE ]
+  then
+    xdg-open $IMAGE
+  fi
+  exit
+}
+trap open_image INT
+
+
+if ! which byzanz-record > /dev/null 2>&1;
+then
+  echo "byzanz not found, please install first."
+  exit
+fi
+
+echo "Choose the window to record"
+DIMS=$(window_dimensions)
+
+echo "Recording window... ctrl+c to stop!"
+byzanz-record $DIMS "$IMAGE" --exec "bash -c spinner"
