@@ -34,8 +34,6 @@ syntax on
 set shell=/bin/bash
 
 set autoread
-set updatetime=1000
-autocmd CursorHoldI * silent w
 
 set splitright
 set splitbelow
