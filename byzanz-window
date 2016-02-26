@@ -21,7 +21,7 @@ function spinner() {
   pos=0
   while :
   do
-    printf "\b"${spinner[$spinnerpos]}
+    printf "\b"${spinner[$pos]}
     (( pos=(pos + 1)%8 ))
     sleep 0.2
   done
@@ -29,7 +29,7 @@ function spinner() {
 export -f spinner
 
 function open_image() {
-  if [ -f $IMAGE ]
+  if [ -s $IMAGE ]
   then
     xdg-open $IMAGE
   fi
