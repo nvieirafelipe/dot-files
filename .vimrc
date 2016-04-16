@@ -7,11 +7,13 @@ call vundle#begin()
 
 Plugin 'airblade/vim-gitgutter'
 Plugin 'edsono/vim-matchit'
+Plugin 'elixir-lang/vim-elixir'
 Plugin 'ervandew/supertab'
 Plugin 'flazz/vim-colorschemes'
 Plugin 'gmarik/Vundle.vim'
 Plugin 'kchmck/vim-coffee-script'
 Plugin 'kien/ctrlp.vim'
+Plugin 'lambdatoast/elm.vim'
 Plugin 'mustache/vim-mustache-handlebars'
 Plugin 'myusuf3/numbers.vim'
 Plugin 'othree/html5.vim'
@@ -78,7 +80,8 @@ hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 
 " CtrlP
-set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*,*/vendor/*
+set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*
+set wildignore+=*/vendor/*,*/deps/*,*/_build/*
 set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
 let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
 
@@ -89,3 +92,5 @@ au BufNewFile,BufRead *.ejs set filetype=html
 let g:UltiSnipsExpandTrigger="<tab>"
 let g:UltiSnipsJumpForwardTrigger="<c-b>"
 let g:UltiSnipsJumpBackwardTrigger="<c-z>"
+
+let g:netrw_liststyle=3
