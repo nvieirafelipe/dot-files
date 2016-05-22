@@ -80,6 +80,7 @@ hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 
 " CtrlP
+let g:ctrlp_user_command = 'cd %s && git ls-files -co --exclude-standard'
 set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*
 set wildignore+=*/vendor/*,*/deps/*,*/_build/*
 set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
