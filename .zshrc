@@ -50,7 +50,7 @@ ENABLE_CORRECTION="true"
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git ember-cli last-working-dir screen)
+plugins=(bundler ember-cli git last-working-dir screen)
 
 # User configuration
 
@@ -83,12 +83,22 @@ source $ZSH/oh-my-zsh.sh
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-alias bundle='nocorrect bundle'
 
-export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
-source ~/.rvm/scripts/rvm
+alias bundle="nocorrect bundle"
+
+alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
+
+alias ta="tmux attach -t"
+alias td="tmux detach"
+alias tl="tmux list-sessions"
+alias tk="tmux kill-session -t"
+alias tK="killall tmux"
+alias tkw="tmux kill-window"
+alias ts="tmux new-session -s"
+alias tw="tmux new-window -n"
 
 # direnv (github.com/zimbatm/direnv)
 eval "$(direnv hook $0)"
 
-alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
+export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
+source ~/.rvm/scripts/rvm
