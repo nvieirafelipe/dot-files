@@ -94,6 +94,7 @@ alias tl="tmux list-sessions"
 alias tk="tmux kill-session -t"
 alias tK="killall tmux"
 alias tkw="tmux kill-window"
+alias tkp="tmux kill-pane"
 alias ts="tmux new-session -s"
 alias tw="tmux new-window -n"
 
