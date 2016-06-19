@@ -16,10 +16,6 @@ ZSH_THEME_GIT_PROMPT_DIRTY=" $GIT_DIRTY_COLOR✗"
 
 if [ -e ~/.rvm/bin/rvm-prompt ]; then
   RVM_="$RVM_COLOR|ruby \${\$(~/.rvm/bin/rvm-prompt i v g)#ruby-}|%{$reset_color%}"
-else
-  if which rbenv &> /dev/null; then
-    RVM_="$RVM_COLOR|ruby \${\$(rbenv version | sed -e 's/ (set.*$//' -e 's/^ruby-//')}|%{$reset_color%}"
-  fi
 fi
 
 WHOAMI="$WHOAMI_COLOR%n$AT_COLOR@%m"
