@@ -1,6 +1,6 @@
 [core]
 	excludesfile = ~/.gitignore
-	editor = vim
+	editor = nvim
 [user]
 	name = Felipe Vieira
 	email = nvieirafelipe@gmail.com

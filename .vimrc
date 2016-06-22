@@ -61,7 +61,7 @@ call matchadd('ColorColumn', '\%81v', 100)
 
 set nobackup
 set noswapfile
-set clipboard=unnamed
+set clipboard+=unnamedplus
 
 colors Monokai
 let g:airline_powerline_fonts = 1
