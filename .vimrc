@@ -67,7 +67,6 @@ set clipboard+=unnamedplus
 colors Monokai
 let g:airline_powerline_fonts = 1
 let g:airline_theme='molokai'
-let g:powerline_pycmd='py3'
 
 " Transparency
 hi Normal             ctermbg=NONE
