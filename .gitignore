@@ -1,2 +1,5 @@
 .envrc
 .versions.conf
+Dockerfile.dev
+.tool-versions
+.direnv

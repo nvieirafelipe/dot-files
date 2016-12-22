@@ -49,6 +49,7 @@ set smartindent
 set expandtab
 autocmd BufWritePre * :%s/\s\+$//e
 
+set list
 set tabstop=2
 set softtabstop=2
 set shiftwidth=2
@@ -80,11 +81,14 @@ hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 
 " CtrlP
-let g:ctrlp_user_command = 'cd %s && git ls-files -co --exclude-standard'
+let g:ctrlp_user_command='cd %s && git ls-files -co --exclude-standard'
 set wildignore+=*/bower_components/*,*/dist/*,*/node_modules/*,*/tmp/*
 set wildignore+=*/vendor/*,*/deps/*,*/_build/*
-set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log
+set wildignore+=*.png,*.jpg,*.gif,*.gem,*.o,*.so,*.swp,*.zip,*.log,*.pyc
 let g:ctrlp_custom_ignore = '\v[\/]\.(git|hg|svn)$'
+
+" Netrw
+let g:netrw_list_hide='.*\.pyc'
 
 " ejs syntax
 au BufNewFile,BufRead *.ejs set filetype=html
