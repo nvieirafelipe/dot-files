@@ -55,3 +55,6 @@ eval "$(direnv hook zsh)"
 
 # php
 export PATH="/usr/local/opt/bison@2.7/bin:$PATH"
+
+# fzf
+export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!.git/*"'
