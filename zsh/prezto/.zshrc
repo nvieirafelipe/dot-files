@@ -57,4 +57,4 @@ eval "$(direnv hook zsh)"
 export PATH="/usr/local/opt/bison@2.7/bin:$PATH"
 
 # fzf
-export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!.git/*"'
+export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!{.git,tmp,dist,log,vendor,node_modules,bower_components}/**"'

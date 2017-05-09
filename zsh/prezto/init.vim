@@ -69,7 +69,7 @@ let g:syntastic_check_on_wq = 0
 " fzf
 command! -bang -nargs=* Rg
   \ call fzf#vim#grep(
-  \   'rg --column -uu --line-number --no-heading --color=always '.shellescape(<q-args>), 1,
+  \   'rg --column -uu --line-number --no-heading --color=always --glob="!{.git,tmp,dist,log,vendor,node_modules,bower_components}/**" '.shellescape(<q-args>), 1,
   \   fzf#vim#with_preview(),
   \   <bang>0)
 
