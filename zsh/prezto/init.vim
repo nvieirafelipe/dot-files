@@ -21,6 +21,7 @@ set expandtab
 set shiftwidth=2
 set softtabstop=2
 set list
+autocmd BufWritePre * :%s/\s\+$//e
 
 set nowrap
 set cursorline cursorcolumn
