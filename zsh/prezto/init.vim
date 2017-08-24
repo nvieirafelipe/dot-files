@@ -1,11 +1,13 @@
 call plug#begin('~/.local/share/nvim/plugged')
 
+Plug '/usr/local/opt/fzf'
 Plug 'airblade/vim-gitgutter'
 Plug 'dracula/vim'
+Plug 'elixir-lang/vim-elixir'
 Plug 'jiangmiao/auto-pairs'
-Plug '/usr/local/opt/fzf'
 Plug 'junegunn/fzf.vim'
 Plug 'myusuf3/numbers.vim'
+Plug 'rust-lang/rust.vim'
 Plug 'scrooloose/syntastic'
 Plug 'tpope/vim-endwise'
 Plug 'tpope/vim-fugitive'
