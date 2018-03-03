@@ -4,18 +4,24 @@ Plug '/usr/local/opt/fzf'
 Plug 'airblade/vim-gitgutter'
 Plug 'dracula/vim'
 Plug 'elixir-lang/vim-elixir'
+Plug 'ervandew/supertab'
 Plug 'jiangmiao/auto-pairs'
+Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'junegunn/fzf.vim'
+Plug 'leafgarland/typescript-vim'
 Plug 'myusuf3/numbers.vim'
 Plug 'rust-lang/rust.vim'
 Plug 'scrooloose/syntastic'
 Plug 'tpope/vim-endwise'
 Plug 'tpope/vim-fugitive'
+Plug 'tpope/vim-rails'
+Plug 'tpope/vim-surround'
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
 
 call plug#end()
 
+set shell=/bin/sh
 syntax on
 color dracula
 
@@ -67,6 +73,8 @@ let g:syntastic_always_populate_loc_list = 1
 let g:syntastic_auto_loc_list = 1
 let g:syntastic_check_on_open = 1
 let g:syntastic_check_on_wq = 0
+let g:syntastic_eruby_ruby_quiet_messages =
+  \ {"regex": "possibly useless use of a variable in void context"}
 "
 
 " fzf
@@ -87,6 +95,7 @@ map <C-l> :Commits<cr>
 nmap <C-l> :Commits<cr>
 map <C-f> :Rg<cr>
 nmap <C-f> :Rg<cr>
+map <C-h> :History<cr>
+nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
-"
