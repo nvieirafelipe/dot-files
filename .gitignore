@@ -1,6 +1,9 @@
+.env
 .envrc
 .versions.conf
 Dockerfile.dev
 .tool-versions
 .direnv
 .DS_Store
+.tmux
+.snippets
