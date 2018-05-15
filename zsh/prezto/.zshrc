@@ -5,11 +5,25 @@
 #   Felipe Vieira <nvieirafelipe@gmail.com>
 #
 
+# Lines configured by zsh-newuser-install
+HISTFILE=~/.histfile
+HISTSIZE=1000
+SAVEHIST=1000
+setopt appendhistory autocd beep extendedglob nomatch notify
+bindkey -e
+# End of lines configured by zsh-newuser-install
+# The following lines were added by compinstall
+zstyle :compinstall filename '/home/nvieirafelipe/.zshrc'
+
+autoload -Uz compinit
+compinit
+# End of lines added by compinstall
+
 # zsh completions
-fpath=(path/to/zsh-completions/src $fpath)
+fpath=(usr/share/zsh/site-functions $fpath)
 
 # zsh syntax highlighting
-source /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 zsh_asdf_ruby(){
   local tool=$(cat .tool-versions 2> /dev/null | cut -c -4)
@@ -25,10 +39,18 @@ zsh_asdf_ruby(){
 POWERLEVEL9K_CUSTOM_ASDF_RUBY='zsh_asdf_ruby'
 POWERLEVEL9K_CUSTOM_ASDF_RUBY_BACKGROUND='009'
 
+# On arch using the prezto-git POWERLEVEL9K_MODE must be set on .zshenv
 POWERLEVEL9K_MODE='awesome-fontconfig'
 
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
 POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status custom_asdf_ruby rspec_stats root_indicator background_jobs)
+
+POWERLEVEL9K_DIR_DEFAULT_BACKGROUND='098'
+POWERLEVEL9K_DIR_HOME_BACKGROUND='098'
+POWERLEVEL9K_DIR_HOME_SUBFOLDER_BACKGROUND='098'
+POWERLEVEL9K_DIR_DEFAULT_FOREGROUND='015'
+POWERLEVEL9K_DIR_HOME_FOREGROUND='015'
+POWERLEVEL9K_DIR_HOME_SUBFOLDER_FOREGROUND='015'
 
 POWERLEVEL9K_VCS_CLEAN_BACKGROUND='148'
 POWERLEVEL9K_VCS_UNTRACKED_BACKGROUND='214'
