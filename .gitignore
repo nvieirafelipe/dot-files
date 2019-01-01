@@ -7,3 +7,5 @@ Dockerfile.dev
 .DS_Store
 .tmux
 .snippets
+ips.yml
+.timelog
