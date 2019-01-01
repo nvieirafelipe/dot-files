@@ -11,6 +11,7 @@ HISTSIZE=1000
 SAVEHIST=1000
 setopt appendhistory autocd beep extendedglob nomatch notify
 bindkey -e
+
 # End of lines configured by zsh-newuser-install
 # The following lines were added by compinstall
 zstyle :compinstall filename '/home/nvieirafelipe/.zshrc'
@@ -76,7 +77,12 @@ eval "$(direnv hook zsh)"
 . $HOME/.asdf/completions/asdf.bash
 
 # php
-export PATH="/usr/local/opt/bison@2.7/bin:$PATH"
+# export PATH="/usr/local/opt/bison@2.7/bin:$PATH"
+
+# rust
+export PATH="$HOME/.cargo/bin:$PATH"
 
 # fzf
-export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!{.git,tmp,dist,log,vendor,node_modules,bower_components}/**"'
+# Default files command
+export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
+  --glob "!{.git,.direnv,_build,bower_components,dist,deps,log,node_modules,public/packs,tmp,vendor/bundle}/**"'

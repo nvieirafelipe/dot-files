@@ -1,6 +1,7 @@
 call plug#begin('~/.local/share/nvim/plugged')
 
-Plug '/usr/local/opt/fzf'
+" Only works on OS X
+" Plug '/usr/local/opt/fzf'
 Plug 'airblade/vim-gitgutter'
 Plug 'dracula/vim'
 Plug 'elixir-lang/vim-elixir'
@@ -9,6 +10,7 @@ Plug 'jiangmiao/auto-pairs'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'junegunn/fzf.vim'
 Plug 'leafgarland/typescript-vim'
+Plug 'mhinz/vim-startify'
 Plug 'myusuf3/numbers.vim'
 Plug 'rust-lang/rust.vim'
 Plug 'scrooloose/syntastic'
@@ -65,6 +67,11 @@ let g:netrw_liststyle=3
 let g:netrw_list_hide='.*\.pyc'
 "
 
+" Startify
+autocmd FileType startify setlocal cursorline cursorcolumn
+let g:startify_bookmarks = [{ 'NeoVim configs': '~/.config/nvim/init.vim' }]
+"
+
 " Syntastic
 set statusline+=%#warningmsg#
 set statusline+=%{SyntasticStatuslineFlag()}
@@ -75,18 +82,27 @@ let g:syntastic_auto_loc_list = 1
 let g:syntastic_check_on_open = 1
 let g:syntastic_check_on_wq = 0
 let g:syntastic_eruby_ruby_quiet_messages =
-  \ {"regex": "possibly useless use of a variable in void context"}
+  \ {"regex": "possibly useless use of .* in void context"}
+
+let g:syntastic_sh_shellcheck_args = "-x"
+"
+
+" *.arb files
+autocmd BufRead,BufNewFile *.arb setfiletype ruby
 "
 
 " fzf
 command! -bang -nargs=* Rg
   \ call fzf#vim#grep(
-  \   'rg --column -uu --line-number --no-heading --color=always --glob="!{.git,tmp,dist,log,vendor,node_modules,bower_components}/**" '.shellescape(<q-args>), 1,
+  \   'rg --column --line-number --no-heading --color=always '.shellescape(<q-args>), 1,
   \   fzf#vim#with_preview(),
   \   <bang>0)
 
 command! -bang -nargs=? -complete=dir Files
-  \ call fzf#vim#files(<q-args>, fzf#vim#with_preview(), <bang>0)
+  \ call fzf#vim#files(
+  \   <q-args>,
+  \   fzf#vim#with_preview(),
+  \   <bang>0)
 
 map <C-n> :Lexplore<cr>
 nmap <C-n> :Lexplore<cr>

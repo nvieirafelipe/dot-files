@@ -15,3 +15,12 @@ alias tw="tmux new-window -n"
 alias ga="gia"
 alias gst="gwS"
 alias gd="gwD"
+
+alias portainer_create="docker run --name portainer \
+                                   -d \
+                                   -p 9000:9000 \
+                                   -v /var/run/docker.sock:/var/run/docker.sock \
+                                   -v portainer_data:/data portainer/portainer > /dev/null; echo 'Portainer created!'"
+alias portainer_start="docker start portainer > /dev/null; echo 'Portainer started!'"
+alias portainer_stop="docker stop portainer > /dev/null; echo 'Portainer stopped!'"
+alias portainer_remove="docker rm portainer > /dev/null; echo 'Portainer removed!'"
