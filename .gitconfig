@@ -6,3 +6,5 @@
 	email = nvieirafelipe@gmail.com
 [push]
 	default = simple
+[merge]
+  tool = meld
