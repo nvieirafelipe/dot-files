@@ -50,11 +50,11 @@ ENABLE_CORRECTION="true"
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(bundler ember-cli git screen)
+plugins=(bundler ember-cli git screen last-working-dir)
 
 # User configuration
 
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:~/bin"
 # export MANPATH="/usr/local/man:$MANPATH"
 
 source $ZSH/oh-my-zsh.sh
@@ -84,6 +84,8 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
+which open > /dev/null || alias open="xdg-open"
+
 alias bundle="nocorrect bundle"
 
 alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
@@ -92,14 +94,20 @@ alias ta="tmux attach -t"
 alias td="tmux detach"
 alias tl="tmux list-sessions"
 alias tk="tmux kill-session -t"
-alias tK="killall tmux"
+alias tK="tmux kill-server"
 alias tkw="tmux kill-window"
 alias tkp="tmux kill-pane"
 alias ts="tmux new-session -s"
 alias tw="tmux new-window -n"
 
+. $HOME/.asdf/asdf.sh
+. $HOME/.asdf/completions/asdf.bash
+
 # direnv (github.com/zimbatm/direnv)
 eval "$(direnv hook $0)"
 
+# Rust
+export PATH="$HOME/.cargo/bin:$PATH"
+
 export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
-source ~/.rvm/scripts/rvm
+[[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
