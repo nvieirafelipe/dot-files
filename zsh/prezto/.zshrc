@@ -86,3 +86,6 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Default files command
 export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
   --glob "!{.git,.direnv,_build,bower_components,dist,deps,log,node_modules,public/packs,tmp,vendor/bundle}/**"'
+
+# Added by backup.
+[ -f /opt/backup/bash-completion/backup ] && echo "foo" && . /opt/backup/bash-completion/backup

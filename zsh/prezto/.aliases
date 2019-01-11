@@ -14,7 +14,7 @@ alias tw="tmux new-window -n"
 
 alias ga="gia"
 alias gst="gwS"
-alias gd="gwD"
+alias gd="gwd"
 
 alias portainer_create="docker run --name portainer \
                                    -d \

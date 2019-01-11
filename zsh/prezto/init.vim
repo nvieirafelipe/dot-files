@@ -11,12 +11,15 @@ Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'junegunn/fzf.vim'
 Plug 'leafgarland/typescript-vim'
 Plug 'mhinz/vim-startify'
+Plug 'mustache/vim-mustache-handlebars'
 Plug 'myusuf3/numbers.vim'
 Plug 'rust-lang/rust.vim'
+Plug 'shumphrey/fugitive-gitlab.vim'
 Plug 'scrooloose/syntastic'
 Plug 'tpope/vim-endwise'
 Plug 'tpope/vim-fugitive'
 Plug 'tpope/vim-rails'
+Plug 'tpope/vim-rhubarb'
 Plug 'tpope/vim-surround'
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
@@ -36,6 +39,8 @@ autocmd BufWritePre * :%s/\s\+$//e
 
 set nowrap
 set cursorline cursorcolumn
+hi OverLength ctermfg=black ctermbg=darkgray
+match OverLength /\%>90v.\+/
 
 set splitright
 set splitbelow
@@ -69,7 +74,7 @@ let g:netrw_list_hide='.*\.pyc'
 
 " Startify
 autocmd FileType startify setlocal cursorline cursorcolumn
-let g:startify_bookmarks = [{ 'NeoVim configs': '~/.config/nvim/init.vim' }]
+let g:startify_bookmarks = [{ 'n': '~/.config/nvim/init.vim' }]
 "
 
 " Syntastic
@@ -103,6 +108,9 @@ command! -bang -nargs=? -complete=dir Files
   \   <q-args>,
   \   fzf#vim#with_preview(),
   \   <bang>0)
+
+" fugitive-gitlab
+" let g:fugitive_gitlab_domains = ['https://somegitlab.com']
 
 map <C-n> :Lexplore<cr>
 nmap <C-n> :Lexplore<cr>
