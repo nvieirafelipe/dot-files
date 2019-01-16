@@ -9,3 +9,4 @@ Dockerfile.dev
 .snippets
 ips.yml
 .timelog
+.init.vim

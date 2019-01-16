@@ -124,3 +124,7 @@ map <C-h> :History<cr>
 nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
+
+if filereadable('.init.vim')
+  so .init.vim
+endif
