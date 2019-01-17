@@ -36,6 +36,7 @@ set shiftwidth=2
 set softtabstop=2
 set list
 autocmd BufWritePre * :%s/\s\+$//e
+autocmd TermOpen * startinsert
 
 set nowrap
 set cursorline cursorcolumn
@@ -124,6 +125,18 @@ map <C-h> :History<cr>
 nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
+
+" mix
+command MixCredo     :split|:te mix credo %
+command MixCredoAll  :split|:te mix credo
+command MixFormat    :split|:te mix format %
+command MixFormatAll :split|:te mix format
+command MixTest      :split|:te mix test %
+command MixTestAll   :split|:te mix test
+
+" rspec
+command RSpecTest    :split|:te rspec %
+command RSpecTestAll :split|:te rspec
 
 if filereadable('.init.vim')
   so .init.vim
