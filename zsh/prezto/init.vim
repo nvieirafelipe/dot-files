@@ -36,7 +36,7 @@ set shiftwidth=2
 set softtabstop=2
 set list
 autocmd BufWritePre * :%s/\s\+$//e
-autocmd TermOpen * startinsert
+"autocmd TermOpen * startinsert
 
 set nowrap
 set cursorline cursorcolumn
@@ -111,7 +111,7 @@ command! -bang -nargs=? -complete=dir Files
   \   <bang>0)
 
 " fugitive-gitlab
-" let g:fugitive_gitlab_domains = ['https://somegitlab.com']
+let g:fugitive_gitlab_domains = ['https://code.locaweb.com.br']
 
 map <C-n> :Lexplore<cr>
 nmap <C-n> :Lexplore<cr>
@@ -126,17 +126,25 @@ nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
 
-" mix
-command MixCredo     :split|:te mix credo %
-command MixCredoAll  :split|:te mix credo
+" credo
+command MixCredo     :split|:te mix credo % --strict
+command MixCredoAll  :split|:te mix credo --strict
+
+" mix format
 command MixFormat    :split|:te mix format %
 command MixFormatAll :split|:te mix format
+
+" mix test
 command MixTest      :split|:te mix test %
 command MixTestAll   :split|:te mix test
 
 " rspec
 command RSpecTest    :split|:te rspec %
 command RSpecTestAll :split|:te rspec
+
+" rubocop
+command Rubocop      :split|:te rubocop %
+command RubocopAll   :split|:te rubocop
 
 if filereadable('.init.vim')
   so .init.vim
