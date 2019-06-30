@@ -9,7 +9,7 @@
 HISTFILE=~/.histfile
 HISTSIZE=1000
 SAVEHIST=1000
-setopt appendhistory autocd beep extendedglob nomatch notify
+setopt appendhistory autocd autopushd pushdignoredups beep extendedglob nomatch notify
 bindkey -e
 
 # End of lines configured by zsh-newuser-install
@@ -22,6 +22,8 @@ compinit
 
 # zsh completions
 fpath=(usr/share/zsh/site-functions $fpath)
+
+ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
 
 # zsh syntax highlighting
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
@@ -86,7 +88,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Default files command
 export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
   --glob "!{.git,.direnv,_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,\
-  public/packs,tmp,vendor/bundle}"'
+  public/packs,tmp,vendor/bundle}/**"'
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 # Added by backup.
 [ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup

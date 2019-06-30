@@ -3,6 +3,7 @@ call plug#begin('~/.local/share/nvim/plugged')
 " Only works on OS X
 " Plug '/usr/local/opt/fzf'
 Plug 'airblade/vim-gitgutter'
+Plug 'dhruvasagar/vim-table-mode'
 Plug 'dracula/vim'
 Plug 'elixir-lang/vim-elixir'
 Plug 'ervandew/supertab'
@@ -126,7 +127,7 @@ nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
 
-" credo
+" mix credo
 command MixCredo     :split|:te mix credo % --strict
 command MixCredoAll  :split|:te mix credo --strict
 
