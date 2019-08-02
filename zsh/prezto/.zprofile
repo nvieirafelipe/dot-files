@@ -9,6 +9,7 @@
 # Browser
 #
 
+export BROWSER=/usr/bin/google-chrome-stable
 if [[ "$OSTYPE" == darwin* ]]; then
   export BROWSER='open'
 fi
