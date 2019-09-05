@@ -11,6 +11,7 @@ Plug 'jiangmiao/auto-pairs'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'junegunn/fzf.vim'
 Plug 'leafgarland/typescript-vim'
+Plug 'mhinz/vim-mix-format'
 Plug 'mhinz/vim-startify'
 Plug 'mustache/vim-mustache-handlebars'
 Plug 'myusuf3/numbers.vim'
@@ -42,7 +43,7 @@ autocmd BufWritePre * :%s/\s\+$//e
 set nowrap
 set cursorline cursorcolumn
 hi OverLength ctermfg=black ctermbg=darkgray
-match OverLength /\%>90v.\+/
+match OverLength /\%>100v.\+/
 
 set splitright
 set splitbelow
@@ -63,6 +64,10 @@ hi LineNr             ctermbg=NONE
 hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 "
+
+" fold
+autocmd BufWinLeave,BufWritePre *.* mkview!
+autocmd BufWinLeave,BufWinEnter,BufWritePost *.* silent! loadview
 
 " airline
 let g:airline_powerline_fonts = 1
@@ -92,6 +97,10 @@ let g:syntastic_eruby_ruby_quiet_messages =
   \ {"regex": "possibly useless use of .* in void context"}
 
 let g:syntastic_sh_shellcheck_args = "-x"
+"
+
+" Vim Mix Format
+let g:mix_format_on_save = 1
 "
 
 " *.arb files

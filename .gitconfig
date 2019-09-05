@@ -8,3 +8,5 @@
 	default = simple
 [merge]
   tool = meld
+[credential]
+	helper = cache
