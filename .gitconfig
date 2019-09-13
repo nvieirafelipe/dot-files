@@ -9,4 +9,4 @@
 [merge]
   tool = meld
 [credential]
-	helper = cache
+	helper = store
