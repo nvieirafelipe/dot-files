@@ -11,3 +11,5 @@ ips.yml
 .timelog
 .init.vim
 .projections.json
+.vscode
+vscode.code-workspace

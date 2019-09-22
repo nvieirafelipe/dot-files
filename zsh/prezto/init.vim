@@ -68,10 +68,9 @@ hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 "
 
-" fold
-" This is changing the current directory
-"autocmd BufWinLeave,BufWritePre *.* mkview!
-"autocmd BufWinLeave,BufWinEnter,BufWritePost *.* silent! loadview
+" autosave and load folds
+autocmd BufWinLeave,BufWritePre *.* noautocmd silent! mkview!
+autocmd BufWinLeave,BufWinEnter,BufWritePost *.* noautocmd silent! loadview
 "
 
 " airline
@@ -82,6 +81,10 @@ let g:airline_theme='dracula'
 " Netrw
 let g:netrw_liststyle=3
 let g:netrw_list_hide='.*\.pyc'
+"
+
+" vim-mix-format
+let g:mix_format_on_save = 1
 "
 
 " Startify
@@ -102,10 +105,6 @@ let g:syntastic_eruby_ruby_quiet_messages =
   \ {"regex": "possibly useless use of .* in void context"}
 
 let g:syntastic_sh_shellcheck_args = "-x"
-"
-
-" Vim Mix Format
-let g:mix_format_on_save = 1
 "
 
 " *.arb files
