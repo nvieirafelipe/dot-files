@@ -16,6 +16,7 @@ alias ts="tmux new-session -s"
 alias tw="tmux new-window -n"
 
 alias ga="gia"
+alias gan="gc --amend --no-edit"
 alias gst="gwS"
 alias gd="gwd"
 
