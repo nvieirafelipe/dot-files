@@ -10,3 +10,4 @@ Dockerfile.dev
 ips.yml
 .timelog
 .init.vim
+.projections.json

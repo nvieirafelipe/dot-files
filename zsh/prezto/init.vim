@@ -18,8 +18,11 @@ Plug 'myusuf3/numbers.vim'
 Plug 'rust-lang/rust.vim'
 Plug 'shumphrey/fugitive-gitlab.vim'
 Plug 'scrooloose/syntastic'
+Plug 'Shougo/deoplete.nvim', { 'do': ':UpdateRemotePlugins' }
+Plug 'slashmili/alchemist.vim'
 Plug 'tpope/vim-endwise'
 Plug 'tpope/vim-fugitive'
+Plug 'tpope/vim-projectionist'
 Plug 'tpope/vim-rails'
 Plug 'tpope/vim-rhubarb'
 Plug 'tpope/vim-surround'
@@ -66,8 +69,10 @@ hi NonText            ctermbg=NONE
 "
 
 " fold
-autocmd BufWinLeave,BufWritePre *.* mkview!
-autocmd BufWinLeave,BufWinEnter,BufWritePost *.* silent! loadview
+" This is changing the current directory
+"autocmd BufWinLeave,BufWritePre *.* mkview!
+"autocmd BufWinLeave,BufWinEnter,BufWritePost *.* silent! loadview
+"
 
 " airline
 let g:airline_powerline_fonts = 1
@@ -135,6 +140,22 @@ map <C-h> :History<cr>
 nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
+
+" Use deoplete.
+let g:deoplete#enable_at_startup = 1
+"
+
+" Let <Tab> also do completion
+inoremap <silent><expr> <Tab> pumvisible() ? "\<C-n>" : deoplete#mappings#manual_complete()
+"
+
+" Supertab
+let g:SuperTabDefaultCompletionType = "<c-n>"
+"
+
+" Alchemist
+let g:alchemist_tag_map = 'gf'
+"
 
 " mix credo
 command MixCredo     :split|:te mix credo % --strict
