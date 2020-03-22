@@ -6,6 +6,7 @@
 	email = nvieirafelipe@gmail.com
 [push]
 	default = simple
+	followTags = true
 [merge]
   tool = meld
 [credential]
