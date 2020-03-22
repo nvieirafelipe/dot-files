@@ -68,11 +68,6 @@ hi TabLineFill        ctermbg=NONE
 hi NonText            ctermbg=NONE
 "
 
-" autosave and load folds
-autocmd BufWinLeave,BufWritePre *.* noautocmd silent! mkview!
-autocmd BufWinLeave,BufWinEnter,BufWritePost *.* noautocmd silent! loadview
-"
-
 " airline
 let g:airline_powerline_fonts = 1
 let g:airline_theme='dracula'
