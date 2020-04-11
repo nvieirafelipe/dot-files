@@ -20,10 +20,12 @@ autoload -Uz compinit
 compinit
 # End of lines added by compinstall
 
+# allow bash completions
+autoload -U +X bashcompinit
+bashcompinit
+
 # zsh completions
 fpath=(usr/share/zsh/site-functions $fpath)
-
-ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
 
 # zsh syntax highlighting
 source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
@@ -75,17 +77,18 @@ source "$HOME/.aliases"
 eval "$(direnv hook zsh)"
 
 # asdf vm
-. $HOME/.asdf/asdf.sh
-. $HOME/.asdf/completions/asdf.bash
+source /opt/asdf-vm/asdf.sh
 
 # php
 # export PATH="/usr/local/opt/bison@2.7/bin:$PATH"
 
 # rust
-export PATH="$HOME/.cargo/bin:$PATH"
+# export PATH="$HOME/.cargo/bin:$PATH"
 
 # fzf
 # Default files command
+ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
+
 export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
   --glob "!{.git,.direnv,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,\
   public/packs,tmp,vendor/bundle}/**"'
@@ -93,4 +96,4 @@ export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 # Added by backup.
-[ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup
+# [ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup

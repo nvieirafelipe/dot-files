@@ -1,6 +1,9 @@
 [core]
 	excludesfile = ~/.gitignore
 	editor = nvim
+	pager = delta --theme='Dracula'
+[interactive]
+	diffFilter = delta --color-only
 [user]
 	name = Felipe Vieira
 	email = nvieirafelipe@gmail.com

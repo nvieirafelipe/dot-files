@@ -1,13 +1,10 @@
 .env
 .envrc
-.versions.conf
 Dockerfile.dev
 .tool-versions
 .direnv
-.DS_Store
 .tmux
 .snippets
-ips.yml
 .timelog
 .init.vim
 .projections.json

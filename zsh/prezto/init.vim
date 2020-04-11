@@ -1,21 +1,15 @@
 call plug#begin('~/.local/share/nvim/plugged')
 
-" Only works on OS X
-" Plug '/usr/local/opt/fzf'
 Plug 'airblade/vim-gitgutter'
 Plug 'dhruvasagar/vim-table-mode'
 Plug 'dracula/vim'
 Plug 'elixir-lang/vim-elixir'
-Plug 'ervandew/supertab'
 Plug 'jiangmiao/auto-pairs'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
 Plug 'junegunn/fzf.vim'
-Plug 'leafgarland/typescript-vim'
 Plug 'mhinz/vim-mix-format'
 Plug 'mhinz/vim-startify'
-Plug 'mustache/vim-mustache-handlebars'
 Plug 'myusuf3/numbers.vim'
-Plug 'rust-lang/rust.vim'
 Plug 'shumphrey/fugitive-gitlab.vim'
 Plug 'scrooloose/syntastic'
 Plug 'Shougo/deoplete.nvim', { 'do': ':UpdateRemotePlugins' }
@@ -28,7 +22,6 @@ Plug 'tpope/vim-rhubarb'
 Plug 'tpope/vim-surround'
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
-Plug 'vim-scripts/indentpython.vim'
 
 call plug#end()
 
@@ -73,6 +66,11 @@ let g:airline_powerline_fonts = 1
 let g:airline_theme='dracula'
 "
 
+" fold
+set foldmethod=syntax
+set foldlevel=1
+set foldopen=block,hor,insert,search
+
 " Netrw
 let g:netrw_liststyle=3
 let g:netrw_list_hide='.*\.pyc'
@@ -85,6 +83,7 @@ let g:mix_format_on_save = 1
 " Startify
 autocmd FileType startify setlocal cursorline cursorcolumn
 let g:startify_bookmarks = [{ 'n': '~/.config/nvim/init.vim' }]
+let g:startify_change_to_vcs_root = 1
 "
 
 " Syntastic
@@ -119,9 +118,6 @@ command! -bang -nargs=? -complete=dir Files
   \   fzf#vim#with_preview(),
   \   <bang>0)
 
-" fugitive-gitlab
-let g:fugitive_gitlab_domains = ['https://code.locaweb.com.br']
-
 map <C-n> :Lexplore<cr>
 nmap <C-n> :Lexplore<cr>
 map <C-p> :Files<cr>
@@ -135,16 +131,17 @@ nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
 
-" Use deoplete.
+" deoplete.
 let g:deoplete#enable_at_startup = 1
-"
-
-" Let <Tab> also do completion
-inoremap <silent><expr> <Tab> pumvisible() ? "\<C-n>" : deoplete#mappings#manual_complete()
-"
-
-" Supertab
-let g:SuperTabDefaultCompletionType = "<c-n>"
+" inoremap <silent><expr> <Tab> pumvisible() ? "\<C-n>" : deoplete#mappings#manual_complete()
+inoremap <silent><expr> <TAB>
+  \ pumvisible() ? "\<C-n>" :
+  \ <SID>check_back_space() ? "\<TAB>" :
+  \ deoplete#manual_complete()
+  function! s:check_back_space() abort "{{{
+  let col = col('.') - 1
+  return !col || getline('.')[col - 1]  =~ '\s'
+  endfunction"}}}
 "
 
 " Alchemist
