@@ -1,7 +1,7 @@
 [core]
 	excludesfile = ~/.gitignore
 	editor = nvim
-	pager = delta --theme='Dracula'
+	pager = delta
 [interactive]
 	diffFilter = delta --color-only
 [user]
@@ -14,3 +14,12 @@
   tool = meld
 [credential]
 	helper = store
+[pull]
+	ff = only
+[delta]
+	side-by-side = true
+	line-numbers-left-format = ""
+	line-numbers-right-format = "│ "
+	syntax-theme = Dracula
+[diff]
+	colorMoved = default
