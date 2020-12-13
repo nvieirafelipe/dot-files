@@ -1,9 +1,7 @@
 [credential "https://github.com"]
-	helper = 
-	helper = !/opt/homebrew/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
-	helper = 
-	helper = !/opt/homebrew/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [credential]
 	helper = store
 [core]
@@ -15,6 +13,8 @@
 [user]
 	name = Felipe Vieira
 	email = nvieirafelipe@gmail.com
+[pull]
+	ff = only
 [push]
 	default = simple
 	followTags = true
