@@ -37,6 +37,7 @@ export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
   public/packs,tmp,vendor/bundle}/**"'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+#
 
 # asdf
 . $(brew --prefix asdf)/asdf.sh

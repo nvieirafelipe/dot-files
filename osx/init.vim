@@ -6,13 +6,13 @@ Plug 'dhruvasagar/vim-table-mode'
 Plug 'dracula/vim'
 Plug 'elixir-lang/vim-elixir', { 'commit':  '85afa5e0de0ba0d640898e9d232552795fc726d2' }
 Plug 'jiangmiao/auto-pairs'
-Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': './install --all' }
+Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': { -> fzf#install() } }
 Plug 'junegunn/fzf.vim'
 Plug 'lucidstack/hex.vim'
-Plug 'mhinz/vim-mix-format'
 Plug 'mhinz/vim-startify'
 Plug 'myusuf3/numbers.vim'
 Plug 'neoclide/coc.nvim', {'branch': 'release'}
+Plug 'neoclide/coc-prettier'
 Plug 'shumphrey/fugitive-gitlab.vim'
 Plug 'scrooloose/syntastic'
 Plug 'tpope/vim-endwise'
@@ -52,24 +52,32 @@ set number
 set nobackup noswapfile
 set clipboard+=unnamedplus
 
+" Transparency
+hi Normal             ctermbg=NONE
+hi Statement          ctermbg=NONE
+hi Title              ctermbg=NONE
+hi Todo               ctermbg=NONE
+hi Underlined         ctermbg=NONE
+hi ErrorMsg           ctermbg=NONE
+hi LineNr             ctermbg=NONE
+hi TabLineFill        ctermbg=NONE
+hi NonText            ctermbg=NONE
+"
+
 " airline
 let g:airline_powerline_fonts = 1
 let g:airline_theme='dracula'
 "
 
 " fold
-set foldmethod=syntax
-au BufRead,BufNewFile *.erb set foldmethod=indent
-set foldlevel=1
-set foldopen=block,hor,insert,search
+"set foldmethod=syntax
+"au BufRead,BufNewFile *.erb set foldmethod=indent
+"set foldopen=block,hor,insert,search
+"
 
 " Netrw
 let g:netrw_liststyle=3
 let g:netrw_list_hide='.*\.pyc'
-"
-
-" vim-mix-format
-let g:mix_format_on_save = 1
 "
 
 " Startify
@@ -94,10 +102,12 @@ let g:syntastic_sh_shellcheck_args = "-x"
 "
 
 " *.arb files
-autocmd BufRead,BufNewFile *.arb setfiletype ruby
+" autocmd BufRead,BufNewFile *.arb setfiletype ruby
 "
 
 " fzf
+let g:fzf_layout = { 'down': '20%' }
+
 command! -bang -nargs=* Rg
   \ call fzf#vim#grep(
   \   'rg --column --line-number --no-heading --color=always '.shellescape(<q-args>), 1,
@@ -122,6 +132,7 @@ map <C-h> :History<cr>
 nmap <C-h> :History<cr>
 map <C-b> :Buffers<cr>
 nmap <C-b> :Buffers<cr>
+"
 
 " CoC
 " TextEdit might fail if hidden is not set.
@@ -165,11 +176,11 @@ inoremap <silent><expr> <c-space> coc#refresh()
 " Use <cr> to confirm completion, `<C-g>u` means break undo chain at current
 " position. Coc only does snippet and additional edit on confirm.
 " <cr> could be remapped by other vim plugin, try `:verbose imap <CR>`.
-" if exists('*complete_info')
-"   inoremap <expr> <cr> complete_info()["selected"] != "-1" ? "\<C-y>" : "\<C-g>u\<CR>"
-" else
-"   inoremap <expr> <cr> pumvisible() ? "\<C-y>" : "\<C-g>u\<CR>"
-" endif
+"if exists('*complete_info')
+"  inoremap <expr> <cr> complete_info()["selected"] != "-1" ? "\<C-y>" : "\<C-g>u\<CR>"
+"else
+"  inoremap <expr> <cr> pumvisible() ? "\<C-y>" : "\<C-g>u\<CR>"
+"endif
 
 " Use `[g` and `]g` to navigate diagnostics
 " Use `:CocDiagnostics` to get all diagnostics of current buffer in location list.
@@ -200,8 +211,8 @@ autocmd CursorHold * silent call CocActionAsync('highlight')
 nmap <leader>rn <Plug>(coc-rename)
 
 " Formatting selected code.
-"xmap <leader>f  <Plug>(coc-format-selected)
-"nmap <leader>f  <Plug>(coc-format-selected)
+xmap <leader>f  <Plug>(coc-format)
+nmap <leader>f  <Plug>(coc-format)
 "
 "augroup mygroup
 "    autocmd!
@@ -213,7 +224,7 @@ nmap <leader>rn <Plug>(coc-rename)
 "augroup end
 
 " Add `:Format` command to format current buffer.
-command! -nargs=0 Format :call CocAsyncAction('format')
+command! -nargs=0 Format :call CocActionAsync('format')
 "
 " Applying codeAction to the selected region.
 " Example: `<leader>aap` for current paragraph
@@ -238,21 +249,18 @@ command! -nargs=0 Format :call CocAsyncAction('format')
 
 " Use CTRL-S for selections ranges.
 " Requires 'textDocument/selectionRange' support of LS, ex: coc-tsserver
-"nmap <silent> <C-s> <Plug>(coc-range-select)
-"xmap <silent> <C-s> <Plug>(coc-range-select)
-
-" Add `:Format` command to format current buffer.
-"command! -nargs=0 Format :call CocAction('format')
+nmap <silent> <C-s> <Plug>(coc-range-select)
+xmap <silent> <C-s> <Plug>(coc-range-select)
 
 " Add `:Fold` command to fold current buffer.
-"command! -nargs=? Fold :call     CocAction('fold', <f-args>)
+command! -nargs=? Fold :call     CocAction('fold', <f-args>)
 
 " Add `:OR` command for organize imports of the current buffer.
-"command! -nargs=0 OR   :call     CocAction('runCommand', 'editor.action.organizeImport')
+command! -nargs=0 OR   :call     CocAction('runCommand', 'editor.action.organizeImport')
 
 " Add (Neo)Vim's native statusline support.
 " NOTE: Please see `:h coc-status` for integrations with external plugins that
-" provide custom statusline: lightline.vim, vim-airline.
+"provide custom statusline: lightline.vim, vim-airline.
 set statusline^=%{coc#status()}%{get(b:,'coc_current_function','')}
 
 " Mappings for CoCList
