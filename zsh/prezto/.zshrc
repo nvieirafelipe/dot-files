@@ -90,10 +90,10 @@ source /opt/asdf-vm/asdf.sh
 ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
 
 export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
-  --glob "!{.git,.direnv,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,\
+  --glob "!{.git,.direnv,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,doc,docs,log,node_modules,\
   public/packs,tmp,vendor/bundle}/**"'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 # Added by backup.
-# [ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup
+[ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup
