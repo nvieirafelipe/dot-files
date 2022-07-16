@@ -1,10 +1,11 @@
 call plug#begin('~/.local/share/nvim/plugged')
 
 Plug 'airblade/vim-gitgutter'
-Plug 'amiralies/coc-elixir', {'do': 'yarn install && yarn prepack'}
+Plug 'amadeus/vim-mjml'
 Plug 'dhruvasagar/vim-table-mode'
 Plug 'dracula/vim'
-Plug 'elixir-lang/vim-elixir', { 'commit':  '85afa5e0de0ba0d640898e9d232552795fc726d2' }
+Plug 'elixir-editors/vim-elixir'
+Plug 'hashivim/vim-terraform'
 Plug 'jiangmiao/auto-pairs'
 Plug 'junegunn/fzf', { 'dir': '~/.fzf', 'do': { -> fzf#install() } }
 Plug 'junegunn/fzf.vim'
@@ -12,8 +13,6 @@ Plug 'lucidstack/hex.vim'
 Plug 'mhinz/vim-startify'
 Plug 'myusuf3/numbers.vim'
 Plug 'neoclide/coc.nvim', {'branch': 'release'}
-Plug 'neoclide/coc-prettier'
-Plug 'shumphrey/fugitive-gitlab.vim'
 Plug 'scrooloose/syntastic'
 Plug 'tpope/vim-endwise'
 Plug 'tpope/vim-fugitive'
@@ -29,6 +28,7 @@ call plug#end()
 
 set shell=/bin/sh
 syntax on
+filetype plugin indent on
 color dracula
 
 set encoding=utf-8
@@ -135,6 +135,11 @@ nmap <C-b> :Buffers<cr>
 "
 
 " CoC
+"
+let g:coc_global_extensions = ['coc-diagnostic', 'coc-docker', 'coc-elixir',
+  \ 'coc-erlang_ls', 'coc-highlight', 'coc-git' , 'coc-json', 'coc-markdownlint',
+  \ 'coc-prettier', 'coc-swagger']
+
 " TextEdit might fail if hidden is not set.
 set hidden
 
@@ -214,14 +219,14 @@ nmap <leader>rn <Plug>(coc-rename)
 xmap <leader>f  <Plug>(coc-format)
 nmap <leader>f  <Plug>(coc-format)
 "
-"augroup mygroup
-"    autocmd!
-"    " Setup formatexpr specified filetype(s).
-"    autocmd FileType typescript,json setl formatexpr=CocAction('formatSelected')
-"    " Update signature help on jump placeholder.
-"    autocmd User CocJumpPlaceholder call CocActionAsync('showSignatureHelp')
-"    autocmd FileType elixir setl formatprg=CocAsyncAction('format')
-"augroup end
+augroup mygroup
+    autocmd!
+    " Setup formatexpr specified filetype(s).
+    autocmd FileType typescript,json setl formatexpr=CocAction('formatSelected')
+    " Update signature help on jump placeholder.
+    autocmd User CocJumpPlaceholder call CocActionAsync('showSignatureHelp')
+    autocmd FileType elixir setl formatprg=CocAsyncAction('format')
+augroup end
 
 " Add `:Format` command to format current buffer.
 command! -nargs=0 Format :call CocActionAsync('format')
@@ -281,6 +286,11 @@ nnoremap <silent><nowait> <space>k  :<C-u>CocPrev<CR>
 " Resume latest coc list.
 nnoremap <silent><nowait> <space>p  :<C-u>CocListResume<CR>
 "
+" Fuck consistency.
+nnoremap Y Y
+
+" Enable mouse in hover.
+set mouse=a
 
 " test-vim
 let test#strategy = "neovim"
@@ -309,6 +319,9 @@ command RSpecTestAll :split|:te rspec
 " rubocop
 command Rubocop      :split|:te rubocop %
 command RubocopAll   :split|:te rubocop
+
+" detect eelixir
+au BufRead,BufNewFile *.eex,*.heex,*.leex,*.sface set filetype=eelixir
 
 if filereadable('.init.vim')
   so .init.vim

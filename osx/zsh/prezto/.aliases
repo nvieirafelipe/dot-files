@@ -29,11 +29,15 @@ alias gan="gc --amend --no-edit"
 alias gst="gwS"
 alias gd="gwd"
 
-alias portainer_create="docker run --name portainer \
+alias portainer_create="docker run --name=portainer \
                                    -d \
+                                   -p 8000:8000 \
                                    -p 9000:9000 \
+                                   --restart=always \
                                    -v /var/run/docker.sock:/var/run/docker.sock \
-                                   -v portainer_data:/data portainer/portainer > /dev/null; echo 'Portainer created!'"
+                                   -v portainer_data:/data portainer/portainer-ce > /dev/null; echo 'Portainer created!'"
 alias portainer_start="docker start portainer > /dev/null; echo 'Portainer started!'"
 alias portainer_stop="docker stop portainer > /dev/null; echo 'Portainer stopped!'"
 alias portainer_remove="docker rm portainer > /dev/null; echo 'Portainer removed!'"
+
+alias fodaseessaporra="git commit -m 'wip 🤠'"

@@ -33,8 +33,9 @@ source ~/.iterm2_shell_integration.zsh
 ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
 
 export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
-  --glob "!{.git,.direnv,.elixir_ls,*/**/.elixir_ls,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,\
-  public/packs,tmp,vendor/bundle}/**"'
+--glob "!{.git,.direnv,.elixir_ls,*/**/.elixir_ls,.mnesia,.terraform,*/**/.terraform,\
+_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,assets/node_modules,\
+assets/vendor,*/**/node_modules,public/packs,tmp,vendor/bundle}/**"'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 #
