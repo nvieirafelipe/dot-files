@@ -41,7 +41,7 @@ assets/vendor,*/**/node_modules,public/packs,tmp,vendor/bundle}/**"'
 #
 
 # asdf
-. $(brew --prefix asdf)/asdf.sh
+source $(brew --prefix asdf)/libexec/asdf.sh
 
 # aliases
 source "$HOME/.aliases"
@@ -84,5 +84,13 @@ POWERLEVEL9K_RSPEC_STATS_BAD_BACKGROUND='009'
 # iTerm2
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
-# Homebrew asdf
-source $(brew --prefix asdf)/asdf.sh
+## libpq homebrew installation instructions
+export PATH="/usr/local/opt/libpq/bin:$PATH"
+export LDFLAGS="-L/usr/local/opt/libpq/lib"
+export CPPFLAGS="-I/usr/local/opt/libpq/include"
+export PKG_CONFIG_PATH="/usr/local/opt/libpq/lib/pkgconfig"
+##
+
+### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
+export PATH="/Users/felipe/.rd/bin:$PATH"
+### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)

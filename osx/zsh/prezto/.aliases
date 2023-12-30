@@ -24,6 +24,7 @@ alias tkp="tmux kill-pane"
 alias ts="tmux new-session -s"
 alias tw="tmux new-window -n"
 
+alias gc="git commit --gpg-sign --verbose"
 alias ga="gia"
 alias gan="gc --amend --no-edit"
 alias gst="gwS"
@@ -40,4 +41,4 @@ alias portainer_start="docker start portainer > /dev/null; echo 'Portainer start
 alias portainer_stop="docker stop portainer > /dev/null; echo 'Portainer stopped!'"
 alias portainer_remove="docker rm portainer > /dev/null; echo 'Portainer removed!'"
 
-alias fodaseessaporra="git commit -m 'wip 🤠'"
+alias fodaseessaporra="gc --all --message 'wip 🤠'"
