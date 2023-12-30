@@ -25,3 +25,5 @@
 	colorMoved = default
 [init]
 	defaultBranch = master
+[commit]
+	gpgSign = true
