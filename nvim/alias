@@ -1,0 +1,7 @@
+# https://github.com/folke/lazy.nvim
+# https://github.com/LazyVim/LazyVim
+#
+# https://github.com/VonHeikemen/lsp-zero.nvim
+NVIM_NAME=~/.config/nvim-my
+
+alias nvm="XDG_DATA_HOME=$NVIM_NAME/share XDG_CACHE_HOME=$NVIM_NAME XDG_CONFIG_HOME=$NVIM_NAME nvim"
