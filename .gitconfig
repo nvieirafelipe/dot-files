@@ -1,3 +1,11 @@
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential]
+	helper = store
 [core]
 	excludesfile = ~/.gitignore
 	editor = nvim
@@ -12,8 +20,6 @@
 	followTags = true
 [merge]
   tool = meld
-[credential]
-	helper = store
 [pull]
 	ff = only
 [delta]
