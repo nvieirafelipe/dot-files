@@ -22,22 +22,19 @@ autoload -Uz compinit
 compinit
 # End of lines added by compinstall
 
-# zsh syntax highlighting
-source /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-
-# iTerm2
-source ~/.iterm2_shell_integration.zsh
+# zsh syntax highlighting (#brew)
+source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 # fzf
 # Default files command
-ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
-
-export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
---glob "!{.git,.direnv,.elixir_ls,*/**/.elixir_ls,.mnesia,.terraform,*/**/.terraform,\
-_build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,assets/node_modules,\
-assets/vendor,*/**/node_modules,public/packs,tmp,vendor/bundle}/**"'
-
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
+# 
+# export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
+# --glob "!{.git,.direnv,.elixir_ls,*/**/.elixir_ls,.mnesia,.terraform,*/**/.terraform,\
+# _build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,assets/node_modules,\
+# assets/vendor,*/**/node_modules,public/packs,tmp,vendor/bundle}/**"'
+# 
+# [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 #
 
 # asdf
@@ -80,9 +77,6 @@ POWERLEVEL9K_VCS_MODIFIED_BACKGROUND='009'
 POWERLEVEL9K_RSPEC_STATS_GOOD_BACKGROUND='green'
 POWERLEVEL9K_RSPEC_STATS_AVG_BACKGROUND='214'
 POWERLEVEL9K_RSPEC_STATS_BAD_BACKGROUND='009'
-
-# iTerm2
-test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
 ## libpq homebrew installation instructions
 export PATH="/usr/local/opt/libpq/bin:$PATH"

@@ -2,12 +2,12 @@ alias bundle="nocorrect bundle"
 alias ruby="nocorrect ruby"
 alias iex="nocorrect iex"
 alias mix="nocorrect mix"
-alias exa="nocorrect exa"
+alias eza="nocorrect eza"
 
 unalias -m "ls"
 unalias -m "ll"
-alias ls='exa -G  --color auto --icons -a -s type'
-alias ll='exa -l --color always --icons -a -s type'
+alias ls='eza -G  --color auto --icons -a -s type'
+alias ll='eza -l --color always --icons -a -s type'
 
 unalias -m "cat"
 alias cat='bat -pp --theme="Dracula"'
