@@ -24,6 +24,6 @@
 [diff]
 	colorMoved = default
 [init]
-	defaultBranch = master
+	defaultBranch = main
 [commit]
 	gpgSign = true
