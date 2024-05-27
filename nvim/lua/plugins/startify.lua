@@ -6,7 +6,7 @@ return {
       "nvim-tree/nvim-web-devicons"
     },
     config = function()
-      vim.g.startify_bookmarks = { { n = "~/.config/nvim/init.lua" } }
+      vim.g.startify_bookmarks = { { n = "~/Developer/dot-files/nvim" }, { p = "~/Developer/Vio.com/.thatone" } }
       vim.g.startify_change_to_vcs_root = 1
 
       function _G.webDevIcons(path)

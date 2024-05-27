@@ -147,10 +147,10 @@ return {
       local configs = {
         enabled = true,
         colors = {
-          ctermfg = "black",
-          ctermbg = "darkgrey",
-          fg = "black",
-          bg = "darkgrey",
+          ctermfg = "darkgrey",
+          ctermbg = "black",
+          fg = "darkgrey",
+          bg = "black",
         },
         textwidth_mode = 1,
         default_overlength = 98,
