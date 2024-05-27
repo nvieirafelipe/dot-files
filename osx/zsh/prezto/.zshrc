@@ -28,12 +28,12 @@ source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 # fzf
 # Default files command
 # ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
-# 
+#
 # export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
 # --glob "!{.git,.direnv,.elixir_ls,*/**/.elixir_ls,.mnesia,.terraform,*/**/.terraform,\
 # _build,bower_components,cover,*/**/cover,dist,deps,doc,log,node_modules,assets/node_modules,\
 # assets/vendor,*/**/node_modules,public/packs,tmp,vendor/bundle}/**"'
-# 
+#
 # [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 #
 
@@ -78,6 +78,9 @@ POWERLEVEL9K_RSPEC_STATS_GOOD_BACKGROUND='green'
 POWERLEVEL9K_RSPEC_STATS_AVG_BACKGROUND='214'
 POWERLEVEL9K_RSPEC_STATS_BAD_BACKGROUND='009'
 
+# iTerm2
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
 ## libpq homebrew installation instructions
 export PATH="/usr/local/opt/libpq/bin:$PATH"
 export LDFLAGS="-L/usr/local/opt/libpq/lib"
@@ -86,5 +89,5 @@ export PKG_CONFIG_PATH="/usr/local/opt/libpq/lib/pkgconfig"
 ##
 
 ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
-export PATH="/Users/felipe/.rd/bin:$PATH"
+export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)

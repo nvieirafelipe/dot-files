@@ -86,7 +86,7 @@ return {
     },
     keys = {
       {
-        "<A-p>",
+        "<C-l>",
         function()
           require("telescope.builtin").live_grep({
             additional_args = { "--hidden", "--glob", "!**/.git/*" }

@@ -4,7 +4,7 @@
 .env
 .envrc
 .init.vim
-.projections.json
+**/.projections.json
 .snippets
 .timelog
 .tmux
