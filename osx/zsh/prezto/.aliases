@@ -40,5 +40,3 @@ alias portainer_create="docker run --name=portainer \
 alias portainer_start="docker start portainer > /dev/null; echo 'Portainer started!'"
 alias portainer_stop="docker stop portainer > /dev/null; echo 'Portainer stopped!'"
 alias portainer_remove="docker rm portainer > /dev/null; echo 'Portainer removed!'"
-
-alias fodaseessaporra="gc --all --message 'wip 🤠'"
