@@ -52,7 +52,7 @@ POWERLEVEL9K_CUSTOM_ASDF_RUBY='zsh_asdf_ruby'
 POWERLEVEL9K_CUSTOM_ASDF_RUBY_BACKGROUND='009'
 
 # On arch using the prezto-git POWERLEVEL9K_MODE must be set on .zshenv
-POWERLEVEL9K_MODE='awesome-fontconfig'
+POWERLEVEL9K_MODE='nerdfont-complete'
 
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
 POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status custom_asdf_ruby rspec_stats root_indicator background_jobs)
