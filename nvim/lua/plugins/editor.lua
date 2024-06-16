@@ -135,10 +135,34 @@ return {
   {
     "folke/trouble.nvim",
     dependencies = { "nvim-tree/nvim-web-devicons" },
+    keys = {
+      {
+        "<C-t>",
+        function()
+          require("trouble").toggle({ mode = "diagnostics" })
+        end,
+        desc = "Toggles diagnostics with Trouble"
+      }
+    },
     opts = {
-      auto_open = false,
       auto_close = true,
       auto_fold = true,
+      auto_open = false,
+      icons = {
+        indent = {
+          middle = " ",
+          last = " ",
+          top = " ",
+          ws = "│  ",
+        },
+      },
+      modes = {
+        diagnostics = {
+          groups = {
+            { "filename", format = "{file_icon} {basename:Title} {count}" },
+          },
+        },
+      },
       padding = false,
       signs = {
         -- icons / text used for a diagnostic
