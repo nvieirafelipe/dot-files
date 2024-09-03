@@ -80,6 +80,10 @@ return {
         desc = "CopilotChat - Run in-place code",
       }
     }
-  }
+  },
+
+  { "dhruvasagar/vim-table-mode" },
+
+  { "tpope/vim-surround" }
 
 }

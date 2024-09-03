@@ -3,7 +3,7 @@ vim.opt.shell = "/bin/zsh"
 -- Colorscheme
 vim.cmd [[colorscheme tokyonight]]
 
-vim.opt.guifont = "Source Code Pro for Powerline"
+vim.opt.guifont = "FiraMono Nerd Font Propo"
 
 -- Set syntax highlighting on according to the current value of the filetype.
 vim.opt.syntax = "on"

@@ -9,9 +9,3 @@
 if [[ ( "$SHLVL" -eq 1 && ! -o LOGIN ) && -s "${ZDOTDIR:-$HOME}/.zprofile" ]]; then
   source "${ZDOTDIR:-$HOME}/.zprofile"
 fi
-
-#
-# Fix fonts when using aur package prezto-git
-#
-# Powerlevel9k mode must be set before initializing prezto.
-POWERLEVEL9K_MODE='nerdfont-complete'
