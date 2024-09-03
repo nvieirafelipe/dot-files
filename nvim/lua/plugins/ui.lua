@@ -1,7 +1,5 @@
 return {
-  {
-    "nvim-tree/nvim-web-devicons"
-  },
+  { "nvim-tree/nvim-web-devicons" },
 
   {
     "s1n7ax/nvim-window-picker",
@@ -175,5 +173,7 @@ return {
 
       require("overlength").setup(configs)
     end
-  }
+  },
+
+  { "HiPhish/rainbow-delimiters.nvim" }
 }

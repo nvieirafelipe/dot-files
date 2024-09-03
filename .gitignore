@@ -11,5 +11,6 @@
 .tool-versions
 .vscode
 Dockerfile.dev
+nvim/lazy-lock.json
 vscode.code-workspace
 .DS_Store

@@ -10,7 +10,7 @@ alias ls='eza -G  --color auto --icons -a -s type'
 alias ll='eza -l --color always --icons -a -s type'
 
 unalias -m "cat"
-alias cat='bat -pp --theme="Dracula"'
+alias cat='bat --theme="Dracula"'
 
 alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
 
