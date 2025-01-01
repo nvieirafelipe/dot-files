@@ -17,7 +17,7 @@ return {
     config = true,
   },
 
-  -- Autocompletion
+  -- Autocompletion 💅
   { "onsails/lspkind.nvim" },
 
   {
@@ -152,6 +152,7 @@ return {
           "jsonls",
           "lua_ls",
           "marksman",
+          -- "nextls",
           -- "ruby_ls",
           "spectral",
           "sqlls",
@@ -160,7 +161,7 @@ return {
           "templ",
           "terraformls",
           "tflint",
-          "tsserver",
+          -- "tsserver",
           "vimls",
           "yamlls"
         },

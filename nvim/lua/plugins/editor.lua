@@ -25,7 +25,38 @@ return {
     event = "VeryLazy",
     opts = {},
     keys = {
-      { "<c-s>", mode = { "c" }, function() require("flash").toggle() end, desc = "Toggle Flash Search" },
+      {
+        "s",
+        mode = { "n", "x", "o" },
+        function() require("flash").jump() end,
+        desc = "Flash"
+      },
+      {
+        "S",
+        mode = { "n", "x", "o" },
+        function() require("flash").treesitter() end,
+        desc = "Flash Treesitter"
+      },
+      {
+        "r",
+        mode = "o",
+        function() require("flash").remote() end,
+        desc = "Remote Flash"
+      },
+      {
+        "R",
+        mode = { "o", "x" },
+        function() require("flash").treesitter_search() end,
+        desc = "Treesitter Search"
+      },
+      {
+        "<c-s>",
+        mode = { "c" },
+        function()
+          require("flash").toggle()
+        end,
+        desc = "Toggle Flash Search"
+      },
     },
   },
 
@@ -36,15 +67,12 @@ return {
     "RRethy/vim-illuminate",
     event = "VeryLazy",
     opts = {
-      delay = 200,
-      large_file_cutoff = 2000,
-      large_file_overrides = {
-        -- providers: provider used to get references in the buffer, ordered by priority
-        providers = {
-          "lsp",
-          "treesitter",
-          "regex"
-        },
+      delay = 100,
+      -- providers: provider used to get references in the buffer, ordered by priority
+      providers = {
+        "lsp",
+        "treesitter",
+        "regex"
       },
     },
     config = function(_, opts)
@@ -84,11 +112,16 @@ return {
       {
         "<C-l>",
         function()
-          require("telescope.builtin").live_grep({
-            additional_args = { "--hidden", "--glob", "!**/.git/*" }
-          })
+          require("telescope.builtin").live_grep()
         end,
         desc = "Get results live as you type"
+      },
+      {
+        "<C-m>",
+        function()
+          require("telescope.builtin").lsp_document_symbols()
+        end,
+        desc = "Lists LSP document symbols in the current buffer"
       },
       {
         "<C-p>",
@@ -119,12 +152,12 @@ return {
           end,
         })
       end
-
-      return {
-        defaults = vim.tbl_deep_extend("force", opts.defaults or {}, {
-          mappings = { n = { s = flash }, i = { ["<c-s>"] = flash } }
-        })
-      }
+      opts.defaults = vim.tbl_deep_extend("force", opts.defaults or {}, {
+        mappings = {
+          n = { s = flash },
+          i = { ["<c-s>"] = flash },
+        },
+      })
     end
   },
 
@@ -190,5 +223,18 @@ return {
         end
       })
     end
+  },
+
+  { "dhruvasagar/vim-table-mode" },
+
+  { "tpope/vim-fugitive" },
+
+  { "tpope/vim-rhubarb" },
+
+  { "tpope/vim-surround" },
+
+  {
+    -- Missing neo-tree templates integration
+    "tpope/vim-projectionist"
   }
 }
