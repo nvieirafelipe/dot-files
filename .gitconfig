@@ -1,35 +1,35 @@
-[credential "https://github.com"]
-	helper = !gh auth git-credential
-[credential "https://gist.github.com"]
-	helper = !gh auth git-credential
-[credential]
-	helper = store
-[core]
-	excludesfile = ~/.gitignore
-	editor = nvim
-	pager = delta
-[interactive]
-	diffFilter = delta --color-only
-[user]
-	name = Felipe Vieira
-	email = nvieirafelipe@gmail.com
-[pull]
-	ff = only
-[push]
-	default = simple
-	followTags = true
-[merge]
-  tool = meld
-[pull]
-	ff = only
-[delta]
-	side-by-side = true
-	line-numbers-left-format = ""
-	line-numbers-right-format = "│ "
-	syntax-theme = Dracula
-[diff]
-	colorMoved = default
-[init]
-	defaultBranch = main
 [commit]
-	gpgSign = true
+  gpgSign = true
+  verbose = true
+[core]
+  excludesfile = ~/.gitignore
+  editor       = nvim
+  pager        = delta
+[credential "https://github.com"]
+  helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+  helper = !gh auth git-credential
+[credential]
+  helper = store
+[delta]
+  file-modified-label = 
+  line-numbers        = true
+  navigate            = true
+  side-by-side        = true
+  syntax-theme        = Dracula
+[diff]
+  colorMoved = default
+[init]
+  defaultBranch = main
+[interactive]
+  diffFilter = delta --color-only
+[user]
+  name = Felipe Vieira
+  email = nvieirafelipe@gmail.com
+[merge]
+  conflictstyle = zdiff3
+[pull]
+  ff = only
+[push]
+  default = simple
+  followTags = true

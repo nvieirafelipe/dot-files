@@ -35,14 +35,35 @@ return {
     cmd = "Copilot",
     event = "VeryLazy",
     config = function()
-      require("copilot").setup({})
+      require("copilot").setup({
+        suggestion = { enabled = false },
+        panel = { enabled = false }
+      })
     end
   },
 
   {
     "zbirenbaum/copilot-cmp",
     config = function()
-      require("copilot_cmp").setup()
+      local cmp = require("cmp")
+
+      local has_words_before = function()
+        if vim.api.nvim_buf_get_option(0, "buftype") == "prompt" then return false end
+        local line, col = unpack(vim.api.nvim_win_get_cursor(0))
+        return col ~= 0 and vim.api.nvim_buf_get_text(0, line - 1, 0, line - 1, col, {})[1]:match("^%s*$") == nil
+      end
+
+      cmp.setup({
+        mapping = {
+          ["<Tab>"] = vim.schedule_wrap(function(fallback)
+            if cmp.visible() and has_words_before() then
+              cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
+            else
+              fallback()
+            end
+          end)
+        }
+      })
     end
   },
 
@@ -50,20 +71,17 @@ return {
 
   {
     "CopilotC-Nvim/CopilotChat.nvim",
+    branch = "main",
     dependencies = {
-      { "zbirenbaum/copilot.lua" }, -- or github/copilot.vim
-      { "nvim-lua/plenary.nvim" },  -- for curl, log wrapper
+      { "github/copilot.vim" },                       -- or zbirenbaum/copilot.lua
+      { "nvim-lua/plenary.nvim", branch = "master" }, -- for curl, log and async functions
     },
-    opts = {
-      show_help = "yes",         -- Show help text for CopilotChatInPlace, default: yes
-      debug = false,             -- Enable or disable debug mode, the log file will be in ~/.local/state/nvim/CopilotChat.nvim.log
-      disable_extra_info = 'no', -- Disable extra information (e.g: system prompt) in the response.
-      -- proxy = "socks5://127.0.0.1:3000", -- Proxies requests via https or socks.
-    },
-    build = function()
-      vim.notify("Please update the remote plugins by running ':UpdateRemotePlugins', then restart Neovim.")
-    end,
     event = "VeryLazy",
+    build = "make tiktoken", -- Only on MacOS or Linux
+    opts = {
+      -- See Configuration section for options
+      model = 'claude-3.5-sonnet'
+    },
     keys = {
       { "<leader>cce", "<cmd>CopilotChatExplain<cr>", desc = "CopilotChat - Explain code" },
       { "<leader>cct", "<cmd>CopilotChatTests<cr>",   desc = "CopilotChat - Generate tests" },
@@ -82,8 +100,34 @@ return {
     }
   },
 
-  { "dhruvasagar/vim-table-mode" },
-
-  { "tpope/vim-surround" }
-
+  {
+    "yetone/avante.nvim",
+    event = "VeryLazy",
+    lazy = false,
+    opts = {
+      provider = 'copilot',
+      auto_suggestions_provider = 'copilot',
+      copilot = {
+        model = 'claude-3.5-sonnet',
+      },
+    },
+    build = "make",
+    dependencies = {
+      "stevearc/dressing.nvim",
+      "nvim-lua/plenary.nvim",
+      "MunifTanjim/nui.nvim",
+      --- The below dependencies are optional,
+      "hrsh7th/nvim-cmp",            -- autocompletion for avante commands and mentions
+      "nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
+      "zbirenbaum/copilot.lua",      -- for providers='copilot'
+      {
+        -- Make sure to set this up properly if you have lazy=true
+        'MeanderingProgrammer/render-markdown.nvim',
+        opts = {
+          file_types = { "markdown", "Avante" },
+        },
+        ft = { "markdown", "Avante" }
+      }
+    }
+  }
 }
