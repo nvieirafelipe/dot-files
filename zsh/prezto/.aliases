@@ -13,6 +13,7 @@ unalias -m "cat"
 alias cat='bat --theme="Dracula"'
 
 alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
+alias glogp="git log --patch --stat --reverse --abbrev-commit --date=relative --not HEAD..master"
 
 alias ta="tmux attach -t"
 alias td="tmux detach"
