@@ -45,7 +45,9 @@ typeset -gU cdpath fpath mailpath path
 # Set the list of directories that Zsh searches for programs.
 path=(
   /usr/local/{bin,sbin}
-  $HOME/.local/bin
+  $([[ "$OSTYPE" == darwin* ]] && echo "/opt/homebrew/{,s}bin(N)")
+  /opt/local/{,s}bin(N)
+  $HOME/.local/{bin,sbin}
   $path
 )
 
@@ -73,3 +75,9 @@ if [[ ! -d "$TMPDIR" ]]; then
 fi
 
 TMPPREFIX="${TMPDIR%/}/zsh"
+
+#
+# Homebrew
+#
+
+eval "$(/opt/homebrew/bin/brew shellenv)"

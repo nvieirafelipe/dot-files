@@ -52,7 +52,12 @@ source "$HOME/.aliases"
 eval "$(direnv hook zsh)"
 
 # asdf vm
+if [[ "$OSTYPE" == darwin* ]]; then
+  source $(brew --prefix asdf)/libexec/asdf.sh
+fi
+
 [ -f ~/.asdf/asdf.sh ] && source ~/.asdf/asdf.sh
+
 fpath=($ASDF_DIR/completions $fpath)
 autoload -Uz compinit
 compinit
@@ -78,3 +83,15 @@ export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+if [[ "$OSTYPE" == darwin* ]]; then
+  ## libpq homebrew installation instructions
+  export PATH="/usr/local/opt/libpq/bin:$PATH"
+  export LDFLAGS="-L/usr/local/opt/libpq/lib"
+  export CPPFLAGS="-I/usr/local/opt/libpq/include"
+  export PKG_CONFIG_PATH="/usr/local/opt/libpq/lib/pkgconfig"
+
+  ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
+  export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
+  ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
+fi

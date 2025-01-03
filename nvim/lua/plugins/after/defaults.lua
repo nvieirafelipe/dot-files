@@ -1,0 +1,13 @@
+-- Transparency
+vim.api.nvim_set_hl(0, 'ErrorMsg', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'LineNr', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'NeoTreeNormal', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'NeoTreeNormalNC', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'NonText', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'Normal', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'NormalNC', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'Statement', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'TabLineFill', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'Title', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'Todo', { ctermbg = "none" })
+vim.api.nvim_set_hl(0, 'Underlined', { ctermbg = "none" })
