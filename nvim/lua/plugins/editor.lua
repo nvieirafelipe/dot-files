@@ -112,7 +112,9 @@ return {
       {
         "<C-l>",
         function()
-          require("telescope.builtin").live_grep()
+          require("telescope.builtin").live_grep({
+            additional_args = { "--hidden", "--follow", "--glob", "!**/.git/*" }
+          })
         end,
         desc = "Get results live as you type"
       },

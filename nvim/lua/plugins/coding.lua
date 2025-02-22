@@ -31,6 +31,55 @@ return {
   },
 
   {
+    "stevearc/conform.nvim",
+    event = { "BufWritePre" },
+    cmd = { "ConformInfo" },
+    -- This will provide type hinting with LuaLS
+    ---@module "conform"
+    ---@type conform.setupOpts
+    opts = {
+      lang_to_ft = {
+        bash = "sh",
+      },
+      -- Map of treesitter language to file extension
+      -- A temporary file name with this extension will be generated during formatting
+      -- because some formatters care about the filename.
+      lang_to_ext = {
+        bash = "sh",
+        c_sharp = "cs",
+        elixir = "exs",
+        javascript = "js",
+        julia = "jl",
+        latex = "tex",
+        markdown = "md",
+        python = "py",
+        ruby = "rb",
+        rust = "rs",
+        teal = "tl",
+        typescript = "ts",
+      },
+      formatters_by_ft = {
+        bash = { "shfmt" },
+        elixir = { "mix" },
+        javascript = { "prettierd", "prettier", stop_after_first = true },
+        json = { "jq" },
+        lua = { "stylua" },
+        python = { "isort", "black" },
+        ruby = { "rubyfmt" },
+        rust = { "rustfmt", lsp_format = "fallback" },
+        sql = { "sleek" },
+        terraform = { "terraform_fmt" },
+      },
+      -- Set default options
+      default_format_opts = {
+        lsp_format = "fallback",
+      },
+      -- Set up format-on-save
+      format_on_save = { timeout_ms = 1000 }
+    }
+  },
+
+  {
     "zbirenbaum/copilot.lua",
     cmd = "Copilot",
     event = "VeryLazy",
@@ -45,7 +94,7 @@ return {
   {
     "zbirenbaum/copilot-cmp",
     config = function()
-      local cmp = require("cmp")
+      local cmp = require("copilot_cmp")
 
       local has_words_before = function()
         if vim.api.nvim_buf_get_option(0, "buftype") == "prompt" then return false end
@@ -120,14 +169,7 @@ return {
       "hrsh7th/nvim-cmp",            -- autocompletion for avante commands and mentions
       "nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
       "zbirenbaum/copilot.lua",      -- for providers='copilot'
-      {
-        -- Make sure to set this up properly if you have lazy=true
-        'MeanderingProgrammer/render-markdown.nvim',
-        opts = {
-          file_types = { "markdown", "Avante" },
-        },
-        ft = { "markdown", "Avante" }
-      }
+      'MeanderingProgrammer/render-markdown.nvim'
     }
   }
 }

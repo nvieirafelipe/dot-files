@@ -32,23 +32,19 @@ return {
         lualine_x = {
           {
             require("noice").api.status.message.get_hl,
-            cond = require("noice").api.status.message.has,
-            color = { fg = "#ff9e64" },
+            cond = require("noice").api.status.message.has
           },
           {
             require("noice").api.status.command.get_hl,
-            cond = require("noice").api.status.command.has,
-            color = { fg = "#ff9e64" },
+            cond = require("noice").api.status.command.has
           },
           {
             require("noice").api.status.mode.get_hl,
-            cond = require("noice").api.status.mode.has,
-            color = { fg = "#ff9e64" },
+            cond = require("noice").api.status.mode.has
           },
           {
             require("noice").api.status.search.get_hl,
-            cond = require("noice").api.status.search.has,
-            color = { fg = "#ff9e64" },
+            cond = require("noice").api.status.search.has
           },
           {
             "copilot",
@@ -67,13 +63,13 @@ return {
                   disabled = "#6272A4",
                   warning = "#FFB86C",
                   unknown = "#FF5555"
-
                 }
               },
               spinners = require("copilot-lualine.spinners").dots,
               spinner_color = "#6272A4"
             },
             show_colors = true,
+            color = { bg = "NONE" },
             show_loading = true
           },
         },
@@ -166,8 +162,6 @@ return {
       "rcarriga/nvim-notify"
     },
     keys = {
-      { "q",     "<cmd>NoiceDismiss<CR>", desc = "Dismiss noice message" },
-      { "<esc>", "<cmd>NoiceDismiss<CR>", desc = "Dismiss noice message" },
       {
         "<c-j>",
         function() if not require("noice.lsp").scroll(4) then return "<c-j>" end end,
@@ -188,6 +182,13 @@ return {
     config = function()
       require("notify").setup({
         background_colour = "#000000",
+        fps = 42,
+        max_height = 40,
+        max_width = 160,
+        render = "compact",
+        stages = "fade_in_slide_out",
+        timeout = 3000,
+        top_down = true
       })
 
       require("noice").setup({
@@ -295,5 +296,14 @@ return {
     end
   },
 
-  { "HiPhish/rainbow-delimiters.nvim" }
+  { "HiPhish/rainbow-delimiters.nvim" },
+
+  {
+    'MeanderingProgrammer/render-markdown.nvim',
+    after = { 'nvim-treesitter' },
+    opts = {
+      file_types = { "markdown", "Avante" },
+    },
+    ft = { "markdown", "Avante" }
+  }
 }

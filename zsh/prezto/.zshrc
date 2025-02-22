@@ -91,6 +91,10 @@ if [[ "$OSTYPE" == darwin* ]]; then
   export CPPFLAGS="-I/usr/local/opt/libpq/include"
   export PKG_CONFIG_PATH="/usr/local/opt/libpq/lib/pkgconfig"
 
+  # readline homebrrew installation instructions
+  export LDFLAGS="-L/opt/homebrew/opt/readline/lib"
+  export CPPFLAGS="-I/opt/homebrew/opt/readline/include"
+
   ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
   export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
   ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)

@@ -22,7 +22,8 @@ return {
 
   {
     'hrsh7th/nvim-cmp',
-    event = 'InsertEnter',
+    event = { "InsertEnter", "LspAttach" },
+    fix_pairs = true,
     dependencies = {
       { 'L3MON4D3/LuaSnip' },
     },
@@ -75,7 +76,6 @@ return {
           completion = cmp.config.window.bordered(),
           documentation = cmp.config.window.bordered(),
         },
-        -- formatting = lsp_zero.cmp_format(),
         formatting = {
           format = lspkind.cmp_format({
             mode = 'symbol', -- show only symbol annotations
@@ -96,7 +96,8 @@ return {
         sources = cmp.config.sources({
           { name = "nvim_lsp" },
           { name = "copilot" },
-          { name = "path" }
+          { name = "path" },
+          { name = 'render-markdown' }
         }, {
           { name = "buffer" }
         })
@@ -122,18 +123,7 @@ return {
         -- see :help lsp-zero-keybindings
         -- to learn the available actions
         lsp_zero.default_keymaps({ buffer = bufnr })
-        lsp_zero.buffer_autoformat()
       end)
-
-      lsp_zero.format_on_save({
-        format_opts = {
-          async = false,
-          timeout_ms = 10000,
-        },
-        servers = {
-          ["marksman"] = { "markdown" }
-        }
-      })
 
       require('mason-lspconfig').setup({
         ensure_installed = {
@@ -144,7 +134,7 @@ return {
           "docker_compose_language_service",
           "dockerls",
           "elixirls",
-          -- "erlangls",
+          "erlangls",
           "eslint",
           "grammarly",
           "html",
@@ -153,7 +143,7 @@ return {
           "lua_ls",
           "marksman",
           -- "nextls",
-          -- "ruby_ls",
+          "ruby_lsp",
           "spectral",
           "sqlls",
           "tailwindcss",
@@ -161,7 +151,7 @@ return {
           "templ",
           "terraformls",
           "tflint",
-          -- "tsserver",
+          "ts_ls",
           "vimls",
           "yamlls"
         },

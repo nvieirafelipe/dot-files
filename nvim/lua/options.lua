@@ -22,7 +22,7 @@ vim.opt.cursorcolumn = true
 
 vim.opt.splitright = true
 vim.opt.splitbelow = true
-vim.opt.laststatus = 2
+vim.opt.laststatus = 3
 vim.opt.number = true
 vim.opt.relativenumber = true -- Make relative number default
 vim.opt.showmatch = true      -- Highlight matching parenthesis
