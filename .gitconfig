@@ -18,6 +18,7 @@
   side-by-side        = true
   syntax-theme        = Dracula
 [diff]
+  algorithm  = histogram
   colorMoved = default
 [init]
   defaultBranch = main
@@ -31,5 +32,6 @@
 [pull]
   ff = only
 [push]
-  default = simple
-  followTags = true
+  autoSetupRemote = true
+  default         = simple
+  followTags      = true

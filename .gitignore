@@ -1,11 +1,14 @@
+**/.elixir-tools
+**/.elixir_ls
+**/.projections.json
+.DS_Store
 .direnv
 .elixir_ls
-**/.elixir_ls
 .env
 .envrc
 .init.vim
-**/.projections.json
 .snippets
+.stylua.toml
 .timelog
 .tmux
 .tool-versions
@@ -13,5 +16,6 @@
 Dockerfile.dev
 nvim/lazy-lock.json
 vscode.code-workspace
-.DS_Store
-**/.elixir-tools
+.aider*
+.claude*
+Claude.md
