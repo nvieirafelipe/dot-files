@@ -1,19 +1,16 @@
 -- Removes training whitespaces on save
-vim.api.nvim_create_autocmd(
-  { "BufWritePre" },
-  {
-    pattern = { "*" },
-    command = [[%s/\s\+$//e]],
-  }
-)
+vim.api.nvim_create_autocmd({ "BufWritePre" }, {
+  pattern = { "*" },
+  command = [[%s/\s\+$//e]],
+})
 
 --- Highlight on yank
-vim.cmd [[
+vim.cmd([[
   augroup YankHighlight
     autocmd!
-    autocmd TextYankPost * silent! lua vim.highlight.on_yank()
+    autocmd TextYankPost * silent! lua vim.hi.on_yank()
   augroup end
-]]
+]])
 
 -- Transparency
 vim.api.nvim_create_autocmd("ColorScheme", {

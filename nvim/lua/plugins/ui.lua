@@ -7,16 +7,133 @@ return {
     version = "2.*",
     config = function()
       require("window-picker").setup()
-    end
+    end,
   },
+
+  {
+    "folke/noice.nvim",
+    event = "VeryLazy",
+    dependencies = {
+      "MunifTanjim/nui.nvim",
+      "rcarriga/nvim-notify",
+    },
+    keys = {
+      {
+        "<c-j>",
+        function()
+          if not require("noice.lsp").scroll(4) then
+            return "<c-j>"
+          end
+        end,
+        mode = { "n", "i", "s" },
+        silent = true,
+        expr = true,
+        desc = "Scroll down",
+      },
+      {
+        "<c-k>",
+        function()
+          if not require("noice.lsp").scroll(-4) then
+            return "<c-k>"
+          end
+        end,
+        mode = { "n", "i", "s" },
+        silent = true,
+        expr = true,
+        desc = "Scroll up",
+      },
+    },
+    config = function()
+      require("notify").setup({
+        background_colour = "#000000",
+        fps = 42,
+        max_height = 40,
+        max_width = 160,
+        render = "compact",
+        stages = "fade_in_slide_out",
+        timeout = 3000,
+        top_down = true,
+      })
+
+      require("noice").setup({
+        lsp = {
+          override = {
+            ["vim.lsp.util.convert_input_to_markdown_lines"] = true,
+            ["vim.lsp.util.stylize_markdown"] = true,
+            ["cmp.entry.get_documentation"] = true,
+          },
+          hover = { enabled = true },
+          signature = { enabled = true },
+        },
+        presets = {
+          bottom_search = true, -- use a classic bottom cmdline for search
+          command_palette = false, -- position the cmdline and popupmenu together
+          long_message_to_split = true, -- long messages will be sent to a split
+          inc_rename = false, -- enables an input dialog for inc-rename.nvim
+          lsp_doc_border = true, -- add a border to hover docs and signature help
+        },
+        routes = {
+          {
+            filter = {
+              event = "msg_show",
+              any = {
+                { find = "%d+L, %d+B" },
+                { find = "; after #%d+" },
+                { find = "; before #%d+" },
+                { find = "%d fewer lines" },
+                { find = "%d more lines" },
+                { find = "written" },
+                { find = "E486: Pattern not found:" },
+                { find = "/" },
+              },
+            },
+            opts = { skip = true },
+          },
+        },
+        views = {
+          cmdline_popup = {
+            position = {
+              row = 5,
+              col = "50%",
+            },
+            size = {
+              width = 120,
+              height = "auto",
+            },
+          },
+          popupmenu = {
+            relative = "editor",
+            position = {
+              row = 8,
+              col = "50%",
+            },
+            size = {
+              width = 120,
+              height = "auto",
+            },
+            border = {
+              style = "rounded",
+              padding = { 0, 1 },
+            },
+            win_options = {
+              winhighlight = { Normal = "Normal", FloatBorder = "DiagnosticInfo" },
+            },
+          },
+        },
+      })
+    end,
+  },
+
+  { "AndreM222/copilot-lualine" },
 
   {
     "nvim-lualine/lualine.nvim",
     event = "VimEnter",
     dependencies = {
+      "AndreM222/copilot-lualine",
       "folke/noice.nvim",
       "nvim-tree/nvim-web-devicons",
-      "nvim-lua/lsp-status.nvim"
+      "nvim-lua/lsp-status.nvim",
     },
     opts = {
       options = {
@@ -27,24 +144,24 @@ return {
         lualine_a = { "mode" },
         lualine_b = { "branch", "diff", "diagnostics" },
         lualine_c = {
-          { "filename", path = 1 }
+          { "filename", path = 1 },
         },
         lualine_x = {
           {
             require("noice").api.status.message.get_hl,
-            cond = require("noice").api.status.message.has
+            cond = require("noice").api.status.message.has,
           },
           {
             require("noice").api.status.command.get_hl,
-            cond = require("noice").api.status.command.has
+            cond = require("noice").api.status.command.has,
           },
           {
             require("noice").api.status.mode.get_hl,
-            cond = require("noice").api.status.mode.has
+            cond = require("noice").api.status.mode.has,
           },
           {
             require("noice").api.status.search.get_hl,
-            cond = require("noice").api.status.search.has
+            cond = require("noice").api.status.search.has,
           },
           {
             "copilot",
@@ -55,32 +172,32 @@ return {
                   sleep = " ", -- auto-trigger disabled
                   disabled = " ",
                   warning = " ",
-                  unknown = " "
+                  unknown = " ",
                 },
                 hl = {
                   enabled = "#50FA7B",
                   sleep = "#AEB7D0",
                   disabled = "#6272A4",
                   warning = "#FFB86C",
-                  unknown = "#FF5555"
-                }
+                  unknown = "#FF5555",
+                },
               },
-              spinners = require("copilot-lualine.spinners").dots,
-              spinner_color = "#6272A4"
+              spinners = "dots",
+              spinner_color = "#6272A4",
             },
             show_colors = true,
             color = { bg = "NONE" },
-            show_loading = true
+            show_loading = true,
           },
         },
         lualine_y = {
           { "fileformat", separator = " ", padding = { left = 1, right = 0 } },
-          { "filetype",   separator = " ", padding = { left = 1, right = 1 } }
+          { "filetype", separator = " ", padding = { left = 1, right = 1 } },
         },
         lualine_z = {
           { "progress", separator = "", padding = { left = 1, right = 0 } },
-          { "location", separator = "", padding = { left = 0, right = 0 } }
-        }
+          { "location", separator = "", padding = { left = 0, right = 0 } },
+        },
       },
       extensions = { "neo-tree", "lazy" },
     },
@@ -94,7 +211,7 @@ return {
     event = "VeryLazy",
     opts = {
       scope = {
-        enabled = true
+        enabled = true,
       },
       exclude = {
         filetypes = {
@@ -130,7 +247,7 @@ return {
           "mason",
           "neo-tree",
           "neo-tree-popup",
-          "startify"
+          "startify",
         },
         callback = function()
           vim.b.miniindentscope_disable = true
@@ -140,125 +257,17 @@ return {
   },
 
   {
-    "airblade/vim-gitgutter"
-  },
-
-  {
     "myusuf3/numbers.vim",
     config = function()
       vim.g.numbers_exclude = {
         "help",
         "neo-tree",
         "neo-tree-popup",
-        "startify"
+        "startify",
       }
-    end
+    end,
   },
-  {
-    "folke/noice.nvim",
-    event = "VeryLazy",
-    dependencies = {
-      "MunifTanjim/nui.nvim",
-      "rcarriga/nvim-notify"
-    },
-    keys = {
-      {
-        "<c-j>",
-        function() if not require("noice.lsp").scroll(4) then return "<c-j>" end end,
-        mode = { "n", "i", "s" },
-        silent = true,
-        expr = true,
-        desc = "Scroll down"
-      },
-      {
-        "<c-k>",
-        function() if not require("noice.lsp").scroll(-4) then return "<c-k>" end end,
-        mode = { "n", "i", "s" },
-        silent = true,
-        expr = true,
-        desc = "Scroll up"
-      }
-    },
-    config = function()
-      require("notify").setup({
-        background_colour = "#000000",
-        fps = 42,
-        max_height = 40,
-        max_width = 160,
-        render = "compact",
-        stages = "fade_in_slide_out",
-        timeout = 3000,
-        top_down = true
-      })
 
-      require("noice").setup({
-        lsp = {
-          override = {
-            ["vim.lsp.util.convert_input_to_markdown_lines"] = true,
-            ["vim.lsp.util.stylize_markdown"] = true,
-            ["cmp.entry.get_documentation"] = true,
-          },
-          hover = { enabled = true },
-          signature = { enabled = true },
-        },
-        presets = {
-          bottom_search = true,         -- use a classic bottom cmdline for search
-          command_palette = false,      -- position the cmdline and popupmenu together
-          long_message_to_split = true, -- long messages will be sent to a split
-          inc_rename = false,           -- enables an input dialog for inc-rename.nvim
-          lsp_doc_border = true,        -- add a border to hover docs and signature help
-        },
-        routes = {
-          {
-            filter = {
-              event = "msg_show",
-              any = {
-                { find = "%d+L, %d+B" },
-                { find = "; after #%d+" },
-                { find = "; before #%d+" },
-                { find = "%d fewer lines" },
-                { find = "%d more lines" },
-                { find = "written" },
-                { find = "E486: Pattern not found:" },
-                { find = "/" }
-              },
-            },
-            opts = { skip = true },
-          }
-        },
-        views = {
-          cmdline_popup = {
-            position = {
-              row = 5,
-              col = "50%",
-            },
-            size = {
-              width = 120,
-              height = "auto",
-            },
-          },
-          popupmenu = {
-            relative = "editor",
-            position = {
-              row = 8,
-              col = "50%",
-            },
-            size = {
-              width = 120,
-              height = "auto",
-            },
-            border = {
-              style = "rounded",
-              padding = { 0, 1 },
-            },
-            win_options = {
-              winhighlight = { Normal = "Normal", FloatBorder = "DiagnosticInfo" },
-            },
-          },
-        }
-      })
-    end
-  },
   -- Highlight the part of a line that doesn"t fit into textwidth
   {
     "lcheylus/overlength.nvim",
@@ -288,22 +297,23 @@ return {
           "noice",
           "packer",
           "qf",
-          "startify"
-        }
+          "startify",
+        },
       }
 
       require("overlength").setup(configs)
-    end
+    end,
   },
 
   { "HiPhish/rainbow-delimiters.nvim" },
 
   {
-    'MeanderingProgrammer/render-markdown.nvim',
-    after = { 'nvim-treesitter' },
+    "MeanderingProgrammer/render-markdown.nvim",
+    after = { "nvim-treesitter" },
     opts = {
       file_types = { "markdown", "Avante" },
+      latex = { enabled = false },
     },
-    ft = { "markdown", "Avante" }
-  }
+    ft = { "markdown", "Avante" },
+  },
 }

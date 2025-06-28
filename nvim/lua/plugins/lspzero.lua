@@ -1,7 +1,7 @@
 return {
   {
-    'VonHeikemen/lsp-zero.nvim',
-    branch = 'v3.x',
+    "VonHeikemen/lsp-zero.nvim",
+    branch = "v3.x",
     lazy = true,
     config = false,
     init = function()
@@ -12,7 +12,7 @@ return {
   },
 
   {
-    'williamboman/mason.nvim',
+    "williamboman/mason.nvim",
     lazy = false,
     config = true,
   },
@@ -21,31 +21,31 @@ return {
   { "onsails/lspkind.nvim" },
 
   {
-    'hrsh7th/nvim-cmp',
+    "hrsh7th/nvim-cmp",
     event = { "InsertEnter", "LspAttach" },
     fix_pairs = true,
     dependencies = {
-      { 'L3MON4D3/LuaSnip' },
+      { "L3MON4D3/LuaSnip" },
     },
     config = function()
       -- Here is where you configure the autocompletion settings.
-      local lsp_zero = require('lsp-zero')
+      local lsp_zero = require("lsp-zero")
       lsp_zero.extend_cmp()
 
       -- And you can configure cmp even more, if you want to.
-      local cmp = require('cmp')
+      local cmp = require("cmp")
       local cmp_action = lsp_zero.cmp_action()
 
-      local lspkind = require('lspkind')
-      lspkind.init {
-        mode = 'symbol_text',
-        preset = 'default',
+      local lspkind = require("lspkind")
+      lspkind.init({
+        mode = "symbol_text",
+        preset = "default",
         symbol_map = {
           --   Class = "󰠱",
           --   Color = "󰏘",
           --   Constant = "󰏿",
           --   Constructor = "",
-          Copilot = ""
+          Copilot = "",
           --   Enum = "",
           --   EnumMember = "",
           --   Event = "",
@@ -68,7 +68,7 @@ return {
           --   Value = "󰎠",
           --   Variable = "󰀫"
         },
-      }
+      })
       vim.api.nvim_set_hl(0, "CmpItemKindCopilot", { fg = "#6CC644" })
 
       cmp.setup({
@@ -78,45 +78,49 @@ return {
         },
         formatting = {
           format = lspkind.cmp_format({
-            mode = 'symbol', -- show only symbol annotations
-            maxwidth = function() return math.floor(0.45 * vim.o.columns) end,
+            mode = "symbol", -- show only symbol annotations
+            maxwidth = function()
+              return math.floor(0.45 * vim.o.columns)
+            end,
             -- maxwidth = 50, -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
-            ellipsis_char = '...',
-            show_labelDetails = true
-          })
+            ellipsis_char = "...",
+            show_labelDetails = true,
+          }),
         },
         mapping = cmp.mapping.preset.insert({
-          ['<CR>'] = cmp.mapping.confirm({ select = false }),
-          ['<Tab>'] = cmp_action.luasnip_supertab(),
-          ['<S-Tab>'] = cmp_action.luasnip_shift_supertab(),
-          ['<C-Space>'] = cmp.mapping.complete(),
-          ['<C-s>'] = cmp.mapping.scroll_docs(-4),
-          ['<C-f>'] = cmp.mapping.scroll_docs(4),
+          ["<CR>"] = cmp.mapping.confirm({ select = false }),
+          ["<Tab>"] = cmp_action.luasnip_supertab(),
+          ["<S-Tab>"] = cmp_action.luasnip_shift_supertab(),
+          ["<C-Space>"] = cmp.mapping.complete(),
+          ["<C-j>"] = cmp.mapping.scroll_docs(-4),
+          ["<C-k>"] = cmp.mapping.scroll_docs(4),
         }),
         sources = cmp.config.sources({
           { name = "nvim_lsp" },
           { name = "copilot" },
           { name = "path" },
-          { name = 'render-markdown' }
+          { name = "render-markdown" },
         }, {
-          { name = "buffer" }
-        })
+          { name = "buffer" },
+        }),
       })
-    end
+    end,
   },
 
   -- LSP
   {
-    'neovim/nvim-lspconfig',
-    cmd = { 'LspInfo', 'LspInstall', 'LspStart' },
-    event = { 'BufReadPre', 'BufNewFile' },
+    "neovim/nvim-lspconfig",
+    cmd = { "LspInfo", "LspInstall", "LspStart" },
+    event = { "BufReadPre", "BufNewFile" },
     dependencies = {
-      { 'hrsh7th/cmp-nvim-lsp' },
-      { 'williamboman/mason-lspconfig.nvim' },
+      { "hrsh7th/cmp-nvim-lsp" },
+      { "williamboman/mason-lspconfig.nvim" },
     },
     config = function()
       -- This is where all the LSP shenanigans will live
-      local lsp_zero = require('lsp-zero')
+      vim.lsp.enable("dartls")
+
+      local lsp_zero = require("lsp-zero")
       lsp_zero.extend_lspconfig()
 
       lsp_zero.on_attach(function(client, bufnr)
@@ -125,7 +129,7 @@ return {
         lsp_zero.default_keymaps({ buffer = bufnr })
       end)
 
-      require('mason-lspconfig').setup({
+      require("mason-lspconfig").setup({
         ensure_installed = {
           "autotools_ls",
           "bashls",
@@ -142,7 +146,6 @@ return {
           "jsonls",
           "lua_ls",
           "marksman",
-          -- "nextls",
           "ruby_lsp",
           "spectral",
           "sqlls",
@@ -153,7 +156,7 @@ return {
           "tflint",
           "ts_ls",
           "vimls",
-          "yamlls"
+          "yamlls",
         },
         handlers = {
           -- Disable handler to use elixir-tools instead
@@ -162,24 +165,24 @@ return {
           lua_ls = function()
             -- (Optional) Configure lua language server for neovim
             local lua_opts = lsp_zero.nvim_lua_ls()
-            require('lspconfig').lua_ls.setup(lua_opts)
+            require("lspconfig").lua_ls.setup(lua_opts)
           end,
-        }
+        },
       })
       --
       -- diagnostic signs
       --
       local icons = {
         Error = " ",
-        Warn  = " ",
-        Hint  = " ",
-        Info  = " ",
+        Warn = " ",
+        Hint = " ",
+        Info = " ",
       }
 
       for name, icon in pairs(icons) do
         name = "DiagnosticSign" .. name
         vim.fn.sign_define(name, { text = icon, texthl = name, numhl = "" })
       end
-    end
-  }
+    end,
+  },
 }

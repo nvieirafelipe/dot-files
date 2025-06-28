@@ -15,6 +15,7 @@ return {
         desc = "Toggle Spectre"
       }
     }
+,
   },
 
   -- Flash enhances the built-in search functionality by showing labels
@@ -28,26 +29,34 @@ return {
       {
         "s",
         mode = { "n", "x", "o" },
-        function() require("flash").jump() end,
-        desc = "Flash"
+        function()
+          require("flash").jump()
+        end,
+        desc = "Flash",
       },
       {
         "S",
         mode = { "n", "x", "o" },
-        function() require("flash").treesitter() end,
-        desc = "Flash Treesitter"
+        function()
+          require("flash").treesitter()
+        end,
+        desc = "Flash Treesitter",
       },
       {
         "r",
         mode = "o",
-        function() require("flash").remote() end,
-        desc = "Remote Flash"
+        function()
+          require("flash").remote()
+        end,
+        desc = "Remote Flash",
       },
       {
         "R",
         mode = { "o", "x" },
-        function() require("flash").treesitter_search() end,
-        desc = "Treesitter Search"
+        function()
+          require("flash").treesitter_search()
+        end,
+        desc = "Treesitter Search",
       },
       {
         "<c-s>",
@@ -55,7 +64,7 @@ return {
         function()
           require("flash").toggle()
         end,
-        desc = "Toggle Flash Search"
+        desc = "Toggle Flash Search",
       },
     },
   },
@@ -72,7 +81,7 @@ return {
       providers = {
         "lsp",
         "treesitter",
-        "regex"
+        "regex",
       },
     },
     config = function(_, opts)
@@ -110,30 +119,47 @@ return {
     },
     keys = {
       {
+        "<C-f>",
+        function()
+          require("telescope.builtin").buffers({
+            ignore_current_buffer = true,
+            sort_mru = true,
+          })
+        end,
+        desc = "Get results live as you type",
+      },
+      {
+        "<C-j>",
+        function()
+          require("telescope.builtin").jumplist()
+        end,
+        desc = "Get results live as you type",
+      },
+      {
         "<C-l>",
         function()
           require("telescope.builtin").live_grep({
-            additional_args = { "--hidden", "--follow", "--glob", "!**/.git/*" }
+            additional_args = { "--hidden", "--follow", "--glob", "!**/.git/*" },
           })
         end,
-        desc = "Get results live as you type"
+        desc = "Get results live as you type",
       },
       {
         "<C-m>",
         function()
           require("telescope.builtin").lsp_document_symbols()
         end,
-        desc = "Lists LSP document symbols in the current buffer"
+        desc = "Lists LSP document symbols in the current buffer",
       },
       {
         "<C-p>",
         function()
           require("telescope.builtin").find_files({
-            find_command = { "rg", "--files", "--hidden", "--follow", "--glob", "!**/.git/*" }
+            find_command = { "rg", "--files", "--hidden", "--follow", "--glob", "!**/.git/*" },
           })
         end,
-        desc = "Find Files (root dir)"
-      }
+        desc = "Find Files (root dir)",
+      },
     },
     opts = function(_, opts)
       local function flash(prompt_bufnr)
@@ -160,7 +186,7 @@ return {
           i = { ["<c-s>"] = flash },
         },
       })
-    end
+    end,
   },
 
   {
@@ -172,8 +198,8 @@ return {
         function()
           require("trouble").toggle({ mode = "diagnostics" })
         end,
-        desc = "Toggles diagnostics with Trouble"
-      }
+        desc = "Toggles diagnostics with Trouble",
+      },
     },
     opts = {
       auto_close = true,
@@ -197,13 +223,13 @@ return {
       padding = false,
       signs = {
         -- icons / text used for a diagnostic
-        error = '',
-        warning = '',
-        hint = '󰌶',
-        information = '',
-        other = '',
-      }
-    }
+        error = "",
+        warning = "",
+        hint = "󰌶",
+        information = "",
+        other = "",
+      },
+    },
   },
 
   {
@@ -211,20 +237,20 @@ return {
     opts = {
       events = { "BufWritePost", "BufReadPost", "InsertLeave" },
       linters_by_ft = {
-        elixir = { "credo" }
-      }
+        elixir = { "credo" },
+      },
     },
     config = function(_, opts)
-      local lint         = require("lint")
+      local lint = require("lint")
       lint.linters_by_ft = opts.linters_by_ft
 
       vim.api.nvim_create_autocmd(opts.events, {
         group = vim.api.nvim_create_augroup("nvim-lint", { clear = true }),
         callback = function()
           lint.try_lint()
-        end
+        end,
       })
-    end
+    end,
   },
 
   { "dhruvasagar/vim-table-mode" },
@@ -237,6 +263,6 @@ return {
 
   {
     -- Missing neo-tree templates integration
-    "tpope/vim-projectionist"
-  }
+    "tpope/vim-projectionist",
+  },
 }

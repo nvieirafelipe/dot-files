@@ -4,9 +4,7 @@ return {
   -- syntax highlighting.
   {
     "nvim-treesitter/nvim-treesitter",
-    version = false, -- last release is way too old and doesn't work on Windows
     build = ":TSUpdate",
-    event = { "VeryLazy" },
     dependencies = {
       {
         "nvim-treesitter/nvim-treesitter-textobjects",
@@ -35,8 +33,6 @@ return {
       },
     },
     cmd = { "TSUpdateSync", "TSUpdate", "TSInstall" },
-    ---@type TSConfig
-    ---@diagnostic disable-next-line: missing-fields
     opts = {
       highlight = { enable = true },
       indent = { enable = true },
@@ -91,9 +87,8 @@ return {
           goto_previous_start = { ["[f"] = "@function.outer", ["[c"] = "@class.outer" },
           goto_previous_end = { ["[F"] = "@function.outer", ["[C"] = "@class.outer" },
         },
-      }
+      },
     },
-    ---@param opts TSConfig
     config = function(_, opts)
       if type(opts.ensure_installed) == "table" then
         ---@type table<string, boolean>
@@ -107,7 +102,7 @@ return {
         end, opts.ensure_installed)
       end
       require("nvim-treesitter.configs").setup(opts)
-    end
+    end,
   },
 
   -- Show context of the current function
@@ -118,5 +113,5 @@ return {
   },
 
   -- Automatically add closing tags for HTML and JSX
-  { "windwp/nvim-ts-autotag" }
+  { "windwp/nvim-ts-autotag" },
 }

@@ -7,7 +7,7 @@ return {
     opts = {},
     config = function(_, opts)
       require("mini.pairs").setup(opts)
-    end
+    end,
   },
 
   {
@@ -16,18 +16,18 @@ return {
       {
         "<M-t>",
         "<cmd>TestNearest<cr>",
-        desc = "In a test file runs the test nearest to the cursor"
+        desc = "In a test file runs the test nearest to the cursor",
       },
       {
         "<M-S-t>",
         "<cmd>TestFile<cr>",
-        desc = "In a test file runs all tests in the current file"
-      }
+        desc = "In a test file runs all tests in the current file",
+      },
     },
     config = function()
       vim.g["test#strategy"] = "neovim"
-      vim.keymap.set('t', '<Esc>', [[<C-\><C-n>]], { noremap = true })
-    end
+      vim.keymap.set("t", "<Esc>", [[<C-\><C-n>]], { noremap = true })
+    end,
   },
 
   {
@@ -47,6 +47,7 @@ return {
       lang_to_ext = {
         bash = "sh",
         c_sharp = "cs",
+        dart = "dart_format",
         elixir = "exs",
         javascript = "js",
         julia = "jl",
@@ -60,6 +61,7 @@ return {
       },
       formatters_by_ft = {
         bash = { "shfmt" },
+        dart = { "dart_format" },
         elixir = { "mix" },
         javascript = { "prettierd", "prettier", stop_after_first = true },
         json = { "jq" },
@@ -75,8 +77,8 @@ return {
         lsp_format = "fallback",
       },
       -- Set up format-on-save
-      format_on_save = { timeout_ms = 1000 }
-    }
+      format_on_save = { timeout_ms = 1000 },
+    },
   },
 
   {
@@ -86,9 +88,9 @@ return {
     config = function()
       require("copilot").setup({
         suggestion = { enabled = false },
-        panel = { enabled = false }
+        panel = { enabled = false },
       })
-    end
+    end,
   },
 
   {
@@ -97,7 +99,9 @@ return {
       local cmp = require("copilot_cmp")
 
       local has_words_before = function()
-        if vim.api.nvim_buf_get_option(0, "buftype") == "prompt" then return false end
+        if vim.api.nvim_buf_get_option(0, "buftype") == "prompt" then
+          return false
+        end
         local line, col = unpack(vim.api.nvim_win_get_cursor(0))
         return col ~= 0 and vim.api.nvim_buf_get_text(0, line - 1, 0, line - 1, col, {})[1]:match("^%s*$") == nil
       end
@@ -110,66 +114,61 @@ return {
             else
               fallback()
             end
-          end)
-        }
+          end),
+        },
       })
-    end
+    end,
   },
 
-  { 'AndreM222/copilot-lualine' },
-
-  {
-    "CopilotC-Nvim/CopilotChat.nvim",
-    branch = "main",
-    dependencies = {
-      { "github/copilot.vim" },                       -- or zbirenbaum/copilot.lua
-      { "nvim-lua/plenary.nvim", branch = "master" }, -- for curl, log and async functions
-    },
-    event = "VeryLazy",
-    build = "make tiktoken", -- Only on MacOS or Linux
-    opts = {
-      -- See Configuration section for options
-      model = 'claude-3.5-sonnet'
-    },
-    keys = {
-      { "<leader>cce", "<cmd>CopilotChatExplain<cr>", desc = "CopilotChat - Explain code" },
-      { "<leader>cct", "<cmd>CopilotChatTests<cr>",   desc = "CopilotChat - Generate tests" },
-      {
-        "<leader>ccv",
-        ":CopilotChatVisual",
-        mode = "x",
-        desc = "CopilotChat - Open in vertical split",
-      },
-      {
-        "<leader>ccx",
-        ":CopilotChatInPlace<cr>",
-        mode = "x",
-        desc = "CopilotChat - Run in-place code",
-      }
-    }
-  },
+  -- {
+  --   "CopilotC-Nvim/CopilotChat.nvim",
+  --   branch = "main",
+  --   dependencies = {
+  --     { "github/copilot.vim" }, -- or zbirenbaum/copilot.lua
+  --     { "nvim-lua/plenary.nvim", branch = "master" }, -- for curl, log and async functions
+  --   },
+  --   event = "VeryLazy",
+  --   build = "make tiktoken", -- Only on MacOS or Linux
+  --   opts = {
+  --     -- See Configuration section for options
+  --     model = "claude-3.7-sonnet",
+  --   },
+  --   keys = {
+  --     { "<leader>cce", "<cmd>CopilotChatExplain<cr>", desc = "CopilotChat - Explain code" },
+  --     { "<leader>cct", "<cmd>CopilotChatTests<cr>", desc = "CopilotChat - Generate tests" },
+  --     {
+  --       "<leader>ccv",
+  --       ":CopilotChatVisual",
+  --       mode = "x",
+  --       desc = "CopilotChat - Open in vertical split",
+  --     },
+  --     {
+  --       "<leader>ccx",
+  --       ":CopilotChatInPlace<cr>",
+  --       mode = "x",
+  --       desc = "CopilotChat - Run in-place code",
+  --     },
+  --   },
+  -- },
 
   {
     "yetone/avante.nvim",
     event = "VeryLazy",
     lazy = false,
     opts = {
-      provider = 'copilot',
-      auto_suggestions_provider = 'copilot',
-      copilot = {
-        model = 'claude-3.5-sonnet',
-      },
+      provider = "copilot",
+      auto_suggestions_provider = "copilot",
+      copilot = { model = "claude-3.7-sonnet" },
     },
     build = "make",
     dependencies = {
-      "stevearc/dressing.nvim",
-      "nvim-lua/plenary.nvim",
+      "MeanderingProgrammer/render-markdown.nvim",
       "MunifTanjim/nui.nvim",
-      --- The below dependencies are optional,
-      "hrsh7th/nvim-cmp",            -- autocompletion for avante commands and mentions
-      "nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
-      "zbirenbaum/copilot.lua",      -- for providers='copilot'
-      'MeanderingProgrammer/render-markdown.nvim'
-    }
-  }
+      "hrsh7th/nvim-cmp",
+      "nvim-lua/plenary.nvim",
+      "nvim-tree/nvim-web-devicons",
+      "stevearc/dressing.nvim",
+      "zbirenbaum/copilot.lua",
+    },
+  },
 }
