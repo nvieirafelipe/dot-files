@@ -72,9 +72,7 @@ compinit
 # Default files command
 ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(fzfz-file-widget)
 
-export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow \
-  --glob "!{.git,.direnv,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,\
-  doc,docs,log,node_modules,public/packs,tmp,vendor/bundle}/**"'
+export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!{.git,.direnv,.mnesia,_build,bower_components,cover,*/**/cover,dist,deps,doc,docs,log,node_modules,public/packs,tmp,vendor/bundle}/**"'
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 

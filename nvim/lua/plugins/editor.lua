@@ -265,4 +265,7 @@ return {
     -- Missing neo-tree templates integration
     "tpope/vim-projectionist",
   },
+
+  -- Markdown table formatter
+  { "dhruvasagar/vim-table-mode" },
 }
