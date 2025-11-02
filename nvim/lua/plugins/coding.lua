@@ -82,93 +82,89 @@ return {
   },
 
   {
-    "zbirenbaum/copilot.lua",
-    cmd = "Copilot",
-    event = "VeryLazy",
+    "hrsh7th/nvim-cmp",
+    event = { "InsertEnter", "LspAttach" },
+    fix_pairs = true,
+    dependencies = {
+      { "L3MON4D3/LuaSnip" },
+    },
     config = function()
-      require("copilot").setup({
-        suggestion = { enabled = false },
-        panel = { enabled = false },
-      })
-    end,
-  },
+      -- Here is where you configure the autocompletion settings.
+      local lsp_zero = require("lsp-zero")
+      lsp_zero.extend_cmp()
 
-  {
-    "zbirenbaum/copilot-cmp",
-    config = function()
-      local cmp = require("copilot_cmp")
+      -- And you can configure cmp even more, if you want to.
+      local cmp = require("cmp")
+      local cmp_action = lsp_zero.cmp_action()
 
-      local has_words_before = function()
-        if vim.api.nvim_buf_get_option(0, "buftype") == "prompt" then
-          return false
-        end
-        local line, col = unpack(vim.api.nvim_win_get_cursor(0))
-        return col ~= 0 and vim.api.nvim_buf_get_text(0, line - 1, 0, line - 1, col, {})[1]:match("^%s*$") == nil
-      end
-
-      cmp.setup({
-        mapping = {
-          ["<Tab>"] = vim.schedule_wrap(function(fallback)
-            if cmp.visible() and has_words_before() then
-              cmp.select_next_item({ behavior = cmp.SelectBehavior.Select })
-            else
-              fallback()
-            end
-          end),
+      local lspkind = require("lspkind")
+      lspkind.init({
+        mode = "symbol_text",
+        preset = "default",
+        symbol_map = {
+          --   Class = "󰠱",
+          --   Color = "󰏘",
+          --   Constant = "󰏿",
+          --   Constructor = "",
+          Copilot = "",
+          --   Enum = "",
+          --   EnumMember = "",
+          --   Event = "",
+          --   Field = "󰜢",
+          --   File = "󰈙",
+          --   Folder = "󰉋",
+          --   Function = "󰊕",
+          --   Interface = "",
+          --   Keyword = "󰌋",
+          --   Method = "󰆧",
+          --   Module = "",
+          --   Operator = "󰆕",
+          --   Property = "󰜢",
+          --   Reference = "󰈇",
+          --   Snippet = "",
+          --   Struct = "󰙅",
+          --   Text = "󰉿",
+          --   TypeParameter = "",
+          --   Unit = "󰑭",
+          --   Value = "󰎠",
+          --   Variable = "󰀫"
         },
       })
+      vim.api.nvim_set_hl(0, "CmpItemKindCopilot", { fg = "#6CC644" })
+
+      cmp.setup({
+        window = {
+          completion = cmp.config.window.bordered(),
+          documentation = cmp.config.window.bordered(),
+        },
+        formatting = {
+          format = lspkind.cmp_format({
+            mode = "symbol", -- show only symbol annotations
+            maxwidth = function()
+              return math.floor(0.45 * vim.o.columns)
+            end,
+            -- maxwidth = 50, -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
+            ellipsis_char = "...",
+            show_labelDetails = true,
+          }),
+        },
+        mapping = cmp.mapping.preset.insert({
+          ["<CR>"] = cmp.mapping.confirm({ select = false }),
+          ["<Tab>"] = cmp_action.luasnip_supertab(),
+          ["<S-Tab>"] = cmp_action.luasnip_shift_supertab(),
+          ["<C-Space>"] = cmp.mapping.complete(),
+          ["<C-j>"] = cmp.mapping.scroll_docs(-4),
+          ["<C-k>"] = cmp.mapping.scroll_docs(4),
+        }),
+        sources = cmp.config.sources({
+          { name = "nvim_lsp" },
+          { name = "copilot" },
+          { name = "path" },
+          { name = "render-markdown" },
+        }, {
+          { name = "buffer" },
+        }),
+      })
     end,
-  },
-
-  -- {
-  --   "CopilotC-Nvim/CopilotChat.nvim",
-  --   branch = "main",
-  --   dependencies = {
-  --     { "github/copilot.vim" }, -- or zbirenbaum/copilot.lua
-  --     { "nvim-lua/plenary.nvim", branch = "master" }, -- for curl, log and async functions
-  --   },
-  --   event = "VeryLazy",
-  --   build = "make tiktoken", -- Only on MacOS or Linux
-  --   opts = {
-  --     -- See Configuration section for options
-  --     model = "claude-3.7-sonnet",
-  --   },
-  --   keys = {
-  --     { "<leader>cce", "<cmd>CopilotChatExplain<cr>", desc = "CopilotChat - Explain code" },
-  --     { "<leader>cct", "<cmd>CopilotChatTests<cr>", desc = "CopilotChat - Generate tests" },
-  --     {
-  --       "<leader>ccv",
-  --       ":CopilotChatVisual",
-  --       mode = "x",
-  --       desc = "CopilotChat - Open in vertical split",
-  --     },
-  --     {
-  --       "<leader>ccx",
-  --       ":CopilotChatInPlace<cr>",
-  --       mode = "x",
-  --       desc = "CopilotChat - Run in-place code",
-  --     },
-  --   },
-  -- },
-
-  {
-    "yetone/avante.nvim",
-    event = "VeryLazy",
-    lazy = false,
-    opts = {
-      provider = "copilot",
-      auto_suggestions_provider = "copilot",
-      copilot = { model = "claude-3.7-sonnet" },
-    },
-    build = "make",
-    dependencies = {
-      "MeanderingProgrammer/render-markdown.nvim",
-      "MunifTanjim/nui.nvim",
-      "hrsh7th/nvim-cmp",
-      "nvim-lua/plenary.nvim",
-      "nvim-tree/nvim-web-devicons",
-      "stevearc/dressing.nvim",
-      "zbirenbaum/copilot.lua",
-    },
   },
 }
