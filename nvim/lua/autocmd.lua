@@ -16,35 +16,42 @@ vim.cmd([[
 vim.api.nvim_create_autocmd("ColorScheme", {
   pattern = "*",
   callback = function()
+    local function clear_bg(name)
+      local hl = vim.api.nvim_get_hl(0, { name = name })
+      hl.bg = "NONE"
+      hl.ctermbg = "NONE"
+
+      vim.api.nvim_set_hl(0, name, hl)
+    end
     -- Normal text
-    vim.api.nvim_set_hl(0, "Normal", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NormalNC", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("Normal")
+    clear_bg("NormalNC")
+    clear_bg("NormalFloat")
     -- Line numbers
-    vim.api.nvim_set_hl(0, "LineNr", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "SignColumn", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("LineNr")
+    clear_bg("SignColumn")
     -- Neo-tree
-    vim.api.nvim_set_hl(0, "NeoTreeNormal", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NeoTreeNormalNC", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("NeoTreeNormal")
+    clear_bg("NeoTreeNormalNC")
     -- Noice
-    vim.api.nvim_set_hl(0, "NoiceCmdline", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("NoiceCmdline")
     -- Notify
-    vim.api.nvim_set_hl(0, "NotifyERRORBody", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyWARNBody", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyINFOBody", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyDEBUGBody", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyTRACEBody", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyERRORBorder", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyWARNBorder", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyINFOBorder", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyDEBUGBorder", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "NotifyTRACEBorder", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("NotifyERRORBody")
+    clear_bg("NotifyWARNBody")
+    clear_bg("NotifyINFOBody")
+    clear_bg("NotifyDEBUGBody")
+    clear_bg("NotifyTRACEBody")
+    clear_bg("NotifyERRORBorder")
+    clear_bg("NotifyWARNBorder")
+    clear_bg("NotifyINFOBorder")
+    clear_bg("NotifyDEBUGBorder")
+    clear_bg("NotifyTRACEBorder")
     -- Status line
-    vim.api.nvim_set_hl(0, "StatusLine", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "StatusLineNC", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("StatusLine")
+    clear_bg("StatusLineNC")
     -- Other UI elements
-    vim.api.nvim_set_hl(0, "NonText", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "VertSplit", { bg = "NONE", ctermbg = "NONE" })
-    vim.api.nvim_set_hl(0, "TabLineFill", { bg = "NONE", ctermbg = "NONE" })
+    clear_bg("NonText")
+    clear_bg("VertSplit")
+    clear_bg("TabLineFill")
   end,
 })
