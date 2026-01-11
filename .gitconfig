@@ -1,31 +1,27 @@
-[commit]
-  gpgSign = true
-  verbose = true
-[core]
-  excludesfile = ~/.gitignore
-  editor       = nvim
-  pager        = delta
+[user]
+  name = Felipe Vieira
+  email = nvieirafelipe@gmail.com
+
 [credential "https://github.com"]
   helper = !gh auth git-credential
 [credential "https://gist.github.com"]
   helper = !gh auth git-credential
 [credential]
   helper = store
-[delta]
-  file-modified-label = 
-  line-numbers        = true
-  navigate            = true
-  side-by-side        = true
-  syntax-theme        = Dracula
+
+[core]
+  excludesfile = ~/.gitignore
+  editor       = nvim
+  pager        = delta
+[commit]
+  gpgSign = true
+  verbose = true
 [diff]
   colorMoved = default
 [init]
   defaultBranch = main
 [interactive]
   diffFilter = delta --color-only
-[user]
-  name = Felipe Vieira
-  email = nvieirafelipe@gmail.com
 [merge]
   conflictstyle = zdiff3
 [pull]
@@ -33,3 +29,12 @@
 [push]
   default = simple
   followTags = true
+
+[delta]
+  file-modified-label       = 
+  line-numbers              = true
+  line-numbers-left-format  = ""
+  line-numbers-right-format = "│ "
+  navigate                  = true
+  side-by-side              = true
+  syntax-theme              = Dracula
