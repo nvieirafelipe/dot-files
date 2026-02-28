@@ -46,6 +46,7 @@ return {
         ensure_installed = {
           "autotools_ls",
           "bashls",
+          "copilot-language-server",
           "cssls",
           "diagnosticls",
           "docker_compose_language_service",

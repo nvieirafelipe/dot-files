@@ -42,7 +42,7 @@ return {
     "folke/sidekick.nvim",
     event = "VeryLazy",
     opts = {
-      -- add any options here
+      nes = { enabled = false },
     },
      -- stylua: ignore
      keys = {
