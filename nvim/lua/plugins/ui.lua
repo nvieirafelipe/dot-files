@@ -273,10 +273,10 @@ return {
     "MeanderingProgrammer/render-markdown.nvim",
     after = { "nvim-treesitter" },
     opts = {
-      file_types = { "markdown", "Avante" },
+      file_types = { "markdown" },
       latex = { enabled = false },
     },
-    ft = { "markdown", "Avante" },
+    ft = { "markdown" },
   },
 
   {
