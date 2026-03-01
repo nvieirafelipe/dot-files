@@ -32,7 +32,7 @@
 **Why**: vim-startify is Vimscript-only. snacks.nvim (already installed) has a modern dashboard.
 
 This removes a plugin and its global `_G.webDevIcons` function. Configure snacks dashboard with the same bookmarks as in startify.
-And use the startify themre:
+And use the startify theme:
 
 ```
 {
@@ -57,7 +57,7 @@ And use the startify themre:
 
 ### 3. Replace vim-surround with nvim-surround
 
-**File**: `lua/plugins/editor.lua:264`
+**File**: `lua/plugins/editor.lua:262`
 **Why**: nvim-surround is a Lua-native drop-in with same keybindings (`ys`, `cs`, `ds`) plus treesitter integration and dot-repeat without vim-repeat.
 
 ```lua
@@ -143,14 +143,14 @@ Both `mapleader` and `maplocalleader` are set to `<Space>`. This means filetype-
 
 No `lazy-lock.json` found. Run `:Lazy lock` to generate one and commit it. This prevents unexpected breakage from plugin updates.
 
-### 13. Improve telescope descriptions
+### 13. Improve telescope/picker descriptions
 
-Several telescope keymaps reuse the same description "Get results live as you type":
+Several picker keymaps reuse the same description "Get results live as you type":
 - `<C-f>` should be "Buffer picker (MRU)"
 - `<C-j>` should be "Jump list"
 - `<C-l>` should be "Live grep (hidden files)"
 
-This matters for which-key display.
+This matters for which-key display. Will resolve when telescope is migrated to snacks.picker (high-priority #4).
 
 ### 14. Add Elixir-specific tooling
 
@@ -175,8 +175,6 @@ You load mini.nvim for auto-pairs only. mini.nvim has many useful modules you co
 
 The list includes `"packer"` which is not used (you use lazy.nvim). Remove it for cleanliness.
 
-### 18. Consider Avante.nvim for AI -- Ignore for now
+### 18. Remove `"Avante"` from render-markdown file_types
 
-`render-markdown.nvim` is configured with `file_types = { "markdown", "Avante" }` but Avante.nvim is not installed. Either:
-- Install yetone/avante.nvim if you want it
-- Remove `"Avante"` from the file_types list
+`render-markdown.nvim` is configured with `file_types = { "markdown", "Avante" }` but Avante.nvim is not installed. Remove `"Avante"` from the file_types and ft lists.
