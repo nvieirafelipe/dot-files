@@ -1,5 +1,5 @@
 ---
-name: maintaining-neovim
+name: neovim
 description: Maintains and improves Neovim configuration. Use when editing plugins, keymaps, options, LSP setup, or diagnosing neovim issues.
 ---
 
