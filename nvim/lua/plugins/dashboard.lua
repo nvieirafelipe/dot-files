@@ -3,17 +3,17 @@ return {
     -- Startup screen
     "mhinz/vim-startify",
     dependencies = {
-      "nvim-tree/nvim-web-devicons"
+      "nvim-tree/nvim-web-devicons",
     },
     config = function()
       vim.g.startify_bookmarks = { { n = "~/Developer/dot-files/nvim" }, { p = "~/Developer/work" } }
       vim.g.startify_change_to_vcs_root = 1
 
       function _G.webDevIcons(path)
-        local filename = vim.fn.fnamemodify(path, ':t')
-        local extension = vim.fn.fnamemodify(path, ':e')
+        local filename = vim.fn.fnamemodify(path, ":t")
+        local extension = vim.fn.fnamemodify(path, ":e")
 
-        devicons = require("nvim-web-devicons")
+        local devicons = require("nvim-web-devicons")
         return devicons.get_icon(filename, extension, { default = true })
       end
 
@@ -26,6 +26,6 @@ return {
       vim.cmd([[
         autocmd FileType startify setlocal cursorline cursorcolumn
       ]])
-    end
-  }
+    end,
+  },
 }

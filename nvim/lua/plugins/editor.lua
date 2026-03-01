@@ -266,6 +266,4 @@ return {
     "tpope/vim-projectionist",
   },
 
-  -- Markdown table formatter
-  { "dhruvasagar/vim-table-mode" },
 }

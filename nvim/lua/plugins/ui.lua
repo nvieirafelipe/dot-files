@@ -288,8 +288,8 @@ return {
       -- your configuration comes here
       -- or leave it empty to use the default settings
       -- refer to the configuration section below
-      notifier = { enabled = true },
-      notify = { enabled = true },
+      notifier = { enabled = false },
+      notify = { enabled = false },
       picker = { enabled = true },
       win = {
         backdrop = {
@@ -387,9 +387,7 @@ return {
         },
         {
           "<leader>n",
-          function()
-            Snacks.notifier.show_history()
-          end,
+          "<cmd>Notifications<cr>",
           desc = "Notification History",
         },
         {
