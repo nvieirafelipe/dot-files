@@ -5,24 +5,9 @@
 
 ---
 
-## 1. Fix neo-tree `Util.lsp.on_rename` bug
+## ~~1. Fix neo-tree `Util.lsp.on_rename` bug~~ DONE
 
-**File**: `lua/plugins/neotree.lua:52-54`
-**Impact**: Runtime error on every file rename/move in neo-tree
-
-The `Util` global comes from LazyVim distribution, which is not installed. Replace with snacks.nvim (already available):
-
-```lua
--- BEFORE (broken)
-local function on_move(data)
-  Util.lsp.on_rename(data.source, data.destination)
-end
-
--- AFTER (working)
-local function on_move(data)
-  Snacks.rename.on_rename_file(data.source, data.destination)
-end
-```
+Replaced `Util.lsp.on_rename` with `Snacks.rename.on_rename_file` in neotree.lua.
 
 ---
 
@@ -48,31 +33,9 @@ end
 
 ---
 
-## 3. Remove numbers.vim — replace with native autocommand
+## ~~3. Remove numbers.vim — replace with native autocommand~~ DONE
 
-**File**: `lua/plugins/ui.lua:259-269`
-**Impact**: Plugin unmaintained since 2020. Native Neovim can do this.
-
-```lua
--- Remove the plugin spec entirely and add to autocmd.lua:
-local numtoggle = vim.api.nvim_create_augroup("NumberToggle", { clear = true })
-vim.api.nvim_create_autocmd({ "BufEnter", "FocusGained", "InsertLeave", "WinEnter" }, {
-  group = numtoggle,
-  callback = function()
-    if vim.wo.number and vim.fn.mode() ~= "i" then
-      vim.wo.relativenumber = true
-    end
-  end,
-})
-vim.api.nvim_create_autocmd({ "BufLeave", "FocusLost", "InsertEnter", "WinLeave" }, {
-  group = numtoggle,
-  callback = function()
-    if vim.wo.number then
-      vim.wo.relativenumber = false
-    end
-  end,
-})
-```
+Removed plugin from ui.lua, added native NumberToggle augroup to autocmd.lua.
 
 ---
 
@@ -96,50 +59,21 @@ vim.api.nvim_create_autocmd({ "BufLeave", "FocusLost", "InsertEnter", "WinLeave"
 
 ---
 
-## 5. Resolve nvim-notify vs snacks.notifier conflict
+## ~~5. Resolve nvim-notify vs snacks.notifier conflict~~ DONE
 
-**File**: `lua/plugins/ui.lua`
-**Impact**: Both override `vim.notify`. Return type incompatibility can break other plugins.
-
-**Keep nvim-notify (via noice), disable snacks.notifier**
-- Set `notifier = { enabled = false }, notify = { enabled = false }` in snacks opts
-- Keep noice + nvim-notify as the notification stack
+Disabled snacks.notifier and snacks.notify. Kept noice + nvim-notify as the notification stack. Updated `<leader>n` to use `:Notifications` command.
 
 ---
 
-## 6. Replace vim-gitgutter with gitsigns.nvim
+## ~~6. Replace vim-gitgutter with gitsigns.nvim~~ DONE
 
-**File**: `lua/plugins/git.lua:71`
-**Impact**: vim-gitgutter is Vimscript. gitsigns.nvim is Lua-native, faster, and adds inline blame + hunk staging.
-
-```lua
--- Replace:
-{ "airblade/vim-gitgutter" }
-
--- With:
-{
-  "lewis6991/gitsigns.nvim",
-  event = "VeryLazy",
-  opts = {
-    signs = {
-      add = { text = "▎" },
-      change = { text = "▎" },
-      delete = { text = "" },
-      topdelete = { text = "" },
-      changedelete = { text = "▎" },
-    },
-  },
-}
-```
+Replaced vim-gitgutter with gitsigns.nvim (Lua-native, lazy-loaded) in git.lua.
 
 ---
 
-## 7. Remove duplicate vim-table-mode entry
+## ~~7. Remove duplicate vim-table-mode entry~~ DONE
 
-**File**: `lua/plugins/editor.lua:256,270`
-**Impact**: Code smell. `dhruvasagar/vim-table-mode` is listed twice.
-
-Remove the second entry at line 270.
+Removed the second duplicate entry at editor.lua:270.
 
 ---
 
@@ -151,27 +85,6 @@ If lsp-zero is removed (item #2), this resolves itself. Snacks keymaps become th
 
 ---
 
-## 9. Modernize YankHighlight autocommand
+## ~~9. Modernize YankHighlight autocommand~~ DONE
 
-**File**: `lua/autocmd.lua:7-13`
-**Impact**: Uses old VimL `vim.cmd` augroup pattern. Should use native Lua API.
-
-```lua
--- BEFORE (VimL in Lua)
-vim.cmd([[
-  augroup YankHighlight
-    autocmd!
-    autocmd TextYankPost * silent! lua vim.hi.on_yank()
-  augroup end
-]])
-
--- AFTER (native Lua)
-vim.api.nvim_create_autocmd("TextYankPost", {
-  group = vim.api.nvim_create_augroup("YankHighlight", { clear = true }),
-  callback = function()
-    vim.hl.on_yank()
-  end,
-})
-```
-
-Note: `vim.hi.on_yank()` is the old name — it was renamed to `vim.hl.on_yank()` in newer Neovim versions.
+Replaced VimL augroup with native Lua API and updated `vim.hi.on_yank()` to `vim.hl.on_yank()`.
