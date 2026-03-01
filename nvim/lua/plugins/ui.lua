@@ -230,18 +230,6 @@ return {
     main = "ibl",
   },
 
-  {
-    "myusuf3/numbers.vim",
-    config = function()
-      vim.g.numbers_exclude = {
-        "help",
-        "neo-tree",
-        "neo-tree-popup",
-        "startify",
-      }
-    end,
-  },
-
   -- Highlight the part of a line that doesn"t fit into textwidth
   {
     "lcheylus/overlength.nvim",
