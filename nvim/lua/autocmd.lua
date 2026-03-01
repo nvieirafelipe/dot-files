@@ -4,13 +4,13 @@ vim.api.nvim_create_autocmd({ "BufWritePre" }, {
   command = [[%s/\s\+$//e]],
 })
 
---- Highlight on yank
-vim.cmd([[
-  augroup YankHighlight
-    autocmd!
-    autocmd TextYankPost * silent! lua vim.hi.on_yank()
-  augroup end
-]])
+-- Highlight on yank
+vim.api.nvim_create_autocmd("TextYankPost", {
+  group = vim.api.nvim_create_augroup("YankHighlight", { clear = true }),
+  callback = function()
+    vim.hl.on_yank()
+  end,
+})
 
 -- Transparency
 vim.api.nvim_create_autocmd("ColorScheme", {
