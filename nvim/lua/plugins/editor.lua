@@ -259,7 +259,12 @@ return {
 
   { "tpope/vim-rhubarb" },
 
-  { "tpope/vim-surround" },
+  {
+    "kylechui/nvim-surround",
+    version = "*",
+    event = "VeryLazy",
+    opts = {},
+  },
 
   {
     -- Missing neo-tree templates integration
