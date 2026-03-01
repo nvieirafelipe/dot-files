@@ -46,7 +46,6 @@ return {
         ensure_installed = {
           "autotools_ls",
           "bashls",
-          "copilot-language-server",
           "cssls",
           "diagnosticls",
           "docker_compose_language_service",
@@ -54,7 +53,6 @@ return {
           "elixirls",
           "erlangls",
           "eslint",
-          "grammarly",
           "html",
           "jqls",
           "jsonls",
@@ -67,6 +65,7 @@ return {
           "taplo",
           "templ",
           "terraformls",
+          "textlsp",
           "tflint",
           "ts_ls",
           "vimls",
