@@ -79,6 +79,26 @@ export FZF_DEFAULT_COMMAND='rg --files --no-ignore --hidden --follow --glob "!{.
 # Added by backup.
 [ -f /opt/backup/bash-completion/backup ] && . /opt/backup/bash-completion/backup
 
+# Claude native installation
+export PATH="/Users/nvieirafelipe/.local/bin:$PATH"
+
+# Added by Playbill
+export PATH="/Users/nvieirafelipe/Developer/playbill:$PATH"
+
+# Added by local tooling
+export PATH="$HOME/.local/work/bin:$PATH"
+
+# Ghostty tokyonight theme auto-download
+if command -v ghostty &> /dev/null; then
+  GHOSTTY_THEME_DIR="$HOME/Library/Application Support/com.mitchellh.ghostty/themes/tokyonight"
+
+  if [[ ! -f "$GHOSTTY_THEME_DIR/tokyonight_storm" ]]; then
+    mkdir -p "$GHOSTTY_THEME_DIR"
+    curl -fsSL "https://raw.githubusercontent.com/folke/tokyonight.nvim/refs/heads/main/extras/ghostty/tokyonight_storm" \
+      -o "$GHOSTTY_THEME_DIR/tokyonight_storm"
+  fi
+fi
+
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
@@ -97,3 +117,7 @@ if [[ "$OSTYPE" == darwin* ]]; then
   export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
   ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
 fi
+
+### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
+export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
+### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
