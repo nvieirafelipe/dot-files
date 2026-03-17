@@ -31,10 +31,14 @@ vim.api.nvim_create_autocmd({ "BufLeave", "FocusLost", "InsertEnter", "WinLeave"
   end,
 })
 
--- Transparency
+-- Transparency (only in dark mode, light mode needs its backgrounds)
 vim.api.nvim_create_autocmd("ColorScheme", {
   pattern = "*",
   callback = function()
+    if vim.o.background == "light" then
+      return
+    end
+
     local function clear_bg(name)
       local hl = vim.api.nvim_get_hl(0, { name = name })
       hl.bg = "NONE"
