@@ -19,3 +19,5 @@ require("keymaps")
 require("autocmd")
 
 require("lazy").setup("plugins")
+
+-- vim.lsp.set_log_level("debug")
