@@ -14,14 +14,30 @@ Observations → Revisits into a queryable DAG backed by SQLite.
 
 ## Prerequisites
 
-Deciduous must be initialized in the project:
+Check if `deciduous` is available:
 
 ```bash
-deciduous init
+which deciduous 2>/dev/null
 ```
 
-If `deciduous` is not on PATH, tell the user to install it
-from https://deciduous.dev/ and do not proceed.
+If not found, install it:
+
+```bash
+# macOS
+brew install deciduous
+
+# Or from source
+cargo install deciduous
+```
+
+If neither works, tell the user to install from
+https://deciduous.dev/ and do not proceed.
+
+Once available, initialize in the project if not already:
+
+```bash
+[ -d .deciduous ] || deciduous init
+```
 
 ## Node vocabulary
 
