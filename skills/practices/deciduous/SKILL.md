@@ -1,0 +1,178 @@
+---
+name: deciduous
+description: Records architectural decisions as a queryable graph with Deciduous. Use when logging decision rationale, recovering session context, tracking approach pivots, bootstrapping decision history from git, or when the user mentions deciduous, decision graph, or decision tracking.
+---
+
+STARTER_CHARACTER = 🌳
+
+## What Deciduous is
+
+A living decision graph for codebases. It captures *why* code
+looks the way it does — not just *what* changed. The graph
+connects Goals → Options → Decisions → Actions → Outcomes →
+Observations → Revisits into a queryable DAG backed by SQLite.
+
+## Prerequisites
+
+Deciduous must be initialized in the project:
+
+```bash
+deciduous init
+```
+
+If `deciduous` is not on PATH, tell the user to install it
+from https://deciduous.dev/ and do not proceed.
+
+## Node vocabulary
+
+- **Goal** — what needs accomplishing
+- **Option** — an approach considered
+- **Decision** — the choice made and its rationale
+- **Action** — implementation work performed
+- **Outcome** — observable result
+- **Observation** — insight that attaches anywhere in the graph
+- **Revisit** — pivot point where a prior approach was superseded
+
+## Commands
+
+### `/decision-graph` — bootstrap from git history
+
+Analyzes commit history and builds a retroactive decision
+graph. Nodes are backdated to commit timestamps and grounded
+in real SHAs.
+
+Use **once per repo** to bootstrap, or when onboarding to an
+unfamiliar codebase.
+
+### `/work` — start a work transaction
+
+Creates a Goal node before implementation begins. Subsequent
+Actions and Outcomes are linked automatically through to
+commit.
+
+Use **every time you start a unit of work**. This is the
+"begin transaction" for decision tracking.
+
+### `/decision` — log a choice
+
+Records Options considered, the Decision made, and the
+rationale. Also manages edges, attachments, and exports.
+
+Use **at architectural inflection points** — choosing between
+approaches, making trade-offs, picking libraries or patterns.
+
+### `/recover` — restore session context
+
+Rebuilds active goals, attached documents, branch state, and
+recent commits. Audits for disconnected nodes.
+
+Use **at the start of every new session**, especially after
+context compaction.
+
+### `/document` — generate docs from the graph
+
+Traces callers, tests, and dependencies for a file or
+directory and generates documentation.
+
+Use **before refactoring or onboarding** to understand what
+you are about to touch.
+
+### `/sync` — team synchronization
+
+Append-only, git-mergeable event sync across team members.
+
+Use **on team projects** when multiple people need shared
+decision context.
+
+### `/serve-ui` — local graph viewer
+
+Launches localhost:3000 with DAG, timeline, chains,
+archaeology, and Q&A views. Auto-refreshes.
+
+Use **when you need to visually navigate** the decision
+history or present it to others.
+
+### `/sync-graph` — export for GitHub Pages
+
+Exports graph data to JSON for static deployment.
+
+Use **for sharing the graph externally** — stakeholders, new
+hires, async reviews.
+
+## Skills (contextual guides)
+
+### `pulse`
+
+Reads code within a scope and maps it to decisions. Shows
+active goals and completion status.
+
+Use for **quick health checks** — "where are we on this
+subsystem?"
+
+### `narratives`
+
+Maintains `.deciduous/narratives.md` — a living doc of how
+subsystems evolved, with pivot tracking.
+
+Runs **continuously** as the system evolves. It is the prose
+companion to the graph.
+
+### `archaeology`
+
+Turns narratives into graph structure. Creates Revisit nodes
+and marks old approaches as superseded.
+
+Use **when approaches change** — the pivot happened, now
+record it properly.
+
+## Integration with plan files
+
+When generating plan files (e.g. `plan.md` for story
+workflows or any structured implementation plan), bridge
+decisions to the Deciduous graph:
+
+1. After finalizing the `## Decisions` table in the plan,
+   run `/decision` for each row to create Decision nodes
+   linked to the current Goal
+2. Include the Options you considered — not just the choice
+   made — so the graph captures the full decision space
+3. When deviating from a plan during implementation, create
+   a Revisit node linking the original Decision to the new
+   approach
+
+This keeps the plan as the readable artifact and the graph
+as the queryable, cross-project knowledge base.
+
+## Typical workflows
+
+**New repo, no history:**
+`/work` → implement → `/decision` at inflection points →
+commit → repeat
+
+**Existing repo, onboarding:**
+`/decision-graph` → `/serve-ui` → explore the timeline →
+`pulse` on the subsystem you will touch
+
+**Resuming work (new session):**
+`/recover` → review active goals → continue
+
+**Pivot happened:**
+`archaeology` → creates Revisit chain → `narratives`
+updates the evolution doc
+
+## Anti-patterns
+
+- Logging every small implementation detail as a Decision
+  node. Reserve Decision nodes for choices with alternatives.
+- Skipping Options. The graph is most valuable when it shows
+  what you *didn't* pick and why.
+- Forgetting `/recover` on session start. Context compaction
+  silently drops decision rationale — the graph is your
+  insurance.
+
+## References
+
+- [commands.md](references/commands.md) — detailed command
+  reference with flags and examples
+- [views.md](references/views.md) — description of each
+  graph view and when to use it
