@@ -176,6 +176,69 @@ commit → repeat
 `archaeology` → creates Revisit chain → `narratives`
 updates the evolution doc
 
+## Versioning strategy
+
+The SQLite database (`.deciduous/deciduous.db`) should NOT be
+versioned — it's a binary file that git can't diff or merge.
+Instead, version the JSON export:
+
+1. Run `deciduous sync` before committing to export the graph
+2. Commit `docs/graph-data.json` and `docs/git-history.json`
+3. The `.deciduous/config.toml` and `.version` are versioned
+4. The database is local — rebuilt from events or fresh
+
+This keeps the decision history human-readable, git-diffable,
+and merge-friendly. The JSON export is what powers the web
+viewer and GitHub Pages deployment.
+
+## Responding to hooks
+
+Deciduous installs two Claude Code hooks. Follow these rules
+when they fire:
+
+### Post-commit reminder (after `git commit`)
+
+The hook outputs the commit hash and message. You MUST:
+
+1. Derive a suggested outcome description from the commit message
+2. Find the most recent action node to link to:
+   ```bash
+   deciduous nodes | grep '\[action\]' | tail -1
+   ```
+3. Present the user with pre-filled commands and ask for
+   confirmation before running them:
+   ```
+   Deciduous: link this commit to the decision graph?
+
+   deciduous add outcome "<derived description>" -c 95 --commit HEAD
+   deciduous link <action_id> <outcome_id> -r "<derived reason>"
+
+   Want me to run these, or adjust anything?
+   ```
+4. Only run the commands after the user confirms or adjusts.
+5. Do NOT silently skip this step or treat it as optional.
+
+### Pre-edit guard (before `Edit`/`Write`)
+
+The hook blocks edits when no recent action/goal node exists.
+When blocked:
+
+1. Derive a suggested action description from the task context
+2. Find the most recent goal node to link to:
+   ```bash
+   deciduous nodes | grep '\[goal\]' | tail -1
+   ```
+3. Present the user with pre-filled commands and ask:
+   ```
+   Deciduous: no recent action node. Create one before editing?
+
+   deciduous add action "<derived description>" -c 85
+   deciduous link <goal_id> <action_id> -r "<derived reason>"
+
+   Want me to run these, or adjust anything?
+   ```
+4. Only run after user confirms. Then retry the edit.
+
 ## Anti-patterns
 
 - Logging every small implementation detail as a Decision
