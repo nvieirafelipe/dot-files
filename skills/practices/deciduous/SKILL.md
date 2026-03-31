@@ -23,14 +23,10 @@ which deciduous 2>/dev/null
 If not found, install it:
 
 ```bash
-# macOS
 brew install deciduous
-
-# Or from source
-cargo install deciduous
 ```
 
-If neither works, tell the user to install from
+If not available, tell the user to install from
 https://deciduous.dev/ and do not proceed.
 
 Once available, initialize in the project if not already:
