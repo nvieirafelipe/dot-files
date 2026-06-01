@@ -194,7 +194,8 @@ when they fire:
 
 ### Post-commit reminder (after `git commit`)
 
-The hook outputs the commit hash and message. You MUST:
+The hook outputs the commit hash, message, pending action/outcome
+count, and (when applicable) sweep + checkpoint hints. You MUST:
 
 1. Derive a suggested outcome description from the commit message
 2. Find the most recent action node to link to:
@@ -207,12 +208,25 @@ The hook outputs the commit hash and message. You MUST:
    Deciduous: link this commit to the decision graph?
 
    deciduous add outcome "<derived description>" -c 95 --commit HEAD
-   deciduous link <action_id> <outcome_id> -r "<derived reason>"
+   deciduous link <outcome_id> <action_id> -r "<derived reason>"
+   deciduous status <action_id> completed
+   deciduous status <outcome_id> completed
 
    Want me to run these, or adjust anything?
    ```
 4. Only run the commands after the user confirms or adjusts.
 5. Do NOT silently skip this step or treat it as optional.
+6. If the hook surfaces a **sweep hint** (pending count > 10), offer
+   a status sweep alongside the commit link. Group the pending IDs
+   by shipped vs. not-shipped, then propose:
+   ```bash
+   deciduous status <id> completed   # for shipped action/outcome
+   deciduous status <id> rejected    # for options not chosen
+   deciduous status <id> cancelled   # for abandoned work
+   ```
+7. If the hook surfaces a **checkpoint hint** (event log > 256KB),
+   propose `deciduous events checkpoint --clear-events` after the
+   commit link is in.
 
 ### Pre-edit guard (before `Edit`/`Write`)
 
@@ -235,6 +249,68 @@ When blocked:
    ```
 4. Only run after user confirms. Then retry the edit.
 
+## Graph health maintenance — MANDATORY
+
+Status drift is the #1 health problem: commits land but nodes
+stay `pending`, pulse fills with stale entries, and rationale
+becomes hard to query. Apply these rules every session.
+
+### After every commit that implements an action
+
+```bash
+# 1. New outcome node, linked to the commit
+deciduous add outcome "Brief result description" -c 90 --commit HEAD
+
+# 2. Link outcome -> action that produced it
+deciduous link <outcome_id> <action_id> -r "Result of <action>"
+
+# 3. Flip both nodes to completed once verified
+deciduous status <action_id> completed
+deciduous status <outcome_id> completed
+```
+
+### When a decision lands
+
+```bash
+deciduous status <chosen_option_id>  completed
+deciduous status <rejected_option_id> rejected   # NOT pending
+deciduous status <decision_id>       completed
+```
+
+`rejected` is the correct terminal state for unchosen options —
+keeps the alternatives signal while clearing the pending bucket.
+
+### Periodic sweeps (weekly, or when pulse looks noisy)
+
+```bash
+# 1. List pending action/outcome nodes
+deciduous nodes | awk '$3=="pending" && ($2=="action"||$2=="outcome")'
+
+# 2. Flip shipped -> completed, unshipped -> rejected/cancelled
+deciduous status <id> completed
+deciduous status <id> rejected
+
+# 3. Checkpoint events when log >256KB
+deciduous events checkpoint --clear-events
+
+# 4. Auto-associate commits to recent action/outcome nodes
+deciduous audit --associate-commits --dry-run
+deciduous audit --associate-commits --yes
+
+# 5. Re-run pulse to confirm
+make deciduous-pulse   # or: deciduous pulse
+```
+
+### Health targets
+
+| Metric | Target |
+|--------|--------|
+| Coverage gaps | 0 (every action has ≥1 outcome) |
+| Pending action/outcome | <10 (hook nags above this) |
+| Event log per author | <256KB (hook nags above this) |
+| Options ÷ decisions | ≥1.5 (alternatives logged) |
+| Confidence unset | 0 (always pass `-c <0-100>`) |
+
 ## Anti-patterns
 
 - Logging every small implementation detail as a Decision
@@ -244,6 +320,12 @@ When blocked:
 - Forgetting `/recover` on session start. Context compaction
   silently drops decision rationale — the graph is your
   insurance.
+- Leaving action/outcome nodes `pending` after the commit
+  lands. Flip status at the same time as the commit-link.
+- Leaving unchosen options `pending`. Use `rejected` so the
+  pending bucket only contains genuinely open work.
+- Letting the event log grow past 256KB without checkpointing.
+  Rebuild gets slow and merges get noisy.
 
 ## References
 

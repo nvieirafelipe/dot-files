@@ -113,3 +113,60 @@ Transforms narratives into graph structure:
 - Marks old approaches as superseded
 - Connects the complete timeline
 - Enables archaeology view navigation
+
+## deciduous status
+
+Flips a node between lifecycle states.
+
+```bash
+deciduous status <id> completed   # shipped / chosen / observed
+deciduous status <id> rejected    # option not taken
+deciduous status <id> cancelled   # work abandoned
+deciduous status <id> pending     # rare — only to reopen
+```
+
+Run after every commit to flip the corresponding action +
+outcome to `completed`. Run when a decision lands to flip
+chosen options to `completed` and unchosen options to
+`rejected`. Never leave shipped work `pending`.
+
+## deciduous events checkpoint
+
+Snapshots the graph and (optionally) clears the event log.
+
+```bash
+deciduous events checkpoint               # snapshot only
+deciduous events checkpoint --clear-events # snapshot + truncate
+```
+
+Run when `deciduous events status` shows an event file
+larger than ~256KB per author. The post-commit hook surfaces
+a hint when this threshold is crossed.
+
+## deciduous audit
+
+Maintains graph data quality.
+
+```bash
+deciduous audit --associate-commits --dry-run  # preview
+deciduous audit --associate-commits --yes      # apply
+deciduous audit --associate-commits --min-score 60
+```
+
+Auto-associates git commits with action/outcome nodes by
+title similarity. Run after a status sweep so the graph
+links back to the SHAs that produced each outcome.
+
+## deciduous pulse maintenance loop
+
+Combine the maintenance commands into a single periodic
+routine:
+
+```bash
+make deciduous-pulse                                       # diagnose
+deciduous nodes | awk '$3=="pending"&&($2~/action|outcome/)' # list stale
+deciduous status <id> completed                            # sweep
+deciduous events checkpoint --clear-events                 # compact
+deciduous audit --associate-commits --yes                  # backlink
+make deciduous-pulse                                       # verify
+```
