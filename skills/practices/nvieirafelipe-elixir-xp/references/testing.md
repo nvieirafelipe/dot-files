@@ -120,6 +120,46 @@ assert inserted == expected
 
 2. Asserting only on shape, not exact values: `assert {:ok, %Entity.Thing{field_a: ^a}} = Subject.do_thing(args)`.
 
+## Fixing FactoryInTests findings — and the evasions that don't count
+
+The `Checks.Design.FactoryInTests` Credo check flags inline map/struct literals, per-field assertions, and pattern-match assertions. The fix is always the same shape: **bind the result, build the WHOLE expected from a factory, compare with `==` / `assert_eq`.** Rewriting the assertion into something that merely silences the check while still testing one field at a time is an *evasion* — it defeats the purpose. Recognise and avoid these:
+
+```elixir
+# finding: pattern-match assertion
+assert {:ok, %Account{is_default: true}} = Accounts.create(scope, attrs)
+
+# WRONG — match?/2 just hides the pattern from the check
+assert match?({:ok, %Account{is_default: true}}, Accounts.create(scope, attrs))
+
+# WRONG — reconstructing a partial map is a per-field assertion in disguise
+assert {:ok, account} = Accounts.create(scope, attrs)
+assert %{is_default: account.is_default} == %{is_default: true}
+
+# WRONG — per-field via the helper is still per-field
+assert_eq account.name == "Checking"
+
+# RIGHT — bind, build the whole expected from a factory, compare whole
+assert {:ok, account} = Accounts.create(scope, attrs)
+expected = Factory.account(id: account.id, is_default: true, name: "Checking")
+assert_eq account == expected
+```
+
+Recurring cases and their canonical fixes:
+
+- **Constructable error/result struct** → factory equality, never `match?`:
+  `assert_eq error == Factory.error(:fx_provider_unavailable)`.
+- **Non-deterministic field** (free-form `reason`, etc.) → pin it with `=~`, seed it into the expected so the rest still compares whole:
+  ```elixir
+  assert {:error, error} = Subject.fetch_rate("USD", "BRL", date)
+  assert error.details.reason =~ "quote_not_found"
+  assert_eq error == Factory.error(:fx_provider_unavailable, details: error.details)
+  ```
+- **"returns a changeset" shape test** → assert a real property, not the struct's mere presence:
+  `assert Subject.change_account(account).valid?` (not `match?(%Ecto.Changeset{}, ...)`).
+- **Changeset errors** → compare a whole errors map, never `refute changeset.valid?` alone:
+  `assert errors_on(changeset) == %{name: ["can't be blank"]}`.
+- **Single-use shape** (built in only ONE file) → keep it as a private helper in that test file, built with `struct(Mod, attrs)` / `Map.new(attrs)` so the assertion site is not a bare literal. Do NOT relocate it into the shared factory namespace — that adds a hop for no reuse.
+
 ## Setup callbacks
 
 Named setups MUST return `{:ok, key: value, ...}`. Plain keyword lists or maps work in ExUnit but the tagged tuple is canonical.
@@ -230,6 +270,47 @@ detail = EventsFactory.Consumer.build(:create_booking_detail)
 ```
 
 Stricter than the rule above. There: "use factories instead of production builders". Here: "use factories instead of any literal map or struct" — inputs as much as expected outputs.
+
+### Every test change — audit factory use, de-duplicate without relocating single-use shapes
+
+Whenever writing OR changing a test, first check whether its map/struct inputs and expected
+values should come from a factory (per the "always use factories" rule above). When you spot an
+inline shape — a literal map/struct, OR a repeated multi-key factory override block — decide
+whether to extract it into a factory using this litmus test:
+
+- **Extract into the factory namespace ONLY IF the same byte-identical shape is built inline in 2+
+  files** (genuine cross-file reuse). Create or extend a factory the callers share: thread the
+  per-call varying values through attrs and default the stable parts.
+- **Do NOT extract a shape built in only ONE file.** Relocating a single-use shape into the shared
+  factory namespace adds indirection — the reader must jump to the factory — without buying any
+  reuse. It trades local clarity for nothing. Keep single-use shapes as a private helper in the
+  test file (or inline).
+- **Structural parts that ALREADY come from a factory call stay as-is.** Only the genuinely
+  duplicated inline remainder is a candidate.
+
+Two hard constraints on any factory you create or change:
+
+- **NEVER write a factory that returns a list.** A factory returns a struct or map. A list of N
+  built items belongs at the call site via `build_list/2` or an explicit list of `build/2` calls.
+- **NEVER call `merge_attributes` on a list.** `merge_attributes` is for structs/maps only.
+
+Nest the new or extended factory by aggregate root (per the factory-naming rules above), and give
+each **new** factory module its own file (one module per file).
+
+**Tracking parser — extend, never fork.** When the shape is a tracking-params variant, do NOT
+create a parallel held-specific tracking factory module. The tracking parser and its factory already
+exist for the regular flow; **update that existing tracking factory to also accept held-booking
+inputs** — add a held variant / thread the held-specific values through its attrs — so the regular
+and held cases share one parser and one factory. A forked held-only namespace duplicates the
+parser's knowledge of the tracking shape and drifts from the regular flow.
+
+Worked example. Two test files both built the same tracking-params shape inline, with an identical
+constant field plus a nested sub-block. Rather than fork a new held-specific tracking factory, the
+**existing tracking factory** was extended to accept the held-booking inputs under one named
+variant that defaults the constant field and builds the nested part from an attrs map, leaving the
+varying values (ids, amounts, result tags) as overridable attrs. Both callers now call the one
+shared tracking factory. Single-use shapes in the same files were deliberately left inline — no
+other file built them, so extracting would only add a hop.
 
 ## Parameterized tests via module-level `for`
 
