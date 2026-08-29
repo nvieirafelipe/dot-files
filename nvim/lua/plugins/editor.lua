@@ -255,7 +255,28 @@ return {
 
   { "dhruvasagar/vim-table-mode" },
 
-  { "tpope/vim-fugitive" },
+  {
+    "tpope/vim-fugitive",
+    config = function()
+      vim.api.nvim_create_autocmd("FileType", {
+        group = vim.api.nvim_create_augroup("FugitiveCommitGvdiff", { clear = true }),
+        pattern = "git",
+        callback = function(args)
+          vim.keymap.set("n", "gO", function()
+            vim.cmd('execute "normal \\<Plug>fugitive:gO"')
+            vim.cmd("wincmd h")
+            vim.cmd("setlocal winhighlight=DiffAdd:DiffDelete")
+            vim.cmd("normal! zX")
+            vim.cmd("syncbind")
+          end, {
+            buffer = args.buf,
+            desc = "Fugitive: side-by-side diff vs parent",
+            silent = true,
+          })
+        end,
+      })
+    end,
+  },
 
   { "tpope/vim-rhubarb" },
 
@@ -270,5 +291,4 @@ return {
     -- Missing neo-tree templates integration
     "tpope/vim-projectionist",
   },
-
 }

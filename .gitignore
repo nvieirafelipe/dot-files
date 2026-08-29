@@ -4,6 +4,7 @@
 **/.projections.json
 .DS_Store
 .claude*
+.deciduous*
 .direnv
 .elixir_ls
 .env
