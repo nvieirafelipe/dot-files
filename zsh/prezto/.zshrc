@@ -48,6 +48,9 @@ fi
 # aliases
 source "$HOME/.aliases"
 
+# functions
+source "$HOME/.functions"
+
 # direnv
 eval "$(direnv hook zsh)"
 
