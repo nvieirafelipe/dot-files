@@ -183,7 +183,7 @@ autotools_ls, bashls, copilot-language-server, cssls, diagnosticls, docker_compo
 |--------|---------|
 | mhinz/vim-startify | Start screen |
 
-**Bookmarks**: `n` = nvim config, `p` = work project
+**Bookmarks**: `n` = nvim config, `p` = work project (from `$WORK_PROJECT_DIR`)
 **Features**: VCS root change, web-devicons integration, global `_G.webDevIcons()` function
 
 ### Treesitter (treesitter.lua)

@@ -6,7 +6,12 @@ return {
       "nvim-tree/nvim-web-devicons",
     },
     config = function()
-      vim.g.startify_bookmarks = { { n = "~/Developer/dot-files/nvim" }, { p = "~/Developer/work" } }
+      local bookmarks = { { n = "~/Developer/dot-files/nvim" } }
+      local work_dir = vim.env.WORK_PROJECT_DIR
+      if work_dir and work_dir ~= "" then
+        table.insert(bookmarks, { p = work_dir })
+      end
+      vim.g.startify_bookmarks = bookmarks
       vim.g.startify_change_to_vcs_root = 1
 
       function _G.webDevIcons(path)

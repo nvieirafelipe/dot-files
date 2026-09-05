@@ -88,9 +88,6 @@ export PATH="/Users/nvieirafelipe/.local/bin:$PATH"
 # Added by Playbill
 export PATH="/Users/nvieirafelipe/Developer/playbill:$PATH"
 
-# Added by local tooling
-export PATH="$HOME/.local/work/bin:$PATH"
-
 # Ghostty tokyonight theme auto-download
 if command -v ghostty &> /dev/null; then
   GHOSTTY_THEME_DIR="$HOME/Library/Application Support/com.mitchellh.ghostty/themes/tokyonight"
@@ -124,3 +121,9 @@ fi
 ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
 export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
+
+# opencode
+export PATH=/Users/nvieirafelipe/.opencode/bin:$PATH
+
+# Machine-local overrides (untracked)
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
