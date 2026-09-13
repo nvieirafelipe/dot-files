@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Prints the diff of the work under review, on any branch. Reachable as
+# `git review` because git treats a `git-*` on PATH as a subcommand.
+#
+# Sourceable as well as runnable. tmux/scripts/review.sh reads the range and
+# the log options from here instead of spawning this script to get them, which
+# on a machine whose endpoint agent inspects every exec was a quarter of a
+# second a call, and it made three. Everything is prefixed gr_ so that sourcing
+# cannot tread on the sourcing script's own main, usage and the rest.
+
+gr_log_opts=(
+  --patch --stat --reverse --abbrev-commit --date=relative
+  --color-moved=dimmed_zebra --color-moved-ws=ignore-all-space
+  --find-renames --find-copies
+)
+
+gr_usage() {
+  cat >&2 <<'USAGE'
+usage: git review [--wip | --staged | --stash <ref> | --range | <n> | <base> | <range>]
+
+  (no args)  commits this branch has that the remote base branch does not.
+             On the base branch itself, that is everything unpushed.
+  <n>        the last n commits.
+  <base>     commits since <base> -- any rev: main, origin/main, a tag, a sha.
+  <range>    an explicit rev range, e.g. abc1234..def5678.
+  --wip      uncommitted changes.
+  --staged   staged changes.
+  --stash    the changes held in a stash, e.g. --stash 'stash@{0}'.
+  --range    print the range that would be reviewed, then exit. Lets callers
+             that cannot source this file share the base resolution.
+
+Leading --no-header suppresses the range line, for callers that show the range
+themselves. It may precede any of the above.
+USAGE
+  exit 64
+}
+
+# origin/HEAD is the authority when the clone has it; the named fallbacks cover
+# clones made before git started recording it.
+gr_base_branch() {
+  git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null && return
+  local ref
+  for ref in origin/main origin/master main master; do
+    if git rev-parse --verify --quiet "$ref" >/dev/null; then
+      printf '%s\n' "$ref"
+      return
+    fi
+  done
+  return 1
+}
+
+# Answers in REPLY rather than on stdout. Read through $(...) it cost a fork,
+# and on a machine whose endpoint agent inspects every exec that is a quarter
+# of a second on the path a reader is waiting on.
+gr_resolve_range() {
+  if [[ -n ${1-} ]]; then
+    if [[ $1 == *..* ]]; then
+      REPLY=$1
+    elif [[ $1 =~ ^[0-9]+$ ]]; then
+      REPLY="HEAD~$1..HEAD"
+    else
+      REPLY="$1..HEAD"
+    fi
+    return
+  fi
+
+  local base range
+  base=$(gr_base_branch) ||
+    { echo 'git review: no base branch found, pass one explicitly' >&2; return 1; }
+  range="$base..HEAD"
+  # Up to date with the base: nothing is outstanding, so review the tip commit.
+  if [[ -z $(git rev-list -1 "$range") ]]; then
+    range=$(git rev-parse --verify --quiet HEAD~1 >/dev/null && echo 'HEAD~1..HEAD' || echo HEAD)
+  fi
+  REPLY=$range
+}
+
+gr_header() {
+  ((gr_show_header)) || return 0
+  printf '\e[1;34m %s\e[0m \e[2m%s\e[0m\n\n' "$1" "$2"
+}
+
+gr_main() {
+  local gr_show_header=1 range count
+  if [[ ${1-} == --no-header ]]; then
+    gr_show_header=0
+    shift
+  fi
+
+  case ${1-} in
+    -h|--help)   gr_usage ;;
+    -w|--wip)    git rev-parse --git-dir >/dev/null
+                 gr_header 'uncommitted' "$(git diff --shortstat HEAD)"
+                 exec git diff --stat --patch HEAD ;;
+    -s|--staged) git rev-parse --git-dir >/dev/null
+                 gr_header 'staged' "$(git diff --cached --shortstat)"
+                 exec git diff --stat --patch --cached ;;
+    -S|--stash)  shift
+                 [[ -n ${1-} ]] || gr_usage
+                 git rev-parse --git-dir >/dev/null
+                 gr_header "$1" "$(git stash show --shortstat "$1" 2>/dev/null)"
+                 exec git stash show --stat --patch "$1" ;;
+    -r|--range)  shift; (($# < 2)) || gr_usage
+                 gr_resolve_range "${1-}" || exit 1
+                 printf '%s\n' "$REPLY"; exit 0 ;;
+    -*)          gr_usage ;;
+  esac
+
+  (($# < 2)) || gr_usage
+
+  # Everything under the header is what --no-header callers pay for and never
+  # use. The git-dir check buys a tidier message than git log's own; the count
+  # exists only to be printed. Both are a git exec, and the subshells around
+  # them a fork each -- on the review window's path that was a second per
+  # chunk, for output that is discarded.
+  gr_resolve_range "${1-}" || exit 1
+  range=$REPLY
+  if ((gr_show_header)); then
+    git rev-parse --git-dir >/dev/null
+    count=$(git rev-list --count "$range")
+    gr_header "$range" "$count commit$([[ $count == 1 ]] || echo s)"
+  fi
+  exec git log "${gr_log_opts[@]}" "$range"
+}
+
+# Dispatch only when run. Sourcing must define and do nothing, the same way
+# tmux/scripts/review.sh guards its own.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  gr_main "$@"
+fi

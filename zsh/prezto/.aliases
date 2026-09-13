@@ -13,7 +13,10 @@ unalias -m "cat"
 alias cat='bat --theme="Dracula"'
 
 alias glog="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative"
-alias glogp="git log --patch --stat --reverse --abbrev-commit --color-moved=dimmed_zebra --color-moved-ws=ignore-all-space --find-renames --find-copies --date=relative --not HEAD..master"
+# bin/git-review, linked onto PATH by install.sh. Resolves the base branch at
+# run time, so it also works while sitting on main/master.
+alias glogp="git review"
+alias glogw="git review --wip"
 
 alias ta="tmux attach -t"
 alias td="tmux detach"
