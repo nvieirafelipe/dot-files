@@ -11,7 +11,7 @@ cd "$repo" || exit 1
 scripts=(
   tmux-review/review.tmux tmux-review/run_tests tmux-review/run_coverage
   tmux-review/bin/git-review tmux-review/scripts/*.sh tmux-review/tests/*.sh
-  tmux/check.sh tmux/rebuild-which-key.sh tmux/scripts/*.sh
+  tmux/check.sh tmux/rebuild-which-key.sh tmux/scripts/*.sh install.sh
 )
 status=0
 

@@ -3,7 +3,9 @@
 **/.expert
 **/.projections.json
 .DS_Store
-.claude*
+# Narrowed from '.claude*' so claude/settings.json can be tracked
+.claude/
+.claude.json
 .deciduous*
 .direnv
 .elixir_ls
@@ -21,3 +23,6 @@ Claude.md
 Dockerfile.dev
 nvim/lazy-lock.json
 vscode.code-workspace
+.snippets/
+.claude/.codeberg-workflow
+.claude/.shortcut-workflow
