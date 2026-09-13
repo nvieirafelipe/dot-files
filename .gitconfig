@@ -12,14 +12,46 @@
 [credential]
   helper = store
 [delta]
-  file-modified-label = 
-  hyperlinks          = true
+  # \uf0f6 rather than \ueb43: same meaning, but measured against the font it is
+  # 52px tall at 64pt where the codicon is only 37 (a capital M is 43), so the
+  # old one rendered smaller than the text beside it.
+  file-modified-label = 
+  file-added-label    = 󰝒
+  file-removed-label  = 󰆴
+  file-renamed-label  = 󰾴
+  file-copied-label   = 󰈙
+  # Off, because delta wraps every line number in an OSC 8 link to the file and
+  # terminals draw a hyperlink with a dashed underline -- which put a dashed
+  # underline under all of them. The cost is that paths and line numbers in a
+  # diff are no longer ctrl-clickable. The review window does not rely on them:
+  # it reads the number out of the gutter text.
+  hyperlinks          = false
   line-numbers        = true
-  line-numbers-left-format  = ""
-  line-numbers-right-format = "│ "
+  # These carry delta's {nm} and {np} placeholders, without which line-numbers
+  # renders the separator and no numbers at all. The review window quotes
+  # file:line when it sends a comment to an agent, and reads the number off the
+  # pane, so the gutter has to actually be there.
+  line-numbers-left-format  = "{nm:>4}┊"
+  line-numbers-right-format = "{np:>4}│"
   navigate            = true
   side-by-side        = true
-  syntax-theme        = Dracula
+  # tokyonight_storm.tmTheme comes from tokyonight.nvim's own extras, copied to
+  # ~/.config/bat/themes -- delta reads bat's theme set, so any change there
+  # needs `bat cache --build`.
+  syntax-theme        = tokyonight_storm
+
+  # Diff colours from tokyonight.nvim extras/delta/tokyonight_storm.gitconfig
+  minus-style                   = syntax "#52313f"
+  minus-non-emph-style          = syntax "#52313f"
+  minus-emph-style              = syntax "#763842"
+  minus-empty-line-marker-style = syntax "#52313f"
+  line-numbers-minus-style      = "#914c54"
+  plus-style                    = syntax "#2b485a"
+  plus-non-emph-style           = syntax "#2b485a"
+  plus-emph-style               = syntax "#316172"
+  plus-empty-line-marker-style  = syntax "#2b485a"
+  line-numbers-plus-style       = "#449dab"
+  line-numbers-zero-style       = "#3b4261"
 [diff]
   algorithm  = histogram
   colorMoved = default

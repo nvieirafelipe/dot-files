@@ -10,7 +10,7 @@ return {
     lazy = false,
     priority = 1000,
     opts = {
-      style = "moon",
+      style = "storm",
       light_style = "day",
     },
     config = function(_, opts)
