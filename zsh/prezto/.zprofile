@@ -43,11 +43,17 @@ typeset -gU cdpath fpath mailpath path
 # )
 
 # Set the list of directories that Zsh searches for programs.
+# Every entry carries the (N) glob qualifier so directories that do not exist
+# on this machine are dropped instead of sitting in PATH as failed stat()s on
+# every command lookup. The Homebrew entry used to be produced by a command
+# substitution, which meant neither the brace nor the (N) was ever expanded --
+# it put the literal string `/opt/homebrew/{,s}bin(N)` into PATH. Homebrew is
+# on PATH regardless, via the `brew shellenv` eval at the bottom of this file.
 path=(
-  /usr/local/{bin,sbin}
-  $([[ "$OSTYPE" == darwin* ]] && echo "/opt/homebrew/{,s}bin(N)")
+  /usr/local/{bin,sbin}(N)
+  /opt/homebrew/{bin,sbin}(N)
   /opt/local/{,s}bin(N)
-  $HOME/.local/{bin,sbin}
+  $HOME/.local/{bin,sbin}(N)
   $path
 )
 
