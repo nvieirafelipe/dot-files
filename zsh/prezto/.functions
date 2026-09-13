@@ -32,3 +32,28 @@ jp() {
     [[ -n $choice ]] && { cd "$choice"; break; }
   done
 }
+
+# A random Tokyo Night Storm accent for every Claude Code session, so several
+# running side by side are tellable apart at a glance.
+#
+# The colour cannot live in settings.json: every session in a directory reads
+# the same file, so they would fight over it. --settings takes JSON inline and
+# applies to one invocation only, which is exactly the scope wanted, and writes
+# nothing. The themes themselves are installed once by
+# claude/bin/session-theme.sh -- keep this list in step with its palette.
+#
+# Pure shell on purpose: an array index and one expansion, no subprocess, since
+# this sits in front of every launch. Only when interactive and when no
+# --settings of your own is present, so scripts and one-off overrides are left
+# alone.
+claude() {
+  if [[ -o interactive ]] && [[ " $* " != *' --settings '* ]]; then
+    local -a pool=(
+      tn-red tn-orange tn-yellow tn-green tn-teal
+      tn-cyan tn-blue tn-blue1 tn-purple tn-magenta
+    )
+    command claude --settings "{\"theme\":\"custom:${pool[RANDOM % $#pool + 1]}\"}" "$@"
+  else
+    command claude "$@"
+  fi
+}

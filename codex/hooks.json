@@ -1,0 +1,58 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.tmux/scripts/agent-status.sh --agent codex working 2>/dev/null || true",
+            "statusMessage": "tmux: working"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.tmux/scripts/agent-status.sh --agent codex waiting 2>/dev/null || true",
+            "statusMessage": "tmux: waiting"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.tmux/scripts/agent-status.sh --agent codex done 2>/dev/null || true",
+            "statusMessage": "tmux: done"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.tmux/scripts/agent-status.sh --agent codex clear 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.tmux/scripts/agent-status.sh --agent codex clear 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
