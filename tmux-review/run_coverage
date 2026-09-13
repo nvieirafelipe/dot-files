@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Line coverage for the plugin, with nothing to install.
+#
+#   run_coverage            report
+#   run_coverage --min 100  report, and exit 1 under that percentage
+#   run_coverage --missing  report, and list every uncovered line
+#
+# bash's own xtrace is the instrument, with PS4 rewritten to name the file and
+# the line of each command it runs and BASH_XTRACEFD sending that stream to a
+# file rather than stderr. It is the same mechanism kcov uses for shell, minus
+# the part that rewrites the script: kcov 43 mis-parses `coproc NAME { ... }`,
+# loses track of the brace, and runs the rest of the enclosing function at
+# parse time -- which start_subscription does not survive. See README.
+#
+# SHELLOPTS is readonly in a running shell, but bash enables what it lists when
+# it is in the environment at startup, and fd 9 survives exec: so the scripts
+# the suite runs as commands are measured too, not only the ones it sources.
+#
+# PS4 starts with a + that carries no meaning: bash repeats the first character
+# of PS4 once per level of nesting, and with the field separator first that
+# repetition lands inside the separator and the file name is lost.
+
+here=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+min=0 show_missing=0
+while (($#)); do
+  case $1 in
+    --min) min=${2:?a percentage}; shift 2 ;;
+    --missing) show_missing=1; shift ;;
+    *) echo "usage: run_coverage [--min <pct>] [--missing]" >&2; exit 64 ;;
+  esac
+done
+
+trace=$(mktemp -t review-cov)
+trap 'rm -f "$trace"' EXIT
+
+exec 9>|"$trace"
+# PS4 is expanded by the shell being traced, not by this one, so the single
+# quotes are the point.
+# shellcheck disable=SC2016
+env SHELLOPTS=xtrace BASH_XTRACEFD=9 PS4='+@@${BASH_SOURCE}@@${LINENO}@@' \
+  bash -c 'source "$1/tests/review_test.sh"' _ "$here" >/dev/null 2>&1
+exec 9>&-
+
+awk -v trace="$trace" -v missing="$show_missing" -v min="$min" '
+  # A line xtrace can emit for: not blank, not a comment, and not one of the
+  # bare keywords that close or continue a compound command -- bash traces the
+  # commands inside those, never the keyword itself.
+  function executable(s) {
+    if (s == "" || s ~ /^#/) return 0
+    # Keywords, with or without a redirection hung off them: bash traces the
+    # commands a compound statement contains, never the words that delimit it,
+    # so `done < <(git log ...)` is no more reachable than a bare `done`.
+    if (s ~ /^(fi|done|esac|else|then|do|\}|\{|;;|\)|\(|\|\||&&)([ \t;<>&|]|$)/) return 0
+    if (s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\([ \t]*\)[ \t]*\{?$/) return 0
+    return 1
+  }
+  function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+
+  FILENAME == trace {
+    n = split($0, part, "@@")
+    for (i = 2; i + 1 <= n; i += 2)
+      if (part[i] ~ /^\//) hit[part[i] ":" part[i+1]] = 1
+    next
+  }
+
+  FNR == 1 { file = FILENAME; depth = 0; fn = ""; cont = 0; heredoc = ""; array = 0 }
+  {
+    s = trim($0)
+
+    # xtrace names the line a command starts on, never the lines it continues
+    # onto, so only the first line of one is reachable. Counting the rest would
+    # put a floor under the miss column that no test could ever lift.
+    was_cont = cont
+    cont = ($0 ~ /\\$/)
+
+    # A heredoc body is data, not commands.
+    if (heredoc != "") {
+      if (s == heredoc) heredoc = ""
+      next
+    }
+    if (!was_cont && match(s, /<<-?[ \t]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+      tag = substr(s, RSTART, RLENGTH)
+      sub(/^<<-?[ \t]*['"'"'"]?/, "", tag)
+      heredoc = tag
+    }
+
+    # Elements of a multi-line array assignment are words of one command.
+    if (array) { if (s ~ /^\)/) array = 0; next }
+    if (!was_cont && s ~ /^[A-Za-z_][A-Za-z0-9_]*(\+)?=\([^)]*$/) { array = 1; next }
+
+    if (was_cont) next
+    # Function spans, by brace depth, so a miss can be named rather than
+    # numbered. Only top-level definitions: nothing here nests them.
+    if (fn == "" && s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\([ \t]*\)[ \t]*\{$/) {
+      fn = s; sub(/[ \t]*\(.*/, "", fn); depth = 1; start[fn] = FNR; next
+    }
+    if (fn != "") {
+      d = gsub(/\{/, "{", $0) - gsub(/\}/, "}", $0)
+      depth += d
+      if (depth <= 0) { fn = "" }
+    }
+    if (!executable(s)) next
+    cand[file]++
+    owner[file ":" FNR] = fn
+    if ((file ":" FNR) in hit) { ok[file]++; if (fn != "") fok[file "\x1f" fn]++ }
+    else {
+      gap[file] = gap[file] " " FNR
+      if (fn != "") fgap[file "\x1f" fn] = fgap[file "\x1f" fn] " " FNR
+    }
+    if (fn != "") fcand[file "\x1f" fn]++
+  }
+
+  END {
+    total = 0; covered = 0
+    for (f in cand) {
+      total += cand[f]; covered += ok[f]
+      name = f; sub(/.*\//, "", name)
+      printf "\n%-18s %4d/%-4d  %5.1f%%\n", name, ok[f], cand[f], 100 * ok[f] / cand[f]
+      for (k in fcand) {
+        split(k, p, "\x1f")
+        if (p[1] != f) continue
+        if (fok[k] == fcand[k]) continue
+        printf "  %-24s %3d/%-3d%s\n", p[2], fok[k] + 0, fcand[k], missing ? "  miss:" fgap[k] : ""
+      }
+      if (missing && gap[f] != "") printf "  %-24s %s\n", "(all uncovered)", gap[f]
+    }
+    pct = total ? 100 * covered / total : 100
+    printf "\n%-18s %4d/%-4d  %5.1f%%\n", "TOTAL", covered, total, pct
+    if (min > 0 && pct + 0.0001 < min) {
+      printf "\nbelow the %s%% this is required to hold\n", min
+      exit 1
+    }
+  }
+' "$trace" "$here"/scripts/*.sh "$here"/bin/git-review "$here"/review.tmux
