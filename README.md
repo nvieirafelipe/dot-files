@@ -45,9 +45,25 @@ git review --stash 'stash@{0}'
 
 ### The review window
 
-`prefix + g` opens a two-pane window: the commit list on the left, the diff on
-the right. The tab appears at once, with a placeholder, and the diff is revealed
-when it has finished rendering.
+`prefix + g` opens a three-pane window: what is being reviewed at the top left,
+the commit list under it, the diff on the right. The tab appears at once, with a
+placeholder, and the diff is revealed when it has finished rendering.
+
+The header pane is four rows -- the range, the agent a comment would be sent to,
+and what the whole range comes to:
+
+```
+ origin/master..HEAD
+ 󰚩  claude · shell-startup-perf
+
+ ████████░░  +2143 -742  12 commits
+```
+
+It is a pane of its own so that scrolling a long review never carries it away,
+and so the list below is only ever commits. The bar is the range's churn split
+green to red, then what it adds up to, then how many commits it took. The footer
+under the list is the commit the cursor is in, and says so in `+N -M · K files`,
+which is why this row is not another one of those.
 
 The list follows the diff. Whichever commit the diff cursor is inside is the one
 highlighted, so there is only ever one idea of where the reader is.
@@ -63,16 +79,20 @@ highlighted, so there is only ever one idea of where the reader is.
 | `enter` | -- | the picker, from the range line |
 | `q` | close the window | close the window |
 
-`prefix + h` and `prefix + l` move between the two panes. Focusing the list
+`prefix + h` and `prefix + l` move between the list and the diff. Focusing the list
 parks the diff cursor at the top of its view, so a jump from there lands its
 header at the top of the pane. The legend at the bottom lists the keys of
 whichever pane has the focus.
 
 ### Reviewing something else
 
-Moving up off the first commit selects the range line -- the one thing on screen
-that names what is being reviewed. `enter` there, and only there, offers
-everything else that can be reviewed:
+The list cannot be walked up out of: the header is a pane, and the way into a
+pane is `prefix + k`. Once the focus is up there, `j` and `k` step between the
+range and the agent, `enter` opens that row's picker -- moving the focus back
+down to the list, which is where the picker is drawn -- and `q` closes the
+review. The list's legend shows those keys while the reader is up there.
+
+`enter` on the range offers everything else that can be reviewed:
 
 ```
  review

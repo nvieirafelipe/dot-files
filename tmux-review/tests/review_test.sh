@@ -142,8 +142,13 @@ assert_eq 'widest diff form at 101' \
 render_legend 30 diff legend_diff_tiers
 assert_eq 'narrowest diff form at 30' 'diff  n/N any  c comment' "$(strip <<<"$REPLY")"
 render_legend 101 agent legend_session_tiers
-assert_match 'the agent row names the comment keys' \
-  'enter agent.*c comment.*s send' "$(strip <<<"$REPLY")"
+# Only what the header pane answers to. c and s are the list's and the diff's;
+# listing them on a legend shown while the reader is somewhere they do nothing
+# is worse than listing nothing.
+assert_match 'the agent row names the keys of the pane it belongs to' \
+  'enter pick the agent.*k range.*q close' "$(strip <<<"$REPLY")"
+assert_eq 'and not the comment keys, which are not up there' 0 \
+  "$(strip <<<"$REPLY" | grep -c 'c comment')"
 render_legend 101 list legend_list_tiers
 assert_match 'list form names the page and end keys' 'PgUp/PgDn page.*gg/G first/last' "$(strip <<<"$REPLY")"
 render_legend 200 diff legend_diff_tiers
@@ -241,13 +246,16 @@ assert_eq 'end as SS3 F'  last     "$(key_of '\eOF')"
 assert_eq 'a bare escape asks to go back' cancel "$(key_of '\e')"
 assert_eq 'carriage return is enter' enter "$(key_of '\r')"
 assert_eq 'a newline is enter too' enter "$(key_of '\n')"
-assert_eq 'an unbound letter is nothing' '' "$(key_of 'z')"
+# z is the key this plugin wakes a pane with, so it has to survive read_key --
+# the header pane redraws on it. It means nothing in the list's own loop.
+assert_eq 'the wake key comes through' z "$(key_of 'z')"
+assert_eq 'an unbound letter is nothing' '' "$(key_of 'Z')"
 assert_eq 'an unknown sequence is nothing' '' "$(key_of '\e[Z')"
 read_key </dev/null
 assert_eq 'no input at all reports the tick' 1 "$?"
 unset -f key_of
 
-section 'the range line is a row of the list'
+section 'the header pane: the range, the agent and what the range comes to'
 range='base..HEAD'
 shas=(c0 c1 c2)
 subs=(s0 s1 s2)
@@ -257,59 +265,211 @@ needs_clear=0
 build_rows 60
 git() { :; }
 
-# Not `plain`: review.sh has a local array of that name, and shellcheck reads
-# the two as one variable across the source.
-rendered=$(render 0 60 20 list 1 | strip)
-assert_match 'its legend is shown instead of the list one' 'range  enter pick' "$rendered"
-assert_eq 'and the list legend is not' 0 "$(grep -c 'list  jk commit' <<<"$rendered")"
-sel=$(render 0 60 20 list 1 | grep -F -- "$active" | strip)
-assert_match 'the range row is the highlighted one' 'base\.\.HEAD' "$sel"
-assert_eq 'and it is the only one' 1 "$(render 0 60 20 list 1 | grep -cF -- "$active")"
-sel=$(render 0 60 20 list 0 | grep -F -- "$active" | strip)
-assert_match 'without it the first commit is highlighted' 'c0' "$sel"
-assert_eq 'and the range row is not' 0 \
-  "$(render 0 60 20 list 0 | grep -F -- "$active" | grep -c 'base')"
+change_ins='' change_del=''
+hdr=$(render_header 60 | strip)
+assert_match 'the range is the first row' 'base\.\.HEAD' "$hdr"
+assert_match 'where a comment would go is the second' 'no agent selected' "$hdr"
+assert_match 'and what is being reviewed the third' '3 commits' "$hdr"
+assert_eq 'four rows, which is the height the pane is given' 4 "$(grep -c '' <<<"$hdr")"
+assert_eq 'the blank one sits between the agent and the figures' '' \
+  "$(sed -n '3p' <<<"$hdr")"
 
-# steer decides when the range line is selected; the two moves it can make from
-# there are stubbed, since both of them talk to tmux.
+# The figures for the whole range, which is what this pane is for -- the list's
+# own footer counts the commit under the cursor, in the same +/- shorthand, so
+# this row is deliberately a different shape: the count, then the churn as a
+# bar, then the totals.
+change_ins=120 change_del=45
+hdr=$(render_header 60 | strip)
+assert_match 'the bar leads, then the totals, then the count' \
+  '█+  \+120 -45  3 commits' "$hdr"
+assert_eq 'insertions are drawn in the added colour' 1 \
+  "$(render_header 60 | grep -cF -- "$added+120")"
+assert_eq 'deletions in the removed one' 1 \
+  "$(render_header 60 | grep -cF -- "$removed-45")"
+change_del=''
+assert_match 'a range that only adds says only that' '█+  \+120  3 commits$' \
+  "$(render_header 60 | strip)"
+change_ins='' change_del=45
+assert_match 'and one that only deletes, the other way about' '█+  -45  3 commits$' \
+  "$(render_header 60 | strip)"
+change_ins='' change_del=''
+assert_eq 'before the shortstat lands there are no figures at all' 0 \
+  "$(render_header 60 | strip | grep -c '+')"
+assert_match 'which leaves the count on its own' '3 commits' "$(render_header 60 | strip)"
+
+# The bar is the churn split green to red, and neither end is rounded away.
+change_bar 120 45 10
+assert_eq 'ten cells, whatever the ratio' 10 "${#REPLY_PLAIN}"
+assert_eq 'seven of them green at roughly three to one' 1 \
+  "$(grep -cF -- "${added}███████$reset" <<<"$REPLY_COL")"
+change_bar 1000 1 10
+assert_eq 'a single deleted line still keeps a cell' 1 \
+  "$(grep -cF -- "${removed}█$reset" <<<"$REPLY_COL")"
+change_bar 1 1000 10
+assert_eq 'and a single added one too' 1 \
+  "$(grep -cF -- "${added}█$reset" <<<"$REPLY_COL")"
+change_bar 0 300 10
+assert_eq 'a range that only deletes is all red' 1 \
+  "$(grep -cF -- "${removed}██████████$reset" <<<"$REPLY_COL")"
+change_bar 0 0 10
+assert_eq 'nothing changed draws no bar' '' "$REPLY_PLAIN"
+
+# The bar is the first thing dropped when the pane is too narrow for it.
+change_ins=120 change_del=45
+assert_eq 'a narrow pane keeps the figures and loses the bar' 0 \
+  "$(render_header 26 | strip | grep -c '█')"
+assert_match 'which are what it is there to say' '\+120 -45  3 commits' \
+  "$(render_header 26 | strip)"
+change_ins='' change_del=''
+
+# Which part of a long review is on screen, passed in by whoever drew the list.
+change_ins=120 change_del=45
+assert_match 'the slice is named when the list overflows' '3 commits  2-9' \
+  "$(render_header 60 0 0 1 8 | strip)"
+change_ins='' change_del=''
+assert_eq 'and not when it all fits' 0 "$(render_header 60 0 0 -1 -1 | strip | grep -c -- '-')"
+
+sel=$(render_header 60 1 0 | grep -F -- "$active" | strip)
+assert_match 'the range row is highlighted when it is selected' 'base\.\.HEAD' "$sel"
+assert_eq 'and it is the only one' 1 "$(render_header 60 1 0 | grep -cF -- "$active")"
+sel=$(render_header 60 0 1 | grep -F -- "$active" | strip)
+assert_match 'the agent row when that one is' 'no agent selected' "$sel"
+assert_eq 'never both' 1 "$(render_header 60 0 1 | grep -cF -- "$active")"
+assert_eq 'and neither when the reader is in the list' 0 \
+  "$(render_header 60 0 0 | grep -cF -- "$active")"
+
+# paint_header is what decides whether any of that is worth writing. It is
+# called every turn round the loop, so the answer is usually no.
+#
+# Two files, as there are two in a review: the pane's tty, which it writes a
+# frame to, and the state file it leaves all three frames in for the header
+# pane to move its own highlight with.
+hdr_out=$(mktemp)
+hdr_file=$(mktemp)
+hdr_tty=$hdr_out
+shown_header=''
+needs_header_clear=1
+width=60 height=0 on_range=0 on_session=0 comments=0
+paint_header 60
+assert_match 'the first call paints' 'base\.\.HEAD' "$(strip <"$hdr_out")"
+assert_eq 'and leaves all three frames where the header can reach them' 2 \
+  "$(tr -cd '\036' <"$hdr_file" | wc -c | tr -d ' ')"
+: >"$hdr_out"
+paint_header 60
+assert_eq 'the next call, with nothing changed, does not' '' "$(<"$hdr_out")"
+comments=2
+paint_header 60
+assert_match 'a comment queued is a change worth painting' '2 queued' "$(strip <"$hdr_out")"
+
+# One painter at a time. While the reader is up there the header pane has a
+# cursor of its own and moves it on the keypress; this loop is a tick behind,
+# so painting from here would put the highlight back where it had been.
+: >"$hdr_out"
+hdr_poke=''
+tmux() { hdr_poke+="[$*]"; return 0; }
+hdr_pane='%2'
+on_session=1
+paint_header 60
+assert_eq 'with the reader up there it paints nothing itself' '' "$(<"$hdr_out")"
+assert_match 'and asks that pane to redraw instead, since the row is its own' \
+  'send-keys -t %2 z' "$hdr_poke"
+assert_match 'the frames are still left for it to redraw from' 'base\.\.HEAD' \
+  "$(strip <"$hdr_file")"
+on_session=0
+paint_header 60
+assert_match 'once the reader leaves it draws the pane again' 'base\.\.HEAD' \
+  "$(strip <"$hdr_out")"
+assert_eq 'with nothing highlighted, because nothing up there is selected' 0 \
+  "$(grep -cF -- "$active" "$hdr_out")"
+unset -f tmux
+unset hdr_pane hdr_poke
+
+# The frames the header moves between: one per row that can be selected, and
+# none of them ending in a newline -- printed on the bottom row of a pane that
+# is exactly as tall as the frame, that would scroll the range line off it.
+for sel in none range agent; do
+  frame=$(paint_sel "$hdr_file" "$sel")
+  assert_eq "the $sel frame is the whole pane" 4 "$(grep -c '' <<<"$frame")"
+  assert_eq "and the $sel frame ends without a newline" "${frame%$'\n'}" "$frame"
+done
+assert_eq 'nothing is highlighted on the none frame' 0 \
+  "$(paint_sel "$hdr_file" none | grep -cF -- "$active")"
+assert_eq 'the range frame lights its first row' 1 \
+  "$(paint_sel "$hdr_file" range | sed -n 1p | grep -cF -- "$active")"
+assert_eq 'and the agent frame its second' 1 \
+  "$(paint_sel "$hdr_file" agent | sed -n 2p | grep -cF -- "$active")"
+assert_eq 'a state file that is not there paints nothing' '' \
+  "$(paint_sel "$hdr_file.gone" range)"
+
+: >"$hdr_out"
+# With a height and a selection it names the slice on screen, which is the one
+# thing on the header that the list decides.
+height=5
+paint_header 60 0
+assert_match 'the slice comes from the list it is drawn above' '3 commits  1-1' \
+  "$(strip <"$hdr_out")"
+height=0
+: >"$hdr_out"
+hdr_tty=''
+paint_header 60
+assert_eq 'a loop with nowhere to paint writes nothing at all' '' "$(<"$hdr_out")"
+hdr_tty=$hdr_out
+paint_header 0
+assert_eq 'and neither does one that does not know its width yet' '' "$(<"$hdr_out")"
+rm -f "$hdr_out" "$hdr_file"
+unset hdr_tty hdr_file shown_header needs_header_clear width height
+on_range=0; on_session=0; comments=0
+
+# The list pane keeps the legend, and shows no selection of its own while one
+# of the header rows has it.
+rendered=$(render 0 60 20 list 1 | strip)
+assert_match 'the range legend is shown instead of the list one' 'range  enter pick' "$rendered"
+assert_eq 'and the list legend is not' 0 "$(grep -c 'list  jk commit' <<<"$rendered")"
+# The list keeps its own cursor whatever the pane above is doing: they are two
+# panes with two cursors, and the commit under the diff is still the commit
+# under the diff.
+sel=$(render 0 60 20 list 1 | grep -F -- "$active" | strip)
+assert_match 'the commit stays highlighted while the range row is selected' 'c0' "$sel"
+assert_eq 'and it is still the only highlight in this pane' 1 \
+  "$(render 0 60 20 list 1 | grep -cF -- "$active")"
+sel=$(render 0 60 20 list 0 | grep -F -- "$active" | strip)
+assert_match 'the first commit is highlighted with nothing selected above' 'c0' "$sel"
+assert_eq 'and no range row is drawn in this pane at all' 0 \
+  "$(render 0 60 20 list 0 | strip | grep -c 'base\.\.HEAD')"
+
+# The list cannot be walked up out of. The range and the agent are another
+# pane, reached the way any pane is; every key here steps the diff or the list
+# and nothing else.
 select_index() { stub_index=$1; }
 jump() { stub_jump="$*"; }
 height=20
 pub_commits='2 40'; pub_files='5 9'; pub_stops='2 5 9 40'
 stub_index=''; stub_jump=''
 
-# Two rows sit above the list: the range and, under it, the agent a comment
-# would go to. Walking up off the first commit reaches the nearer one first.
 on_range=0; on_session=0
 steer p k 0 100 100 0
-assert_eq 'moving up off the first commit selects the agent row' 1 "$on_session"
-assert_eq 'and not the range, which is another row up' 0 "$on_range"
-steer p k 0 100 100 0
-assert_eq 'moving up again reaches the range' 1 "$on_range"
-assert_eq 'and leaves the agent row' 0 "$on_session"
-assert_eq 'neither move touched the diff' '' "$stub_jump"
-steer p k 0 100 100 0
-assert_eq 'nothing sits above the range' 1 "$on_range"
-steer p j 0 100 100 0
-assert_eq 'moving down goes back to the agent row' 1 "$on_session"
-assert_eq 'not straight to the list' '' "$stub_index"
-steer p j 0 100 100 0
-assert_eq 'and again lands on the first commit' 0 "$stub_index"
-assert_eq 'leaving the agent row' 0 "$on_session"
-
-on_range=1; on_session=0
-steer p n 0 100 100 0
-assert_eq 'any other key leaves the range line' 0 "$on_range"
-on_range=0; on_session=1
-steer p n 0 100 100 0
-assert_eq 'and the agent row too' 0 "$on_session"
-
-on_range=0; on_session=0
+assert_eq 'k on the first commit selects nothing above it' '0 0' "$on_range $on_session"
+assert_match 'it asks the diff for the previous commit, as it does anywhere else' \
+  'prev' "$stub_jump"
 stub_jump=''
 steer p k 2 100 100 0
-assert_eq 'moving up from further down reaches neither' 0 "$on_session"
-assert_eq 'nor the range' 0 "$on_range"
-assert_match 'it just moves a commit' 'prev' "$stub_jump"
+assert_eq 'and from further down, the same' '0 0' "$on_range $on_session"
+assert_match 'the diff moves' 'prev' "$stub_jump"
+stub_jump=''
+steer p j 0 100 100 0
+assert_match 'j is the next commit, never a row above' 'next' "$stub_jump"
+assert_eq 'and touches neither header row' '0 0' "$on_range $on_session"
+
+# The header's own rows are decided in the header pane and read off the window,
+# so steer leaves them alone even when they are set.
+on_range=1; on_session=0
+stub_jump=''
+steer p k 0 100 100 0
+assert_eq 'a selection up there is not for steer to clear' 1 "$on_range"
+on_range=0; on_session=1
+steer p n 0 100 100 0
+assert_eq 'nor the agent row' 1 "$on_session"
+on_range=0; on_session=0
 
 unset -f git
 restore_review
@@ -335,15 +495,15 @@ select_index() { stub_index=$1; }
 jump() { stub_jump="$*"; }
 height=20
 pub_commits='2 40'; pub_files='5 9'; pub_stops='2 5 9 40'
+# Every list key goes on meaning what it means, whatever is selected in the
+# pane above: that selection is another pane's cursor and steer never reads it.
 for key in first last page_up page_down k; do
   on_range=1; stub_index=''; stub_jump=''
   steer p "$key" 0 100 100 0
-  assert_eq "$key does nothing from the range line" '1  ' \
-    "$on_range $stub_index $stub_jump"
+  assert_eq "$key still drives the list with the range row selected" 1 \
+    "$([[ -n $stub_index$stub_jump ]] && echo 1 || echo 0)"
+  assert_eq "and $key leaves that selection alone" 1 "$on_range"
 done
-on_range=1
-steer p n 0 100 100 0
-assert_eq 'a diff movement still works, and leaves the range line' 0 "$on_range"
 restore_review
 
 section 'the picker: what it offers and how it moves'
@@ -443,25 +603,35 @@ needs_clear=0
 build_rows 60
 # git show is stubbed: the footer's diffstat is not what these assert on.
 git() { :; }
-# height 16 leaves eight rows for the list: three header rows -- the range, the
-# agent a comment would go to, and the count -- three rules, the stat and one
-# key row.
-out=$(render 0 60 16 diff | strip)
-assert_match 'header names the range' 'base\.\.HEAD' "$out"
-assert_match 'the agent row is drawn under it' 'no agent selected' "$out"
-assert_match 'header counts the commits' '10 commits' "$out"
-assert_match 'shows the slice when the list overflows' '1-8' "$out"
+# height 12 leaves eight rows for the list: two rules, the stat and one key
+# row. The range, the agent and the count are the header pane's, so they take
+# none of this one -- which is four more rows of commits than the same height
+# used to show.
+out=$(render 0 60 12 diff | strip)
 assert_match 'starts at the first commit' 'c0' "$out"
 assert_eq 'last visible row is the eighth' 1 "$(grep -c ' c7 ' <<<"$out")"
 assert_eq 'the ninth is off screen' 0 "$(grep -c ' c8 ' <<<"$out")"
-out=$(render 9 60 16 diff | strip)
-assert_match 'selection at the end clamps the slice' '3-10' "$out"
-assert_eq 'the first is now off screen' 0 "$(grep -c ' c0 ' <<<"$out")"
-assert_match 'the last is on screen' 'c9' "$out"
-out=$(render 5 60 16 diff | strip)
-assert_match 'selection in the middle is centred' '2-9' "$out"
-out=$(render 0 60 40 diff | strip)
-assert_eq 'no slice indicator when everything fits' 0 "$(grep -c '1-10' <<<"$out")"
+assert_eq 'nothing above the list is drawn here any more' 0 \
+  "$(grep -cE 'base\.\.HEAD|no agent selected|10 commits' <<<"$out")"
+out=$(render 9 60 12 diff | strip)
+assert_eq 'the first is off screen once the selection is at the end' 0 \
+  "$(grep -c ' c0 ' <<<"$out")"
+assert_match 'and the last is on it' 'c9' "$out"
+
+# The slice the header names comes from the same arithmetic the list draws
+# with, so the two cannot disagree about what is on screen.
+list_rows 12
+assert_eq 'eight rows of commits at that height' 8 "$REPLY"
+list_slice 0 8
+assert_eq 'at the top the slice starts at the first commit' '0 7 1' \
+  "$SLICE_FIRST $SLICE_LAST $SLICE_PARTIAL"
+list_slice 9 8
+assert_eq 'at the end it clamps' '2 9 1' "$SLICE_FIRST $SLICE_LAST $SLICE_PARTIAL"
+list_slice 5 8
+assert_eq 'and in the middle it centres' '1 8 1' "$SLICE_FIRST $SLICE_LAST $SLICE_PARTIAL"
+list_slice 0 20
+assert_eq 'a list that fits is not a slice at all' '0 9 0' \
+  "$SLICE_FIRST $SLICE_LAST $SLICE_PARTIAL"
 
 section 'render: only the focused pane has its keys listed'
 out=$(render 0 60 20 diff | strip)
@@ -1085,7 +1255,7 @@ assert_match 'copy-mode is entered before the rest of the diff lands' \
   'copy-mode -t %1' "$reveal_args"
 assert_match 'and parked at the top' 'send-keys -X -t %1 history-top' "$reveal_args"
 assert_match 'the pane is selected, which also unzooms' 'select-pane -t %1' "$reveal_args"
-assert_match 'the list is told to stop waiting' "send-keys -t {left-of} z" "$reveal_args"
+assert_match 'the list is told to stop waiting' "send-keys -t {bottom-left} z" "$reveal_args"
 assert_match 'and the base the scroll is measured from is recorded' \
   'set-option -p -t %1 -F @review_hist_base' "$reveal_args"
 unset -f tmux; unset reveal_args
@@ -1167,8 +1337,9 @@ assert_eq 'open carries the pane, the range and the window to go back to' \
 assert_eq 'open with only a pane leaves the rest empty' 'open(%0  )' "$(dispatch open '%0')"
 assert_eq 'diff carries the range and the width' 'diff(base..HEAD 142)' \
   "$(dispatch diff 'base..HEAD' 142)"
-assert_eq 'sidebar carries the geometry too' 'sidebar(%1 base..HEAD 220 55)' \
-  "$(dispatch sidebar '%1' 'base..HEAD' 220 55)"
+assert_eq 'sidebar carries the geometry too' \
+  'sidebar(%1 %2 /dev/ttys1 base..HEAD 220 55)' \
+  "$(dispatch sidebar '%1' '%2' /dev/ttys1 'base..HEAD' 220 55)"
 assert_eq 'jump is handed everything it was given' 'jump(%1 next 100 20 3 7 9)' \
   "$(dispatch jump '%1' next 100 20 3 7 9)"
 assert_eq 'nav takes a window, a direction and a kind' 'nav(@2 next file)' \
@@ -1197,6 +1368,10 @@ tmux() {
   esac
   printf '[%s]' "$*" >>"$open_log"
   [[ $1 == new-window ]] && printf '%%7'
+  # The header split reports back the pane it made and the tty the sidebar
+  # paints it through; the list split reports nothing, because nothing asks.
+  [[ $1 == split-window && $* == *pane_tty* ]] && printf '%%8 /dev/ttys9'
+  [[ $1 == split-window && $* != *pane_tty* && $* == *-P* ]] && printf '%%9'
   return 0
 }
 calls() { open_calls=$(cat "$open_log"); : >"$open_log"; }
@@ -1209,12 +1384,16 @@ assert_match 'the diff pane is a new window named for the range' \
   'new-window .*-n base\.\.HEAD review' "$open_calls"
 assert_match 'and it is handed the width delta must render at' \
   'review\.sh diff base\.\.HEAD 142' "$open_calls"
-assert_match 'the list is split off it at its final width' \
-  'split-window -hb -l 77' "$open_calls"
-assert_match 'and told the window geometry, so it need ask tmux nothing' \
-  'sidebar %7 base\.\.HEAD 220 55' "$open_calls"
-assert_match 'the split, the focus and the zoom are one invocation' \
-  "split-window .*; select-pane -t {left} ; resize-pane -Z -t {left}" "$open_calls"
+assert_match 'the header is split off it at its final width' \
+  'split-window -hb -l 77 -t %7 .*review\.sh header %7' "$open_calls"
+assert_match 'and the list under the header, the window less the header' \
+  'split-window -v -l 50 -t %8' "$open_calls"
+assert_match 'and it is recorded, because it can no longer be searched for' \
+  '@review_list_pane %9' "$open_calls"
+assert_match 'the sidebar is told the geometry, so it need ask tmux nothing' \
+  'sidebar %7 %8 /dev/ttys9 base\.\.HEAD 220 55' "$open_calls"
+assert_match 'the split and the zoom are one invocation, on the new pane' \
+  'split-window -v .*; resize-pane -Z' "$open_calls"
 assert_match 'the window is marked as a review, for the q binding' \
   'set-option -w -t %7 @review 1' "$open_calls"
 assert_match 'q is told where to go back to' \
@@ -1264,30 +1443,40 @@ assert_eq 'a window that is not a review is left alone' '' "$retarget_calls"
 unset -f tmux; restore_review; unset retarget_calls retarget_pane
 
 section 'keypress: the key goes to the list, whichever pane is focused'
+# Both panes are read off the window rather than searched for. "The pane that
+# is not the diff" was two panes the moment the header was split off, and the
+# header is the one a search finds first.
 key_calls=''
 tmux() {
   case $1 in
-    show-options) printf '%s' "$key_dpane" ;;
-    list-panes) printf '%s\n%s\n' '%7' '%8' ;;
+    show-options)
+      case $* in
+        *@review_diff_pane*) printf '%s' "$key_dpane" ;;
+        *@review_list_pane*) printf '%s' "$key_list" ;;
+      esac ;;
     *) key_calls+="[$*]" ;;
   esac
   return 0
 }
-key_dpane='%7'; key_calls=''; keypress '@9' c
-assert_eq 'the pane that is not the diff gets it' '[send-keys -t %8 c]' "$key_calls"
+key_dpane='%7'; key_list='%8'; key_calls=''; keypress '@9' c
+assert_eq 'the list pane gets it, by the id open recorded' '[send-keys -t %8 c]' "$key_calls"
 key_dpane=''; key_calls=''; keypress '@9' c
 assert_eq 'a window with no diff pane recorded takes no key' '' "$key_calls"
 # A window whose only pane is the diff has no list to hand anything to.
 tmux() {
   case $1 in
-    show-options) printf '%%7' ;;
-    list-panes) printf '%%7\n' ;;
+    show-options)
+      # The diff is recorded, the list is not -- a window half set up, which
+      # is what a review that failed part way through leaves behind.
+      case $* in
+        *@review_diff_pane*) printf '%%7' ;;
+      esac ;;
     *) key_calls+="[$*]" ;;
   esac
   return 0
 }
 key_calls=''; keypress '@9' c
-assert_eq 'and neither does one with no list' '' "$key_calls"
+assert_eq 'and neither does one with no list recorded' '' "$key_calls"
 unset -f tmux; unset key_calls key_dpane
 
 section 'nav: the same jump, addressed by window'
@@ -1356,7 +1545,7 @@ assert_match 'the reader is handed the pane before the rest arrives' \
 assert_eq 'and the view is settled once, after the last chunk' 1 \
   "$(grep -c '\[settle\]' <<<"$diff_events")"
 assert_match 'the list is told the diff has landed' '@review_loaded 1' "$diff_events"
-assert_match 'and woken, in the same invocation' 'send-keys -t {left-of} z' "$diff_events"
+assert_match 'and woken, in the same invocation' 'send-keys -t {bottom-left} z' "$diff_events"
 assert_match 'the pane closes the review when it is dismissed' 'quit %7' "$diff_events"
 # One chunk means one pass and nothing appended behind the reader, so there is
 # no stranded grid to re-enter.
@@ -1512,6 +1701,7 @@ tmux() {
     display-message)
       [[ $2 == -p ]] && return "$send_pane_rc"
       send_msgs+="[say ${*:2}]"; return 0 ;;
+    *) send_msgs+="[$*]" ;;
   esac
   return 0
 }
@@ -1536,7 +1726,11 @@ send_msgs=''; send_comments '@9' "$send_store" 'base..HEAD'
 assert_match 'otherwise it is pasted into the agent pane' '\[paste %5\]' "$send_msgs"
 assert_match 'the count and the agent are named' '1 sent to 󰚩  main:2  web' "$send_msgs"
 assert_match 'and it says the agent still has to be told to run it' \
-  'press enter there to run it' "$send_msgs"
+  'press enter to run it' "$send_msgs"
+# Sending is a handover, so the focus goes with it -- being told what happened
+# from a window you are not in is no use.
+assert_match 'the agent window is brought forward' \
+  'switch-client -t %5 ; select-window -t %5 ; select-pane -t %5' "$send_msgs"
 assert_eq 'the queue is emptied' 0 "$(comment_count "$send_store")"
 assert_eq 'and the badge with it' 0 "$comments"
 /bin/rm -f "$send_store"
@@ -1772,6 +1966,9 @@ section 'sidebar: the loop, driven by a scripted server'
 # The tick index lives in a file: read_state reads the state through $(...), so
 # a counter in a variable would be incremented in a subshell and lost.
 sb_log=$(mktemp); sb_out=$(mktemp); sb_ix=$(mktemp); sb_ticks=$(mktemp)
+# Where the header pane's tty would be. A plain file takes the same writes,
+# which is what lets the pane the loop never reads back be asserted on.
+sb_hdr=$(mktemp)
 # in_mode, basis, scroll, cy, diff width, window width, height, zoomed,
 # diff focused, searching, loaded, live size.
 sb_tick() { printf '%s\x1f' "$@" | sed 's/\x1f$//'; }
@@ -1839,19 +2036,25 @@ sidebar_run() {
     load_pick_items() { pick_kind=(range); pick_label=(x); pick_extra=(''); pick_payload=(''); }
     load_pick_sessions() { pick_kind=(session); pick_label=(y); pick_extra=(''); pick_payload=("%5${US}y"); }
     pick_keys() { printf 'PICKKEYS %s\n' "$*" >>"$sb_log"; picking=0; }
-    sidebar '%7' 'base..HEAD' 220 40
+    sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) <<<"$keys" >"$sb_out" 2>&1
   sb_seen=$(cat "$sb_log")
+  sb_header=$(strip <"$sb_hdr")
 }
 
 sidebar_run '' "$sb_normal" "$sb_normal"
 assert_match 'the first frame is the placeholder, drawn before tmux is touched' \
   'LOADING 220 40 0' "$sb_seen"
-assert_match 'and once the diff has landed, the list' 'RENDER 0 77 40 diff' "$sb_seen"
+assert_match 'and once the diff has landed, the list' 'RENDER 0 77 35 diff' "$sb_seen"
 assert_match 'the list is sized from the window and the diff pane' \
   'RENDER 0 77 ' "$sb_seen"
 assert_match 'an agent is guessed once the reader has the list' \
   'PRESELECT @9 main' "$sb_seen"
+# The header is painted through a tty this loop is only handed, so what lands
+# there is the whole of what can be checked -- and it is painted before the
+# first tmux call, off the geometry it was given.
+assert_match 'the header pane is painted with the range' 'base\.\.HEAD' "$sb_header"
+assert_match 'and with what the range comes to' '\+9.*2 commits' "$sb_header"
 
 # Still loading: the list waits behind the placeholder rather than being drawn
 # at the zoomed width and reflowing when the zoom comes off.
@@ -1875,7 +2078,7 @@ assert_match 'a movement key is steered against the diff' 'STEER %7 j' "$sb_seen
 
 # a reaches the agent picker without having to walk the selection to its row.
 sidebar_run 'a' "$sb_normal" "$sb_normal" "$sb_normal"
-assert_match 'a opens the picker' 'PICKER 77 40 0' "$sb_seen"
+assert_match 'a opens the picker' 'PICKER 77 35 0' "$sb_seen"
 assert_match 'and hands it the keys' 'PICKKEYS %7 @9' "$sb_seen"
 
 # Focus moving off the diff parks its cursor at the top of the view, so a jump
@@ -1901,7 +2104,7 @@ sidebar_empty() {
   (
     git() { return 0; }
     tmux() { return 0; }
-    sidebar '%7' 'base..HEAD' 220 40
+    sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) </dev/null 2>&1
 }
 assert_match 'a range with nothing in it says so and waits' \
@@ -1978,7 +2181,7 @@ assert_eq 'an unknown flag exits 64' 64 "$?"
 # arithmetic subscript and set -u then kills the sidebar over. Nothing but
 # actually opening a window catches that, so this opens one -- on its own tmux
 # server, so it cannot disturb the one in use.
-section 'opening a review window: both panes survive it'
+section 'opening a review window: all three panes survive it'
 socket=review-test-$$
 # kill-server does not always take the socket file with it, and a suite that
 # has been run a few hundred times leaves a few hundred of them behind.
@@ -2001,25 +2204,40 @@ else
   assert_ok "$([[ -n $win ]] && echo 0 || echo 1)" 'the window appears'
 
   if [[ -n $win ]]; then
-    # Wait for the split, not for the diff: the failure this guards against
+    # Wait for the splits, not for the diff: the failure this guards against
     # kills the pane within a second of it starting, and waiting on delta would
     # put half a minute into the suite for nothing.
     for _ in $(seq 1 60); do
-      (($(tmux -L "$socket" list-panes -t "$win" -F x 2>/dev/null | grep -c x) >= 2)) && break
+      (($(tmux -L "$socket" list-panes -t "$win" -F x 2>/dev/null | grep -c x) >= 3)) && break
       sleep 0.25
     done
     sleep 2
     live=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_dead}' | grep -c '^0$')
-    assert_eq 'both panes are alive' 2 "$live"
+    assert_eq 'all three panes are alive' 3 "$live"
 
     sb=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_id} #{pane_start_command}' |
       grep sidebar | cut -d' ' -f1)
     assert_ok "$([[ -n $sb ]] && echo 0 || echo 1)" 'the list pane is one of them'
+    hdr=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_id} #{pane_start_command}' |
+      grep 'review.sh header' | cut -d' ' -f1)
+    assert_ok "$([[ -n $hdr ]] && echo 0 || echo 1)" 'and the header pane another'
     if [[ -n $sb ]]; then
       drawn=$(tmux -L "$socket" capture-pane -p -t "$sb" | grep -c .)
       assert_ok "$([[ $drawn -gt 0 ]] && echo 0 || echo 1)" 'the list drew something'
-      assert_match 'and it names the range being reviewed' 'HEAD~1\.\.HEAD' \
-        "$(tmux -L "$socket" capture-pane -p -t "$sb")"
+      assert_eq 'and the range is no longer one of its rows' 0 \
+        "$(tmux -L "$socket" capture-pane -p -t "$sb" | grep -c 'HEAD~1\.\.HEAD')"
+    fi
+    if [[ -n $hdr ]]; then
+      # The one end-to-end check that the sidebar can paint a pane it does not
+      # own: everything up to here would pass with the tty write going nowhere.
+      # -t a pane still lists every pane of its window, so the height has to be
+      # asked for on the pane itself.
+      assert_eq 'the header is the four rows it was split at' 4 \
+        "$(tmux -L "$socket" display-message -p -t "$hdr" '#{pane_height}')"
+      hdr_text=$(tmux -L "$socket" capture-pane -p -t "$hdr")
+      assert_match 'it names the range being reviewed' 'HEAD~1\.\.HEAD' "$hdr_text"
+      assert_match 'says where a comment would go' 'no agent selected' "$hdr_text"
+      assert_match 'and counts what the range comes to' '\+[0-9]+.*1 commit' "$hdr_text"
     fi
   fi
   tmux -L "$socket" kill-server 2>/dev/null
@@ -2165,7 +2383,68 @@ else
   tmux -L "$hsock" kill-server 2>/dev/null
 fi
 
+section 'the header pane answers its own keys'
+# The rows up there are chosen in the pane they are drawn in. The list cannot
+# be walked up out of and into them -- that is tested with steer -- so this is
+# the only way they are reached.
+hdr_calls=''
+tmux() { hdr_calls+="[$*]"; return 0; }
+quit() { hdr_calls+="[quit $1]"; return 0; }
+sel=range
+header_key '@9' '%7' j
+assert_eq 'j moves to the agent row' agent "$sel"
+assert_match 'and publishes it for the sidebar to draw' \
+  '@review_hdr_sel agent' "$hdr_calls"
+assert_match 'waking the list, which is what paints the pane' \
+  'send-keys -t {bottom-left} z' "$hdr_calls"
+assert_eq 'in one invocation' 1 "$(grep -cF 'set-option' <<<"$hdr_calls")"
+hdr_calls=''
+header_key '@9' '%7' k
+assert_eq 'k moves back to the range' range "$sel"
+header_key '@9' '%7' j
+header_key '@9' '%7' j
+assert_eq 'and there is nothing below the agent row to reach' agent "$sel"
+header_key '@9' '%7' k
+header_key '@9' '%7' k
+assert_eq 'nor anything above the range' range "$sel"
+# Two rows, so the ends of a list are the rows themselves.
+header_key '@9' '%7' last
+assert_eq 'G is the last of the two' agent "$sel"
+header_key '@9' '%7' first
+assert_eq 'and gg the first' range "$sel"
+hdr_calls=''
+header_key '@9' '%7' n
+assert_eq 'a key that means nothing here changes nothing' range "$sel"
+assert_eq 'and says nothing either' '' "$hdr_calls"
+
+hdr_calls=''
+header_key '@9' '%7' enter
+assert_match 'enter asks for the picker of the row it is on' \
+  '@review_hdr_open range' "$hdr_calls"
+assert_match 'and moves the focus to the pane that draws it' \
+  'select-pane -t {bottom-left}' "$hdr_calls"
+assert_eq 'the selection itself is not republished' 0 \
+  "$(grep -cF '@review_hdr_sel' <<<"$hdr_calls")"
+
+hdr_calls=''
+header_key '@9' '%7' q
+assert_eq 'q ends the loop' 1 "$?"
+assert_match 'having closed the review from the pane it was opened over' \
+  'quit %7' "$hdr_calls"
+unset -f tmux quit
+unset sel hdr_calls
+restore_review
+
 section 'review.sh: the dispatcher'
+# The process that holds the header pane open. Given no tty there is nothing to
+# hold, so it returns rather than blocking -- which is what lets it be run here
+# at all.
+hdr_out=$("$plugin/scripts/review.sh" header </dev/null 2>&1)
+assert_eq 'header returns when there is no tty to hold open' 0 "$?"
+assert_match 'it hides the cursor it would otherwise leave in the pane' \
+  '\[\?25l' "$hdr_out"
+assert_match 'and puts it back on the way out' '\[\?25h' "$hdr_out"
+
 "$plugin/scripts/review.sh" >/dev/null 2>&1
 assert_eq 'no arguments exits 64' 64 "$?"
 usage_text=$("$plugin/scripts/review.sh" 2>&1)

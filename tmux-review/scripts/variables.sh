@@ -30,6 +30,22 @@ sidebar_min=34
 # show two columns.
 diff_min=100
 
+# The pane above the list: the range, the agent a comment would go to, and the
+# count of what is being reviewed. Its own pane rather than three rows of the
+# list, so that scrolling a long review never carries them off the top and the
+# list is only ever commits.
+#
+# Four rows: what is being reviewed and where a comment would go, which belong
+# together, then a blank line and the figures, which are a different kind of
+# thing. Plus the border between the two panes, which together is what the list
+# is short of the height tmux reports for the window.
+header_rows=4
+header_offset=$((header_rows + 1))
+
+# How many cells the churn bar is drawn in when there is room for it. Ten is
+# enough to read a ratio off and short enough to leave the figures beside it.
+change_bar_cells=10
+
 # Tokyo Night Storm, the same values .tmux.conf uses. The commit list is
 # coloured field for field like the glog alias -- red sha, green (relative
 # date), bold blue <author> -- with Storm's palette standing in for git's

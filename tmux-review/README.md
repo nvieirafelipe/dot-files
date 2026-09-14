@@ -3,11 +3,26 @@
 Read a branch's diff in tmux, with the commit list beside it.
 
 `prefix + g` splits a new window: delta's side-by-side diff of the range on the
-right, a narrow commit list on the left. The list highlights whichever commit
-the diff cursor is sitting in, so scrolling the diff moves the list with you and
-`j`/`k` on the list scrolls the diff to that commit. `c` writes a comment about
-the line — or the visual selection — under the cursor, and `s` hands everything
-queued to a coding agent running in another window.
+right, a narrow commit list on the left, and above the list a four-row pane
+naming what is being reviewed — the range, the agent a comment would go to, and
+the commits, churn and totals the range comes to. The list highlights
+whichever commit the diff cursor is sitting in, so scrolling the diff moves the
+list with you and `j`/`k` on the list scrolls the diff to that commit. `c`
+writes a comment about the line — or the visual selection — under the cursor,
+and `s` hands everything queued to a coding agent running in another window.
+
+```
+ origin/master..HEAD
+ 󰚩  claude · shell-startup-perf
+
+ ████████░░  +2143 -742  12 commits
+```
+
+The header is a pane rather than rows of the list because it never scrolls: a
+long review can be paged through without losing sight of what is being reviewed
+or where the comments are going. The sidebar paints it through its tty, since
+everything it shows is state the sidebar's own loop holds; the process living
+there owns one thing only, which is the row its own cursor is on.
 
 Comments that were never sent are not lost with the window. The queue is keyed
 by the repository and the range, not by the window it was written in, and lives
@@ -41,8 +56,22 @@ In the diff, which is always in copy-mode:
 | `s`       | send everything queued to that agent                      |
 | `q`       | close the review, back to where it was opened from        |
 
-On the commit list: `j`/`k` step commits, `enter` picks the range to review,
-`c`/`s`/`a` and `q` mean what they do in the diff.
+On the commit list: `j`/`k` step commits, `PgUp`/`PgDn` a page, `gg`/`G` the
+ends, and `c`/`s`/`a`/`q` mean what they do in the diff.
+
+The header is a pane, so it is reached the way any pane is — `prefix + k` from
+the list. The list cannot be walked up out of into it: `k` on the first commit
+means the first commit, wherever the reader has been.
+
+| Key       | On the header pane                                        |
+|-----------|-----------------------------------------------------------|
+| `j` / `k` | the agent row / the range row                             |
+| `enter`   | open that row's picker, in the list pane, and follow it   |
+| `q`       | close the review                                          |
+
+`s` hands the queue to the chosen agent and brings that window forward with it —
+the comments are pasted, not run, so the agent is left with the prompt on its
+input line to be read before it goes.
 
 ## Requirements
 
@@ -72,7 +101,8 @@ with no tmux involved.
     set -g @review-key 'g'        # opens a review
     set -g @review-wip-key 'G'    # opens the working tree in a popup
 
-The widths and colours are in `scripts/variables.sh` rather than being options.
+The widths, the height of the header pane and the colours are in
+`scripts/variables.sh` rather than being options.
 Every option read is a round trip to the server, and this plugin is built around
 not making them: the sidebar takes a share of the window worked out in
 arithmetic, so that neither pane has to wait on the other to learn how wide to

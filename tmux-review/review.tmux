@@ -33,19 +33,22 @@ wip_key=$(get_tmux_option '@review-wip-key' 'G')
 in_review='#{&&:#{@review},#{==:#{pane_mode},copy-mode}}'
 
 # A key that is handed to another pane needs one test more, and it is what keeps
-# a routed key from being routed back into itself. {left} is the leftmost
-# *visible* pane, not the leftmost pane: when the diff is zoomed tmux counts
-# only the zoomed pane as visible, so {left} resolves to the pane the key was
-# just pressed in. send-keys then replays the key into the binding that sent it,
-# the guard is still true, and it routes again -- a recursion with no base case.
-# Each hop queues a command and expands this format, so the server stops serving
-# and grows until it is killed; nothing short of SIGKILL reaches it, because it
+# a routed key from being routed back into itself. The corner tokens name a
+# *visible* pane: when the diff is zoomed tmux counts only the zoomed pane as
+# visible, so the target resolves to the pane the key was just pressed in.
+# send-keys then replays the key into the binding that sent it, the guard is
+# still true, and it routes again -- a recursion with no base case. Each hop
+# queues a command and expands this format, so the server stops serving and
+# grows until it is killed; nothing short of SIGKILL reaches it, because it
 # never returns to its event loop to read one. The same applies to a key pressed
-# on the sidebar itself, which mouse scroll can put in copy-mode, and to a
-# review left with a single pane.
+# on either of the two left panes, which mouse scroll can put in copy-mode, and
+# to a review left with a single pane.
 #
 # pane_at_left is 0 only while some other pane is to the left to route to, which
-# is exactly when routing means anything -- so it covers all three at once.
+# is exactly when routing means anything -- so it covers all three at once. It
+# is still the whole test with the header pane there: that pane and the list are
+# both at the left, so neither routes, and the diff -- the only one that does --
+# is not.
 #
 # Only the routing keys carry it. Enter stays on in_review: it copies in place
 # rather than routing, so it is not in the loop, and refusing it while the diff
@@ -91,13 +94,15 @@ bind "$wip_key" display-popup -E -w 90% -h 90% -d '#{pane_current_path}' \
 # the cursor is, so nothing has to be forked or looked up: routing the key this
 # way cost a third of what running the script per keypress did.
 #
-# {left} rather than a stored pane id, because send-keys does not expand
-# formats in -t. The list is always the left pane, which is how open() builds
-# the window.
-bind -T copy-mode-vi ']' if-shell -F "$routes_left" "send-keys -t '{left}' ']'"
-bind -T copy-mode-vi '[' if-shell -F "$routes_left" "send-keys -t '{left}' '['"
-bind -T copy-mode-vi '}' if-shell -F "$routes_left" "send-keys -t '{left}' '}'"
-bind -T copy-mode-vi '{' if-shell -F "$routes_left" "send-keys -t '{left}' '{'"
+# A corner token rather than a stored pane id, because send-keys does not
+# expand formats in -t. {bottom-left} rather than {left}: the left column is a
+# header pane above the commit list, and the list is the lower of the two by
+# construction -- open() splits the header off first -- so the corner names it
+# and never the header.
+bind -T copy-mode-vi ']' if-shell -F "$routes_left" "send-keys -t '{bottom-left}' ']'"
+bind -T copy-mode-vi '[' if-shell -F "$routes_left" "send-keys -t '{bottom-left}' '['"
+bind -T copy-mode-vi '}' if-shell -F "$routes_left" "send-keys -t '{bottom-left}' '}'"
+bind -T copy-mode-vi '{' if-shell -F "$routes_left" "send-keys -t '{bottom-left}' '{'"
 
 # c writes a comment about the line under the cursor -- or about the visual
 # selection, if one is up -- and s hands everything queued to the agent chosen
@@ -106,11 +111,11 @@ bind -T copy-mode-vi '{' if-shell -F "$routes_left" "send-keys -t '{left}' '{'"
 # anything else in copy-mode-vi, so there is nothing to fall back to. a picks
 # which agent the comments go to, without having to walk the selection up to the
 # row that names it.
-bind -T copy-mode-vi c if-shell -F "$routes_left" "send-keys -t '{left}' c" \
+bind -T copy-mode-vi c if-shell -F "$routes_left" "send-keys -t '{bottom-left}' c" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
-bind -T copy-mode-vi s if-shell -F "$routes_left" "send-keys -t '{left}' s" \
+bind -T copy-mode-vi s if-shell -F "$routes_left" "send-keys -t '{bottom-left}' s" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
-bind -T copy-mode-vi a if-shell -F "$routes_left" "send-keys -t '{left}' a" \
+bind -T copy-mode-vi a if-shell -F "$routes_left" "send-keys -t '{bottom-left}' a" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 
 # n and N have to keep meaning search-again everywhere else, so they fall back
@@ -124,10 +129,10 @@ bind -T copy-mode-vi a if-shell -F "$routes_left" "send-keys -t '{left}' a" \
 # so searching costs no navigation.
 search_again="if-shell -F '#{!=:#{pane_search_string},}'"
 bind -T copy-mode-vi n if-shell -F "$routes_left" \
-  "$search_again 'send-keys -X search-again' \"send-keys -t '{left}' n\"" \
+  "$search_again 'send-keys -X search-again' \"send-keys -t '{bottom-left}' n\"" \
   'send-keys -X search-again'
 bind -T copy-mode-vi N if-shell -F "$routes_left" \
-  "$search_again 'send-keys -X search-reverse' \"send-keys -t '{left}' N\"" \
+  "$search_again 'send-keys -X search-reverse' \"send-keys -t '{bottom-left}' N\"" \
   'send-keys -X search-reverse'
 
 # q closes the review window and goes back to where it was opened from, but only
@@ -135,7 +140,7 @@ bind -T copy-mode-vi N if-shell -F "$routes_left" \
 # closing the which-key key list would take the review with it. Handed to the
 # list's loop like the jumps above, which closes the window from there.
 bind -T copy-mode-vi q if-shell -F "$routes_left" \
-  "send-keys -t '{left}' q" \
+  "send-keys -t '{bottom-left}' q" \
   'send-keys -X cancel'
 
 # y, ! and the mouse drag are tmux-yank's, and @yank_action in .tmux.conf

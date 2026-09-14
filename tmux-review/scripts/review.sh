@@ -113,25 +113,49 @@ open() {
 
   diff_pane=$(tmux new-window -t "$session:" -P -F '#{pane_id}' -c "$cwd" \
     -n "$range review" "$self diff $(printf '%q' "$range") $diff_w")
+
+  # The left column is two panes: what is being reviewed on top, the commits
+  # under it. The header is split off first, so that it is the earlier of the
+  # two and the list is unambiguously the bottom-left one -- which is how both
+  # the diff pane and the key bindings address it, with no option to read and
+  # no race against this function still setting one.
+  #
+  # It comes back with its tty as well as its id. The sidebar paints it through
+  # that tty rather than a process of its own living there: everything on it
+  # belongs to the sidebar's loop -- which agent is chosen, how many comments
+  # are queued, which of the rows is selected -- and a second process could only
+  # learn any of it by asking, once a tick, forever.
+  #
+  # -l "$columns" is the final width, not a floor: the panes are born the size
+  # they will stay, so the reveal has no resize to do and the diff's scrollback
+  # is never reflowed under the row map.
+  local hdr_pane hdr_tty
+  read -r hdr_pane hdr_tty < <(tmux split-window -hb -l "$columns" -t "$diff_pane" \
+    -c "$cwd" -P -F '#{pane_id} #{pane_tty}' "$self header $diff_pane")
+
   # Width and height are passed rather than looked up, so the list can be on
   # screen before the sidebar asks tmux anything -- see the note in sidebar().
   # Split, focus and zoom in one invocation. Done as three calls there is a
   # window -- better than a second on a busy server -- where the diff is on
   # screen and rendering, which is the whole thing being avoided.
-  # -l "$columns" is the final width, not a floor: the pane is born the size it
-  # will stay, so the reveal has no resize to do and the diff's scrollback is
-  # never reflowed under the row map.
-  tmux split-window -hb -l "$columns" -t "$diff_pane" -c "$cwd" \
-    "$self sidebar $diff_pane $(printf '%q' "$range") $win_w $win_h" ';' \
-    select-pane -t '{left}' ';' resize-pane -Z -t '{left}'
+  # The new pane is the active one, so the zoom needs no target of its own.
+  local list_h=$((win_h - header_offset)) list_pane
+  ((list_h < 1)) && list_h=1
+  list_pane=$(tmux split-window -v -l "$list_h" -t "$hdr_pane" -c "$cwd" \
+    -P -F '#{pane_id}' \
+    "$self sidebar $diff_pane $hdr_pane $hdr_tty $(printf '%q' "$range") $win_w $win_h" ';' \
+    resize-pane -Z)
 
   # @review marks the window for the q binding, which has to stay a pure format
   # test so that q in an ordinary copy-mode is not slowed down by a shell.
   # @review_return is where q goes back to.
   tmux set-option -w -t "$diff_pane" @review 1
   tmux set-option -w -t "$diff_pane" @review_return "$came_from"
-  # Which pane holds the diff, so nav() can steer it from either side.
+  # Which pane holds the diff, so nav() can steer it from either side, and
+  # which holds the list, so keypress() can hand it a key. The list used to be
+  # findable as "the window's other pane"; with the header there it is not.
   tmux set-option -w -t "$diff_pane" @review_diff_pane "$diff_pane"
+  tmux set-option -w -t "$diff_pane" @review_list_pane "$list_pane"
 }
 
 # kill-window on its own leaves the client on whichever window happens to be
@@ -147,6 +171,121 @@ quit() {
   else
     tmux kill-window -t "$target"
   fi
+  return 0
+}
+
+# The header pane. It draws nothing -- the sidebar paints this pane through its
+# tty, because everything shown on it is state that belongs to the sidebar's
+# loop -- and it owns exactly one thing: which of the two rows worth choosing
+# the cursor is on.
+#
+# That is here rather than in the sidebar because this is the pane the keys
+# arrive at. The commit list cannot be walked up out of and into these rows:
+# the two panes are two places, and moving between them is what tmux's own
+# pane keys are for. Once the focus is here, j and k step the rows, enter opens
+# whichever picker the row names, and q closes the review like it does anywhere
+# else in it.
+#
+# The row is published rather than acted on. The sidebar reads it out of the
+# window on its next turn -- it is already reading a batch of fields, so this
+# costs nothing -- and paints the highlight, because the sidebar is the one
+# with the agent's name and the range's figures to draw around it.
+header() {
+  local target=${1-} sel=range key win hdr_file
+  stty -echo 2>/dev/null || true
+  printf '\e[?25l'
+  # Each half guarded: stty fails when there is no tty, and set -e would take
+  # the trap down at that point and never put the cursor back.
+  trap 'stty echo 2>/dev/null || true; printf "\e[?25h"' EXIT INT TERM
+
+  # Nothing to hold open without a tty, which only happens outside tmux.
+  [[ -t 0 && -n $target ]] || return 0
+  hdr_file=$(header_file "$target")
+  win=$(tmux display-message -p -t "$target" '#{window_id}' 2>/dev/null) || return 0
+
+  tmux set-option -w -t "$win" @review_hdr_sel "$sel" 2>/dev/null || true
+
+  while :; do
+    read_key || continue
+    key=$REPLY
+    [[ -n $key ]] || continue
+    header_key "$win" "$target" "$key" || return 0
+  done
+}
+
+# The frame the sidebar left for a given selection. The whole pane, escapes and
+# all, so moving the highlight is a read and a write and nothing else -- no
+# process, no round trip, no waiting for the loop downstairs to come round. The
+# same reason the commit list paints its own selection before the diff has
+# caught up.
+paint_sel() {
+  local file=$1 sel=$2 blob i=0 part
+  [[ -n $file && -r $file ]] || return 0
+  blob=$(<"$file") || return 0
+  case $sel in
+    range) i=1 ;;
+    agent) i=2 ;;
+  esac
+  # \x1e between the three, because the frames are full of newlines and
+  # escapes and a line-oriented split would cut them up.
+  local -a parts=()
+  IFS=$'\x1e' read -r -d '' -a parts <<<"$blob" || true
+  part=${parts[i]-}
+  [[ -n $part ]] || return 0
+  # The herestring puts a newline on the end, so the last of the three frames
+  # carries one the other two do not. Printed on the bottom row of a pane that
+  # is exactly as tall as the frame, that newline scrolls the whole thing up
+  # and takes the range line off the top -- which is what made choosing the
+  # agent row look like it was eating the row above it.
+  part=${part%$'\n'}
+  printf '%s' "$part"
+  return 0
+}
+
+# One key pressed on the header pane. Moves the caller's sel, or acts, and
+# returns 1 when the review is over -- which is the only way out of the loop
+# above. Apart from the loop, everything the pane does is here, where it can be
+# reached without a terminal to type into.
+header_key() {
+  local win=$1 target=$2 key=$3
+  case $key in
+    # Two rows, so every upward key is one of them and every downward key the
+    # other. gg and G land where k and j do rather than doing nothing, because
+    # with two rows there is nowhere else for them to mean.
+    k | first | page_up) sel=range ;;
+    j | last | page_down) sel=agent ;;
+    q)
+      quit "$target"
+      return 1
+      ;;
+    enter)
+      # The picker is drawn in the list pane, which is the only one with the
+      # rows to draw it in -- so the focus goes with it. The row is handed over
+      # as a flag rather than read back off @review_hdr_sel, because by the
+      # time the sidebar picks the key up the focus has moved and its own idea
+      # of what is selected has gone with it.
+      #
+      # z wakes the list: it is bound to nothing there and rides the same
+      # invocation, the way the diff pane wakes it when it has finished.
+      tmux set-option -w -t "$win" @review_hdr_open "$sel" ';' \
+        select-pane -t '{bottom-left}' ';' send-keys -t '{bottom-left}' z \
+        2>/dev/null || true
+      return 0
+      ;;
+    # A redraw asked for by the sidebar: what it draws has changed, and the row
+    # the highlight goes on is this pane's to know.
+    z)
+      paint_sel "${hdr_file:-}" "$sel"
+      return 0
+      ;;
+    *) return 0 ;;
+  esac
+  # Painted here, published after. The sidebar has to be told -- enter reads
+  # the row off the window, and the list's legend follows the focus -- but
+  # nothing about the highlight moving should wait for it.
+  paint_sel "${hdr_file:-}" "$sel"
+  tmux set-option -w -t "$win" @review_hdr_sel "$sel" ';' \
+    send-keys -t '{bottom-left}' z 2>/dev/null || true
   return 0
 }
 
@@ -196,6 +335,13 @@ load_change_summary() {
   [[ $line =~ ([0-9]+)\ insertions?\(\+\) ]] && ins=${BASH_REMATCH[1]}
   [[ $line =~ ([0-9]+)\ deletions?\(-\) ]] && del=${BASH_REMATCH[1]}
   [[ -n $files ]] || return 0
+
+  # The two figures on their own as well, because the header draws them in
+  # their own colours and in the other order -- insertions and deletions first,
+  # then what they add up to. change_plain and change_col keep the shape the
+  # placeholder centres.
+  change_ins=$ins
+  change_del=$del
 
   change_plain="$files file$( ((files == 1)) || printf s)"
   change_col="$dim$change_plain$reset"
@@ -283,7 +429,7 @@ diff_pane_cmd() {
   # on the placeholder for up to another second after there was nothing left
   # to wait for. z is not bound to anything there; it costs no round trip of
   # its own, riding the invocation that sets the flag.
-  tmux set-option -w -t "$TMUX_PANE" @review_loaded 1 ';' send-keys -t '{left-of}' z
+  tmux set-option -w -t "$TMUX_PANE" @review_loaded 1 ';' send-keys -t '{bottom-left}' z
   read -r || true
   quit "$TMUX_PANE"
 }
@@ -369,7 +515,13 @@ reveal_diff() {
   # and it can draw the commits instead of the placeholder, so it is told
   # rather than left to notice on its next turn. z is bound to nothing there,
   # and it costs no round trip of its own.
-  cmd+=(send-keys -t '{left-of}' z ';')
+  #
+  # {bottom-left} rather than {left-of}: the left column is two panes now, and
+  # which one {left-of} picks depends on the order they were created in. The
+  # list is the lower of the two by construction -- open splits the header off
+  # first -- so the corner names it whatever else is on screen, including while
+  # it is the zoomed pane this is waking.
+  cmd+=(send-keys -t '{bottom-left}' z ';')
   # What #{scroll_position} is measured against from here on. tmux stops
   # counting lines appended after copy-mode was entered, so hist - scroll + cy
   # reads high by exactly the number of them -- the sidebar works from this
@@ -429,7 +581,7 @@ file_row_regex() {
 # the last line of the first commit rather than its first.
 hist_base='#{?#{==:#{@review_hist_base},},#{history_size},#{@review_hist_base}}'
 
-state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'
+state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'
 
 # A control-mode client, subscribed to that format. tmux pushes the value every
 # time it changes, so the loop stops asking: it used to spend a round trip on
@@ -491,7 +643,7 @@ start_subscription() {
 }
 
 sidebar() {
-  local pane=$1 range=$2 win_w=${3:-0} win_h=${4:-0}
+  local pane=$1 hdr_pane=$2 hdr_tty=$3 range=$4 win_w=${5:-0} win_h=${6:-0}
   # Initialised, not just declared: bash leaves a declared-but-unassigned array
   # unset, so ${#shas[@]} on a range with no commits is an unbound variable and
   # set -u takes the sidebar down -- on exactly the path that exists to say
@@ -518,7 +670,7 @@ sidebar() {
 
   # Filled in below, after the first frame is up, so the shortstat's 170ms is
   # never on the path to something appearing.
-  local change_plain='' change_col=''
+  local change_plain='' change_col='' change_ins='' change_del=''
   local -A row_of=()
   # Parallel: the scrollback row each file header sits on, and its path. Used to
   # say which file a comment is against.
@@ -530,6 +682,10 @@ sidebar() {
   local window_seen=0 want_sha=0 want_subject=0 want_date=0 want_author=0 spin=0
   local rule_dashes=''
   local needs_clear=0 shown_focus='' shown_searching=-1
+  # The header pane is painted through its tty, so nothing about it comes back
+  # to be compared against: what was last drawn there is remembered instead,
+  # as the one string that decides whether it has to be drawn again.
+  local needs_header_clear=1 shown_header=''
   local picking=0 pick_cur=0 pick_shown=-1 pick_mode=range
   local on_range=0 shown_range=-1
   # The session a comment would be sent to, and how the row is drawn. Restored
@@ -568,6 +724,8 @@ sidebar() {
   # subdirectory finds the queue left by one opened from the root. One git, once,
   # when the review opens -- next to the log load_commits has already run, and
   # nowhere near a frame.
+  local hdr_file
+  hdr_file=$(header_file "$pane")
   local store repo_root
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$PWD
   store=$(comment_file "$repo_root" "$range")
@@ -591,6 +749,12 @@ sidebar() {
   # log just read, so the first frame costs one git log and no round trip.
   if ((win_w > 0 && win_h > 0)); then
     render_loading "$win_w" "$win_h" 0
+    # The header needs nothing from tmux either: its tty is an argument, the
+    # range is one, and the count comes from the log just read. It carries no
+    # +/- yet -- the shortstat that supplies those is deliberately behind the
+    # first frame -- and paint_header puts them up when it lands.
+    columns_for "$win_w"
+    paint_header "$REPLY"
   fi
 
   # Behind the first frame: the loop can poll until this is up, and it costs a
@@ -627,8 +791,25 @@ sidebar() {
     fi
 
     local in_mode hist live scroll cy dw ww dh zoomed diff_active searching pos loaded
+    local hdr_sel hdr_open active_pane
     read_state "$pane" || return 0
-    IFS=$'\x1f' read -r in_mode hist scroll cy dw ww dh zoomed diff_active searching loaded live <<<"$tick"
+    IFS=$'\x1f' read -r in_mode hist scroll cy dw ww dh zoomed diff_active searching \
+      loaded live hdr_sel hdr_open active_pane <<<"$tick"
+
+    # Which of the two header rows the cursor up there is on, and whether the
+    # reader is actually up there. Both, because the highlight is the header
+    # pane's cursor and showing it while the reader is somewhere else would be
+    # a second claim about where they are. #{P:} walks the window's panes
+    # inside the format, so the active one comes back on the tick already being
+    # read rather than costing a call.
+    on_range=0
+    on_session=0
+    if [[ -n ${active_pane:-} && ${active_pane:-} != "$pane" && ${active_pane:-} != "${TMUX_PANE:-}" ]]; then
+      case ${hdr_sel:-} in
+        range) on_range=1 ;;
+        agent) on_session=1 ;;
+      esac
+    fi
     # Not the live history size. tmux stops counting lines appended after
     # copy-mode was entered, so while the tail of the diff is still arriving
     # #{history_size} runs ahead of the grid #{scroll_position} is measured
@@ -705,9 +886,20 @@ sidebar() {
     # layout that is not on screen yet.
     local w=$((ww - dw - 1))
     ((zoomed)) && w=$ww
-    if ((w != width || dh != height)); then
+    # dh is the diff pane's height, which is the window's. This pane sits under
+    # the header and is that much shorter -- except while it is zoomed over the
+    # whole window, when it is the one pane on screen. Rendering at the wrong
+    # one wraps the last row, which costs a line and scrolls the top away.
+    local h=$((dh - header_offset))
+    ((zoomed)) && h=$dh
+    ((h < 1)) && h=1
+    if ((w != width || h != height)); then
       width=$w
-      height=$dh
+      height=$h
+      # A pane that has changed width has to be cleared, and so does the one
+      # above it: its rows were cut to the old one.
+      needs_header_clear=1
+      shown_header=''
       build_rows "$width"
       # A frame drawn at the old width may have wrapped at the new one, and a
       # wrapped row occupies two that per-row erases never reach. Cleared as
@@ -802,6 +994,31 @@ sidebar() {
       fi
     fi
 
+    # enter was pressed on one of the header rows. The picker is drawn here
+    # because this is the pane with the rows to draw it in, and the focus came
+    # with it. The flag is cleared first, so a picker dismissed without
+    # choosing anything does not reopen on the next turn.
+    if [[ -n ${hdr_open:-} ]] && ((!picking)); then
+      tmux set-option -w -t "$win" -u @review_hdr_open 2>/dev/null || true
+      case $hdr_open in
+        range)
+          pick_mode=range
+          load_pick_items "$range"
+          ;;
+        agent)
+          pick_mode=session
+          load_pick_sessions "$win"
+          ;;
+      esac
+      if [[ $hdr_open == range || $hdr_open == agent ]]; then
+        pick_seek 0 1
+        pick_cur=$REPLY
+        pick_shown=-1
+        picking=1
+      fi
+      hdr_open=''
+    fi
+
     if ((picking)); then
       if ((pick_shown != pick_cur)); then
         render_picker "$width" "$height" "$pick_cur"
@@ -810,6 +1027,8 @@ sidebar() {
       pick_keys "$pane" "$win"
       continue
     fi
+
+    paint_header "$width" "$cur"
 
     local focus=diff
     ((diff_active)) || focus=list
@@ -855,29 +1074,6 @@ sidebar() {
       return 0
     fi
 
-    # Enter opens whichever of the two header rows is selected: the range names
-    # what is being reviewed, so it offers the other things to review, and the
-    # row below it names where a comment would go, so it offers the other
-    # agents to send to. Nowhere else does enter mean anything.
-    if [[ $key == enter ]]; then
-      if ((on_range)); then
-        pick_mode=range
-        load_pick_items "$range"
-        pick_seek 0 1
-        pick_cur=$REPLY
-        pick_shown=-1
-        picking=1
-      elif ((on_session)); then
-        pick_mode=session
-        load_pick_sessions "$win"
-        pick_seek 0 1
-        pick_cur=$REPLY
-        pick_shown=-1
-        picking=1
-      fi
-      continue
-    fi
-
     # c comments on whatever the diff cursor is sitting on -- or on the visual
     # selection, if one is up -- and s hands the queue to the chosen agent.
     # Both are routed here from the diff pane, so they answer from either side.
@@ -886,8 +1082,6 @@ sidebar() {
     # cursor being anywhere in particular, so this is the way in that does not
     # care.
     if [[ $key == a ]]; then
-      on_range=0
-      on_session=1
       pick_mode=session
       load_pick_sessions "$win"
       pick_seek 0 1
@@ -1013,7 +1207,10 @@ read_key() {
       if [[ $c == g ]]; then key=first; else key=''; fi
       ;;
     G) key=last ;;
-    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a) ;;
+    # z is the key this plugin wakes a pane with -- the diff sends it to the
+    # list when it has finished, and the list sends it to the header when what
+    # is drawn there has changed. It means nothing in the list's own loop.
+    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z) ;;
     *) key='' ;;
   esac
   REPLY=$key
@@ -1024,50 +1221,13 @@ read_key() {
 # tracking a selection of their own: moving its cursor is what moves the
 # highlight, so there is only ever one idea of where the reader is.
 steer() {
-  local pane=$1 key=$2 cur=$3 hist=$4 scroll=$5 cy=$6 page=$((height - 8))
-  # Same reason as render's: the two selection flags belong to the loop, and
-  # default so this can be driven directly.
-  : "${on_range:=0}" "${on_session:=0}"
-  ((page < 1)) && page=1
-
-  # The range line sits above the first commit. Moving up off that commit
-  # selects it, moving down goes back, and anything else leaves it -- so enter
-  # only ever offers the picker when the range is what is highlighted.
-  if ((on_range)); then
-    case $key in
-      # Nothing sits above the range line, so every list movement from it is a
-      # no-op rather than a jump to somewhere it was not asked to go.
-      k | first | last | page_up | page_down) return 0 ;;
-      j)
-        on_range=0
-        on_session=1
-        return 0
-        ;;
-      *) on_range=0 ;;
-    esac
-  elif ((on_session)); then
-    case $key in
-      # gg and G address the commit list, and the two rows above it are not part
-      # of it -- landing on its first or last entry from here would be a jump
-      # nobody asked for.
-      first | last | page_up | page_down) return 0 ;;
-      k)
-        on_session=0
-        on_range=1
-        return 0
-        ;;
-      j)
-        on_session=0
-        select_index 0
-        return 0
-        ;;
-      *) on_session=0 ;;
-    esac
-  elif [[ $key == k ]] && ((cur == 0)); then
-    on_session=1
-    return 0
-  fi
-
+  local pane=$1 key=$2 cur=$3 hist=$4 scroll=$5 cy=$6 page
+  list_rows "${height:-0}"
+  page=$REPLY
+  # There is nothing above the first commit to move onto. The range and the
+  # agent are a pane of their own, and the way into a pane is tmux's own pane
+  # keys -- walking up out of the list and into them made k mean two unrelated
+  # things depending on where in the list it was pressed.
   # The row lists are unquoted on purpose: jump takes them as trailing
   # arguments, which is what keeps the escaping out of the tmux bindings.
   # shellcheck disable=SC2086
@@ -1122,22 +1282,23 @@ legend_diff_search_tiers=(
   'n/N=match|}{=commit|c=comment'
   'n/N=match|c=comment'
 )
-# Shown only while the range line itself is selected, which is the one place
-# enter does anything.
+# The keys of the pane above, shown down here while the reader is up there --
+# the header has no room for a legend of its own, and this is the only one on
+# screen. Only what that pane answers to: its loop reads j, k, enter and q, so
+# the comment keys are not listed, because they are not there to press.
 # shellcheck disable=SC2034
 legend_range_tiers=(
+  'enter=pick what to review|j=agent|q=close'
   'enter=pick|j=agent|q=close'
   'enter=pick|j=agent'
   'enter=pick'
 )
-# Shown while the agent row is selected. enter picks which agent, and the two
-# comment keys are listed here because this is the row that says where they go.
 # shellcheck disable=SC2034
 legend_session_tiers=(
-  'enter=agent|c=comment|s=send|k=range|j=list|q=close'
-  'enter=agent|c=comment|s=send|q=close'
-  'enter=agent|c=comment|s=send'
-  'enter=agent|c=comment'
+  'enter=pick the agent|k=range|q=close'
+  'enter=agent|k=range|q=close'
+  'enter=agent|k=range'
+  'enter=agent'
 )
 
 render_legend() {
@@ -1564,7 +1725,19 @@ send_comments() {
   fi
   /bin/rm -f "$store"
   comments=0
-  tmux display-message "review: $n sent to $agent_label_cur -- press enter there to run it"
+  # Follow the comments over. They are pasted, not run -- the agent is left with
+  # the prompt on its input line so it can be read and edited before it goes --
+  # and being told that from a window you are not in is no use.
+  #
+  # Three steps, as agent-focus.sh does it: switch-client honours only the
+  # session part of its target, so the window and the pane have to be named
+  # after it. One invocation, and none of them fatal -- the queue has already
+  # been handed over by this point, so a focus that cannot be moved is worth a
+  # message rather than an error.
+  tmux switch-client -t "$agent_pane_cur" ';' \
+    select-window -t "$agent_pane_cur" ';' \
+    select-pane -t "$agent_pane_cur" 2>/dev/null || true
+  tmux display-message "review: $n sent to $agent_label_cur -- press enter to run it"
   return 0
 }
 
@@ -2122,6 +2295,7 @@ retarget() {
 # where the diff pane parks itself. This replaces several seconds of spinner
 # held over a list that was complete the whole time.
 hold_list() {
+  paint_header "$width"
   if ((shown != 0)); then
     render 0 "$width" "$height" diff "$on_range" "$searching" "$on_session"
     ((shown == -2)) && trace list-drawn
@@ -2134,6 +2308,7 @@ hold_list() {
 }
 
 hold_placeholder() {
+  paint_header "$width"
   render_loading "$width" "$height" "$spin"
   spin=$((spin + 1))
   shown=-2
@@ -2147,40 +2322,110 @@ hold_placeholder() {
   return 0
 }
 
-render() {
-  local cur=$1 width=$2 height=$3 focus=$4 on_range=${5:-0} searching=${6:-0}
-  local on_session=${7:-0}
-  # Read from the sidebar's loop when there is one, defaulted so this function
-  # can be called on its own -- which is how it is tested.
-  local agent_label_cur=${agent_label_cur-} agent_glyph_cur=${agent_glyph_cur-󰚩}
-  local comments=${comments-0}
-  local i out='' rule stat visible first last rowpad
-  rule="$dim $rule_dashes$reset"
+# How many commits the list pane can show: everything but the two rules, the
+# per-commit stat and the key row under them.
+# The explicit return, here and in list_slice: a function whose last command is
+# a `((test)) && assignment` returns the test's status, so both of these
+# answered 1 whenever their clamp did not fire -- and under set -e that took the
+# pane down rather than returning a number.
+list_rows() {
+  REPLY=$(($1 - 4))
+  ((REPLY < 1)) && REPLY=1
+  return 0
+}
 
-  # Three header rows, three rules, the stat and the one key row leave this much
-  # for the list; the selection is kept centred once there are more commits than
-  # fit.
-  visible=$((height - 8))
-  ((visible < 1)) && visible=1
-  first=0
-  if ((${#shas[@]} > visible)); then
-    first=$((cur - visible / 2))
-    ((first < 0)) && first=0
-    ((first > ${#shas[@]} - visible)) && first=$((${#shas[@]} - visible))
+# Which commits are on screen. A window of `visible` rows kept centred on the
+# selection once there are more commits than fit; SLICE_PARTIAL says whether
+# any of them are off screen, which is the only case worth naming in the
+# header.
+list_slice() {
+  local cur=$1 visible=$2 count=${#shas[@]}
+  SLICE_FIRST=0
+  SLICE_PARTIAL=0
+  if ((count > visible)); then
+    SLICE_PARTIAL=1
+    SLICE_FIRST=$((cur - visible / 2))
+    ((SLICE_FIRST < 0)) && SLICE_FIRST=0
+    ((SLICE_FIRST > count - visible)) && SLICE_FIRST=$((count - visible))
   fi
-  last=$((first + visible - 1))
-  ((last >= ${#shas[@]})) && last=$((${#shas[@]} - 1))
+  SLICE_LAST=$((SLICE_FIRST + visible - 1))
+  ((SLICE_LAST >= count)) && SLICE_LAST=$((count - 1))
+  return 0
+}
+
+# Where the sidebar leaves the header pane, drawn three times over: once with
+# nothing selected and once for each row that can be. The header pane reads it
+# to move its own highlight, which is why it is a file and not an option -- a
+# file is a shell builtin away, and every tmux option is a process.
+#
+# Keyed by the diff pane rather than the window, because that is the one id
+# both sides are handed without having to ask for it.
+header_file() {
+  local dir=${TMPDIR:-/tmp}
+  dir=${dir%/}
+  mkdir -p "$dir/tmux-review" 2>/dev/null && dir=$dir/tmux-review
+  printf '%s/header-%s.txt' "$dir" "${1//[^A-Za-z0-9._-]/_}"
+}
+
+# The parts of a row, two spaces apart, skipping the ones that are not there.
+join_parts() {
+  local part
+  REPLY=''
+  for part in "$@"; do
+    [[ -n $part ]] || continue
+    REPLY+="${REPLY:+  }$part"
+  done
+  return 0
+}
+
+# The range's churn as a run of cells, green then red in proportion to it.
+# Sets REPLY_PLAIN and REPLY_COL: the width has to be measured on one and drawn
+# from the other, and picking the escapes back out of a coloured string means
+# parsing them.
+#
+# A bar rather than another `+N -M · K` run, which is exactly the shape of the
+# footer under the list -- two rows a pane apart, in the same words, meaning
+# different things, is a misreading waiting to happen. Neither end is ever
+# rounded away: a range that added anything keeps a cell of green, and one that
+# deleted anything a cell of red.
+change_bar() {
+  # Two statements: bash makes every name in a `local` local before it expands
+  # any of the words, so an arithmetic RHS naming one of its siblings reads an
+  # unset variable -- which set -u objects to.
+  local ins=$1 del=$2 cells=$3
+  local total=$((ins + del)) g green red
+  REPLY_PLAIN=''
+  REPLY_COL=''
+  ((cells > 0 && total > 0)) || return 0
+  g=$(((ins * cells + total / 2) / total))
+  ((g == 0 && ins > 0)) && g=1
+  ((g == cells && del > 0)) && g=$((cells - 1))
+  printf -v green '%*s' "$g" ''
+  printf -v red '%*s' $((cells - g)) ''
+  REPLY_PLAIN=${green// /█}${red// /█}
+  REPLY_COL="$added${green// /█}$reset$removed${red// /█}$reset"
+  return 0
+}
+
+# The pane above the list: what is being reviewed, where a comment would go,
+# and how much of a change it is. Written to stdout, which the caller sends to
+# the header pane's tty -- so this stays a function that can be read back in a
+# test, like every other renderer here.
+#
+# first and last are the slice of the list on screen, so the count can say
+# which part of a long review is being shown. -1 for both when the whole of it
+# fits and there is nothing to say.
+render_header() {
+  local width=$1 on_range=${2:-0} on_session=${3:-0} first=${4:--1} last=${5:--1}
+  local agent_label_cur=${agent_label_cur-} agent_glyph_cur=${agent_glyph_cur-󰚩}
+  local comments=${comments-0} out='' agent_row count_row
 
   out+=$'\e[H'
-  if ((needs_clear)); then
-    out+=$'\e[2J'
-    needs_clear=0
-  fi
+  ((${needs_header_clear:-0})) && out+=$'\e[2J'
+
   # The range and the key hint are the only rows whose length is not derived
   # from the pane width, so they are the two that have to be cut to it -- a row
-  # that wraps costs a line and scrolls the top of the list away.
-  # The range line is a row of the list: moving up off the first commit selects
-  # it, and that is the only place enter means anything.
+  # that wraps costs a line, and this pane has exactly three.
   fit "$range" $((width - 1))
   if ((on_range)); then
     out+="$active $REPLY$reset"$'\e[K\n'
@@ -2188,11 +2433,11 @@ render() {
     out+="$accent $REPLY$reset"$'\e[K\n'
   fi
 
-  # Where a comment would go. Sits under the range because it is the other thing
-  # this review is aimed at, and is selected the same way -- by walking up off
-  # the first commit -- so enter opens its picker just as it does the range's.
-  # The label already carries the harness glyph, from the picker that set it.
-  local agent_row
+  # Where a comment would go. Sits under the range because it is the other
+  # thing this review is aimed at, and is selected the same way -- by walking
+  # up off the first commit -- so enter opens its picker just as it does the
+  # range's. The label already carries the harness glyph, from the picker that
+  # set it.
   if [[ -n $agent_label_cur ]]; then
     agent_row="$agent_label_cur"
   else
@@ -2210,14 +2455,91 @@ render() {
     # brings it up to the chosen colour.
     out+=" $dim$REPLY$reset"$'\e[K\n'
   fi
+  out+=$'\e[K\n'
 
-  out+="$dim ${#shas[@]} commit$( ((${#shas[@]} == 1)) || printf s)"
-  ((${#shas[@]} > visible)) && out+="  $((first + 1))-$((last + 1))"
-  out+="$reset"$'\e[K\n'
-  out+="$rule"$'\e[K\n'
+  # What the whole review comes to: how the churn splits, what it adds up to,
+  # and how many commits it took. The widest form that fits is taken, the
+  # way the legend takes one -- a row that wraps costs a line, and this pane
+  # has exactly four.
+  local commits slice='' bar_plain='' bar_col='' fig_plain='' fig_col='' f
+  local -a forms_plain=() forms_col=()
+  commits="${#shas[@]} commit$( ((${#shas[@]} == 1)) || printf s)"
+  ((first >= 0 && last >= first)) && slice="$((first + 1))-$((last + 1))"
+  if [[ -n ${change_ins:-} || -n ${change_del:-} ]]; then
+    change_bar "${change_ins:-0}" "${change_del:-0}" "$change_bar_cells"
+    bar_plain=$REPLY_PLAIN
+    bar_col=$REPLY_COL
+    if [[ -n ${change_ins:-} ]]; then
+      fig_plain="+$change_ins"
+      fig_col="$added+$change_ins$reset"
+    fi
+    if [[ -n ${change_del:-} ]]; then
+      fig_plain="${fig_plain:+$fig_plain }-$change_del"
+      fig_col="${fig_col:+$fig_col }$removed-$change_del$reset"
+    fi
+  fi
+  # Joined rather than interpolated: any of the three can be missing -- there
+  # is no bar before the shortstat lands, and no slice while the whole list
+  # fits -- and a gap of two spaces where nothing is reads as a column that
+  # failed to draw.
+  local dim_commits="$dim$commits$reset" dim_slice="${slice:+$dim$slice$reset}"
+  join_parts "$bar_plain" "$fig_plain" "$commits" "$slice"
+  forms_plain+=("$REPLY")
+  join_parts "$bar_col" "$fig_col" "$dim_commits" "$dim_slice"
+  forms_col+=("$REPLY")
+  join_parts "$bar_plain" "$fig_plain" "$commits"
+  forms_plain+=("$REPLY")
+  join_parts "$bar_col" "$fig_col" "$dim_commits"
+  forms_col+=("$REPLY")
+  join_parts "$fig_plain" "$commits" "$slice"
+  forms_plain+=("$REPLY")
+  join_parts "$fig_col" "$dim_commits" "$dim_slice"
+  forms_col+=("$REPLY")
+  join_parts "$fig_plain" "$commits"
+  forms_plain+=("$REPLY")
+  join_parts "$fig_col" "$dim_commits"
+  forms_col+=("$REPLY")
+  # width - 2, not width - 1: this is the bottom row of the pane and the row is
+  # drawn a cell in from the left, so a form measured against the full width
+  # writes the last cell of the last row -- and writing there wraps the cursor,
+  # which scrolls the pane and takes the range line off the top of it. The same
+  # trap the legend at the foot of the list is written around.
+  count_row=${forms_col[-1]}
+  for f in "${!forms_plain[@]}"; do
+    dwidth "${forms_plain[f]}"
+    if ((REPLY <= width - 2)); then
+      count_row=${forms_col[f]}
+      break
+    fi
+  done
+  out+=" $count_row$reset"$'\e[K\e[J'
+  printf '%s' "$out"
+}
+
+render() {
+  local cur=$1 width=$2 height=$3 focus=$4 on_range=${5:-0} searching=${6:-0}
+  local on_session=${7:-0}
+  # Read from the sidebar's loop when there is one, defaulted so this function
+  # can be called on its own -- which is how it is tested.
+  local i out='' rule stat visible first last rowpad
+  rule="$dim $rule_dashes$reset"
+
+  # The range, the agent row and the count are a pane of their own now -- see
+  # render_header -- so the list has four more rows than it used to.
+  list_rows "$height"
+  visible=$REPLY
+  list_slice "$cur" "$visible"
+  first=$SLICE_FIRST
+  last=$SLICE_LAST
+
+  out+=$'\e[H'
+  if ((needs_clear)); then
+    out+=$'\e[2J'
+    needs_clear=0
+  fi
 
   for ((i = first; i <= last; i++)); do
-    if ((i == cur && !on_range)); then
+    if ((i == cur)); then
       # One colour across the selected row. The per-field palette that reads
       # well on the page loses too much contrast against the accent background
       # -- the same trap the robot glyph hit when it read as red on purple.
@@ -2283,6 +2605,73 @@ paint_index() {
     "${on_range:-0}" "${searching:-0}" "${on_session:-0}"
   shown=$i
   shown_focus=$focus
+  return 0
+}
+
+# The header pane, redrawn only when what it says has changed. It is painted
+# through its tty rather than returned to a caller, so there is nothing to
+# compare against afterwards: the signature of what was last drawn is kept
+# instead. Deciding costs arithmetic and a string compare, so this can be
+# called every turn round the loop.
+#
+# cur is -1 before there is a selection -- the first frame, and every frame
+# while the diff is still arriving -- and the count then names no slice.
+paint_header() {
+  local width=$1 cur=${2:--1} first=-1 last=-1 sig visible
+  ((width > 0)) || return 0
+  [[ -n ${hdr_tty:-} ]] || return 0
+  if ((cur >= 0 && ${height:-0} > 0)); then
+    list_rows "$height"
+    visible=$REPLY
+    list_slice "$cur" "$visible"
+    if ((SLICE_PARTIAL)); then
+      first=$SLICE_FIRST
+      last=$SLICE_LAST
+    fi
+  fi
+  # Which row is selected is deliberately not in this: moving between them is
+  # the header pane's own business and it paints that itself, the moment the
+  # key is pressed. Repainting from here as well meant two writers to one pane,
+  # and this one is a tick behind by construction -- three quick presses ended
+  # with the highlight back on the row before last.
+  #
+  # Whether it is selected at all is in, because that follows the focus rather
+  # than a key up there, and clearing the highlight when the reader leaves is
+  # this loop's to notice.
+  local focused=0
+  ((${on_range:-0} || ${on_session:-0})) && focused=1
+  sig="$width|$focused|${comments:-0}|${agent_label_cur-}"
+  sig+="|${agent_guessed:-0}|${change_ins:-}|${change_del:-}|$first|$last"
+  [[ $sig == "${shown_header-}" ]] && return 0
+  shown_header=$sig
+
+  # All three states, written where the header pane can find them. Composing
+  # one is string building and costs nothing next to the write; what it buys is
+  # a keypress up there moving the highlight without a round trip through here.
+  #
+  # Written whole and moved into place, so a header reading it never sees half
+  # a frame.
+  if [[ -n ${hdr_file:-} ]]; then
+    {
+      render_header "$width" 0 0 "$first" "$last"
+      printf '\x1e'
+      render_header "$width" 1 0 "$first" "$last"
+      printf '\x1e'
+      render_header "$width" 0 1 "$first" "$last"
+    } >"$hdr_file.$$" 2>/dev/null && mv -f "$hdr_file.$$" "$hdr_file" 2>/dev/null
+  fi
+
+  # Who draws it depends on where the reader is, and only one of us ever does.
+  # With the focus up there the header has a cursor of its own and moves it on
+  # the keypress, so this loop -- a tick behind, and slower again when the
+  # server is busy -- would arrive afterwards and put the highlight back where
+  # it had been. It is told to redraw instead, and draws its own row.
+  if ((focused)) && [[ -n ${hdr_pane:-} ]]; then
+    tmux send-keys -t "$hdr_pane" z 2>/dev/null || true
+  else
+    render_header "$width" 0 0 "$first" "$last" >"$hdr_tty" 2>/dev/null || true
+  fi
+  needs_header_clear=0
   return 0
 }
 
@@ -2419,9 +2808,11 @@ keypress() {
   local win=$1 key=$2 dpane list
   dpane=$(tmux show-options -w -t "$win" -qv @review_diff_pane 2>/dev/null) || return 0
   [[ -n $dpane ]] || return 0
-  # The list is the window's other pane. Found rather than stored, because the
-  # diff pane is the one thing every mode here already knows.
-  list=$(tmux list-panes -t "$win" -F '#{pane_id}' 2>/dev/null | grep -vFx "$dpane" | head -1)
+  # Stored by open rather than worked out here. It used to be "the window's
+  # other pane", which stopped being one pane the moment the header was split
+  # off -- and the header, being the earlier of the two, is the one that
+  # search would have found.
+  list=$(tmux show-options -w -t "$win" -qv @review_list_pane 2>/dev/null) || list=''
   [[ -n $list ]] || return 0
   tmux send-keys -t "$list" "$key"
   return 0
@@ -2446,8 +2837,8 @@ nav() {
 usage() {
   # printf, not echo: echo leaves the \n as two literal characters here.
   printf '%s\n' \
-    "usage: ${0##*/} open <pane> [<range>] | diff <range> |" \
-    "       sidebar <pane> <range> [<window width> <window height>] |" \
+    "usage: ${0##*/} open <pane> [<range>] | diff <range> | header <pane> |" \
+    "       sidebar <pane> <header pane> <header tty> <range> [<w> <h>] |" \
     "       quit <target> | nav <window> next|prev|first|last stop|file|commit |" \
     "       jump <pane> next|prev|first|last <hist> <scroll> <cy> <row>... |" \
     "       key <window> <key> | retarget <window> <target>" >&2
@@ -2458,7 +2849,8 @@ main() {
   case ${1-} in
     open)    shift; open "$1" "${2-}" "${3-}" ;;
     diff)    shift; diff_pane_cmd "$1" "${2-}" ;;
-    sidebar) shift; sidebar "$1" "$2" "${3-}" "${4-}" ;;
+    header)  shift; header "${1-}" ;;
+    sidebar) shift; sidebar "$1" "$2" "$3" "$4" "${5-}" "${6-}" ;;
     jump)    shift; jump "$@" ;;
     nav)     shift; nav "$1" "$2" "$3" ;;
     key)     shift; keypress "$1" "$2" ;;
