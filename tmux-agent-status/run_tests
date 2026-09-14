@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The plugin's own test entry point. tmux/check.sh calls this as well, after
+# linting the whole repo; run it directly when only the plugin has changed.
+
+cd -P "$(dirname "${BASH_SOURCE[0]}")"
+exec tests/agent_status_test.sh "$@"

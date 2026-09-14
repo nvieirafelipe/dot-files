@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The command an agent's lifecycle hooks call:
+#
+#   agent-status --agent claude working
+#   agent-status --agent codex done
+#
+# It exists so those hook configurations name a command rather than a path
+# inside this plugin's layout -- install.sh links it onto PATH, and the plugin
+# can be rearranged without editing ~/.claude/settings.json and
+# ~/.codex/hooks.json to match.
+#
+# Which means it is nearly always reached through that link, and `cd -P` on its
+# dirname would resolve the link's own directory -- ~/.local/bin -- rather than
+# this one. The link has to be followed first, and by hand: readlink -f is GNU,
+# and the readlink macOS ships takes no -f at all.
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+  target=$(readlink "$self")
+  if [[ $target == /* ]]; then
+    self=$target
+  else
+    self=$(cd -P "$(dirname "$self")" && pwd)/$target
+  fi
+done
+here=$(cd -P "$(dirname "$self")" && pwd)
+
+# exec, not a call: the event JSON arrives on stdin and has to reach the script
+# that reads it, and there is nothing for this process to do afterwards.
+exec "$here/../scripts/agent-status.sh" "$@"

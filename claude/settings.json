@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.tmux/scripts/agent-status.sh --agent claude clear 2>/dev/null || true",
+            "command": "~/.local/bin/agent-status --agent claude clear 2>/dev/null || true",
             "timeout": 5
           }
         ]
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.tmux/scripts/agent-status.sh --agent claude working 2>/dev/null || true",
+            "command": "~/.local/bin/agent-status --agent claude working 2>/dev/null || true",
             "timeout": 5
           }
         ]
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.tmux/scripts/agent-status.sh --agent claude waiting 2>/dev/null || true",
+            "command": "~/.local/bin/agent-status --agent claude waiting 2>/dev/null || true",
             "timeout": 5
           }
         ]
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.tmux/scripts/agent-status.sh --agent claude done 2>/dev/null || true",
+            "command": "~/.local/bin/agent-status --agent claude done 2>/dev/null || true",
             "timeout": 5
           }
         ]

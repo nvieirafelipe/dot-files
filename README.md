@@ -125,11 +125,17 @@ A finished turn also raises a desktop notification carrying the prompt, the
 reply, how long the turn took and the git delta. Clicking it focuses the pane
 the agent is in.
 
+It is a plugin of its own, `tmux-agent-status/`, with its own README, options
+and tests — the only parts that stay here are the two lines of `.tmux.conf` that
+say which sounds to use, and the nova window format that says where the label
+goes.
+
 ## Development
 
 ```sh
 tmux/check.sh                     # shellcheck, bash -n, then the tests
 tmux-review/run_tests             # the review plugin's tests alone
+tmux-agent-status/run_tests       # the agent status plugin's tests alone
 tmux/rebuild-which-key.sh         # after editing tmux/which-key.yaml
 ```
 
@@ -141,8 +147,13 @@ rebuild-on-every-load is off -- it costs 1.4s of each tmux start for a file that
 changes only when the yaml does. Run `tmux/rebuild-which-key.sh` after editing
 it, then `prefix + R`.
 
-The tests cover the parts that need no tmux server: the range `git-review`
-resolves, the widths the sidebar settles on, how a row is laid out, which commit
-sits under the cursor, what a keypress resolves to, and what the renderers put
-on screen. `review.sh` dispatches only when run, not when sourced, which is what
-lets the tests reach those functions.
+Each plugin has its own suite and its own `run_coverage`, and both sit around
+92% of the lines their scripts can reach. The review tests cover the range
+`git-review` resolves, the widths the sidebar settles on, how a row is laid out,
+which commit sits under the cursor, what a keypress resolves to, and what the
+renderers put on screen. The agent status tests cover what each state writes,
+which turn wins when two land at once, what a notification says, and what the
+spinner does with a window whose agent has gone.
+
+Every script in both dispatches only when run, not when sourced, which is what
+lets the tests reach the functions inside them.

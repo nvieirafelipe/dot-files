@@ -11,6 +11,9 @@ cd "$repo" || exit 1
 scripts=(
   tmux-review/review.tmux tmux-review/run_tests tmux-review/run_coverage
   tmux-review/bin/git-review tmux-review/scripts/*.sh tmux-review/tests/*.sh
+  tmux-agent-status/agent-status.tmux tmux-agent-status/run_tests
+  tmux-agent-status/run_coverage tmux-agent-status/bin/agent-status
+  tmux-agent-status/scripts/*.sh tmux-agent-status/tests/*.sh
   tmux/check.sh tmux/rebuild-which-key.sh tmux/scripts/*.sh install.sh
 )
 status=0
@@ -64,5 +67,6 @@ printf '  clean\n'
 
 step 'tests'
 tmux-review/run_tests || status=1
+tmux-agent-status/run_tests || status=1
 
 exit "$status"

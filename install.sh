@@ -21,11 +21,14 @@ echo "==> symlinks"
 link "$repo/.tmux.conf"                 "$HOME/.tmux.conf"
 link "$repo/.gitconfig"                 "$HOME/.gitconfig"
 link "$repo/tmux/scripts"               "$HOME/.tmux/scripts"
-# The review plugin, linked in beside the ones tpm fetches -- .tmux.conf runs
-# its entry point from there. git-review lives inside it and is linked onto PATH
-# as well, because `git review` is worth having outside a review window too.
+# The two plugins that live in this repo, linked in beside the ones tpm fetches
+# -- .tmux.conf runs their entry points from there. Each has one command worth
+# having outside tmux as well, so those go on PATH: `git review` in a terminal,
+# and agent-status, which is what the agent hook configurations below call.
 link "$repo/tmux-review"                "$HOME/.tmux/plugins/tmux-review"
 link "$repo/tmux-review/bin/git-review" "$HOME/.local/bin/git-review"
+link "$repo/tmux-agent-status"          "$HOME/.tmux/plugins/tmux-agent-status"
+link "$repo/tmux-agent-status/bin/agent-status" "$HOME/.local/bin/agent-status"
 link "$repo/claude/settings.json"       "$HOME/.claude/settings.json"
 link "$repo/claude/bin"                "$HOME/.claude/bin"
 link "$repo/codex/hooks.json"           "$HOME/.codex/hooks.json"
@@ -34,9 +37,11 @@ link "$repo/iterm2/DotfilesProfile.json" \
      "$HOME/Library/Application Support/iTerm2/DynamicProfiles/DotfilesProfile.json"
 
 echo "==> notification sounds"
+# The agent notification sounds ship with the plugin that names them; macOS
+# only offers a sound to an app if it is in one of the Sounds directories.
 mkdir -p "$HOME/Library/Sounds"
-cp "$repo"/sounds/*.aiff "$HOME/Library/Sounds/"
-printf '  %s\n' "$(cd "$repo/sounds" && echo *.aiff)"
+cp "$repo"/tmux-agent-status/sounds/*.aiff "$HOME/Library/Sounds/"
+printf '  %s\n' "$(cd "$repo/tmux-agent-status/sounds" && echo *.aiff)"
 
 echo "==> delta syntax theme"
 # delta reads bat's theme set, and bat only sees themes after a cache rebuild.
