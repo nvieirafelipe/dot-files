@@ -107,6 +107,18 @@ dwidth '󰚩'; assert_eq 'a nerd glyph is two' 2 "$REPLY"
 dwidth ' ab'; assert_eq 'and counts alongside the rest' 5 "$REPLY"
 dwidth ''; assert_eq 'empty is nothing' 0 "$REPLY"
 
+section 'reserve_for: the comments pane is paid for before delta runs'
+r() { reserve_for "$1"; printf '%s %s' "$REPLY" "$REPLY_GUTTER"; }
+# The pane, its border and one column of slack come out of the diff.
+assert_eq 'a wide diff gives the pane its cells' '162 40' "$(r 204)"
+# Exactly at the floor: delta_min is what is left, so the reserve still stands.
+assert_eq 'and keeps giving them down to the floor' '100 40' "$(r 142)"
+# One column short of it. Taking the reserve here would leave delta too little
+# to show two columns, which is worse than having no comments pane.
+assert_eq 'a column below the floor takes nothing' '141 0' "$(r 141)"
+assert_eq 'and a narrow window keeps the whole diff' '80 0' "$(r 80)"
+unset -f r
+
 section 'columns_for: a share of the window, then the clamps'
 # Depends on the window alone -- which is what lets open settle the layout
 # before either pane exists, and the commits be measured by nobody.
@@ -633,6 +645,163 @@ list_slice 0 20
 assert_eq 'a list that fits is not a slice at all' '0 9 0' \
   "$SLICE_FIRST $SLICE_LAST $SLICE_PARTIAL"
 
+section 'gutter_key: every key handed to the list, none answered here'
+sent=''
+tmux() { sent+="[$*]"; return 0; }
+gutter_key %9 j
+assert_eq 'j goes over as it was pressed' '[send-keys -t %9 j]' "$sent"
+sent=''; gutter_key %9 first
+assert_eq 'a name read_key resolved becomes a key tmux can send' \
+  '[send-keys -t %9 Home]' "$sent"
+sent=''; gutter_key %9 page_down
+assert_eq 'and so does a page key' '[send-keys -t %9 PageDown]' "$sent"
+sent=''; gutter_key %9 C
+assert_eq 'C goes over too, which closes this very pane' '[send-keys -t %9 C]' "$sent"
+sent=''; gutter_key %9 R
+assert_eq 'and so does the key that empties the queue' '[send-keys -t %9 R]' "$sent"
+sent=''; gutter_key %9 cancel
+assert_eq 'a bare escape is not a key the list knows' '' "$sent"
+sent=''; gutter_key %9 z
+assert_eq 'and neither is the wake key, which means nothing here' '' "$sent"
+unset -f tmux
+unset sent
+
+section 'gutter_want: nothing, the marks, or the whole pane'
+comments=0
+gutter_reserved=40
+gutter_expanded=0
+gutter_want
+assert_eq 'an empty queue wants no pane at all' 0 "$REPLY"
+comments=2
+gutter_want
+assert_eq 'something queued wants the column of marks' 1 "$REPLY"
+gutter_expanded=1
+gutter_want
+assert_eq 'and expanded wants every cell held back for it' 40 "$REPLY"
+# A window too narrow for the reserve has none to give, however much is queued.
+gutter_reserved=0
+gutter_want
+assert_eq 'with nothing reserved there is nothing to want' 0 "$REPLY"
+unset comments gutter_reserved gutter_expanded
+
+section 'gutter_sync: split, resized, or taken away'
+# Logged to a file, not an array: the split runs inside a process substitution,
+# which is a subshell, and anything it appends to a variable is gone with it.
+tmux_log=$(mktemp)
+calls() { cat "$tmux_log"; }
+tmux() {
+  printf '[%s]' "$*" >>"$tmux_log"
+  [[ $1 == split-window ]] && printf '%%9 /dev/ttys9'
+  return 0
+}
+self=/plugin/review.sh
+gutter_pane=''
+gutter_tty=''
+gutter_w=0
+gutter_resized=0
+shown_gutter='x'
+shown_gutter_at='y'
+gutter_sig='old'
+needs_gutter_clear=0
+gutter_sync %7 0
+assert_eq 'nothing wanted and nothing there asks tmux nothing' '' "$(calls)"
+: >"$tmux_log"
+gutter_sync %7 1
+assert_eq 'the pane is split when one is wanted' '%9' "$gutter_pane"
+assert_eq 'its tty comes back with it' '/dev/ttys9' "$gutter_tty"
+assert_eq 'and the width it was given is remembered' 1 "$gutter_w"
+assert_match 'off the diff, where the reserved cells are' \
+  'split-window -h -d -l 1 -t %7' "$(calls)"
+assert_match 'running the gutter against the diff pane' 'review\.sh gutter %7' "$(calls)"
+# The diff just changed width without its content moving, which the tick has to
+# be able to tell from a resize that did move it.
+assert_eq 'the diff resize is declared, so the row map survives it' 1 "$gutter_resized"
+assert_eq 'the frame remembered from last time is dropped' '' "$shown_gutter"
+assert_eq 'and so are the anchors, which are derived afresh' '' "$gutter_sig"
+: >"$tmux_log"
+gutter_resized=0
+gutter_sync %7 1
+assert_eq 'asking again for the width it already has does nothing' '' "$(calls)"
+assert_eq 'and claims no resize' 0 "$gutter_resized"
+gutter_sync %7 40
+assert_match 'a different width is a resize, not a second pane' \
+  'resize-pane -x 40 -t %9' "$(calls)"
+assert_eq 'recorded at the new width' 40 "$gutter_w"
+assert_eq 'and declared, the same way' 1 "$gutter_resized"
+: >"$tmux_log"
+gutter_sync %7 0
+assert_eq 'nothing wanted takes it away' '' "$gutter_pane"
+assert_match 'by killing the pane' 'kill-pane -t %9' "$(calls)"
+assert_eq 'and forgets how wide it was' 0 "$gutter_w"
+/bin/rm -f "$tmux_log"
+unset -f tmux calls
+unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter
+unset shown_gutter_at gutter_sig needs_gutter_clear self
+
+section 'gutter_step: through the queue, over what could not be anchored'
+cm_row=('' 10 40 '' 90)
+gutter_cur=-1
+# Called directly, never through $(...): the index it moves is the caller's,
+# and a subshell would move a copy and throw it away. The row it steps from is
+# the diff's, so the first press works with nothing yet visited.
+gutter_step next 0
+assert_eq 'from the top, the first comment below it' 1 "$gutter_cur"
+gutter_step next 10
+assert_eq 'then the next one past that' 2 "$gutter_cur"
+gutter_step next 40
+assert_eq 'the unplaced one in between is skipped' 4 "$gutter_cur"
+gutter_step next 90
+step_status=$?
+assert_eq 'past the last there is nowhere to go' 1 "$step_status"
+assert_eq 'which leaves the reader where they were' 4 "$gutter_cur"
+gutter_step prev 90
+assert_eq 'back the same way' 2 "$gutter_cur"
+gutter_step prev 40
+assert_eq 'to the first' 1 "$gutter_cur"
+gutter_step prev 10
+step_status=$?
+assert_eq 'and no further' 1 "$step_status"
+# Scrolled somewhere between two of them, the step is still relative to there
+# rather than to whichever was visited last.
+gutter_step next 50
+assert_eq 'a step from the middle finds the one below' 4 "$gutter_cur"
+gutter_step prev 50
+assert_eq 'and back the one above' 2 "$gutter_cur"
+# Two on one row cannot be told apart by position, so a step taken while
+# standing on one of them goes to the next in the queue instead.
+cm_row=(683 683 900)
+gutter_cur=0
+gutter_step next 683
+assert_eq 'the second of a pair sharing a row is reachable' 1 "$gutter_cur"
+gutter_step next 683
+assert_eq 'and the step past them carries on by row' 2 "$gutter_cur"
+gutter_step prev 900
+assert_eq 'back to the later of the pair' 1 "$gutter_cur"
+gutter_step prev 683
+assert_eq 'and the earlier one' 0 "$gutter_cur"
+gutter_step prev 683
+step_status=$?
+assert_eq 'with nothing before it' 1 "$step_status"
+unset step_status
+unset cm_row gutter_cur
+
+section 'render: C is offered only once something is queued'
+# The fixtures the render tests above set up are still in scope.
+out=$(render 0 60 12 diff 0 0 0 0 | strip)
+assert_eq 'an empty queue does not advertise the comments pane' 0 \
+  "$(grep -c ' C ' <<<"$out")"
+out=$(render 0 60 12 diff 0 0 0 1 | strip)
+assert_match 'with one queued the key is listed' 'C comments' "$out"
+out=$(render 0 60 12 list 0 0 0 1 | strip)
+assert_match 'and on the list as well' 'C comments' "$out"
+out=$(render 0 60 12 gutter 0 0 0 1 | strip)
+assert_match 'standing in the pane, j and k mean comments' 'jk comment' "$out"
+assert_match 'and C is offered there too' 'C comments' "$out"
+out=$(render 0 90 12 list 0 0 0 1 | strip)
+assert_match 'a wide list offers the key that empties the queue' 'R clear' "$out"
+assert_match 'and spells the toggle out when there is room' 'C toggle comments' "$out"
+unset out
+
 section 'render: only the focused pane has its keys listed'
 out=$(render 0 60 20 diff | strip)
 assert_match 'the diff keys are shown when the diff has focus' 'diff  jk line' "$out"
@@ -709,6 +878,257 @@ assert_match 'and so does the line after that' \
 assert_eq 'the queue survives being read' 3 "$(comment_count "$store")"
 /bin/rm -f "$store"
 unset out store
+
+section 'comment_load: the queue, as parallel arrays'
+store=$(comment_file /tmp/test-repo 'gutter..HEAD')
+/bin/rm -f "$store"
+comment_load "$store"
+assert_eq 'a queue that was never written loads empty' 0 "${#cm_commit[@]}"
+comment_add "$store" aaa1111 bin/git-review 24 24 '  local x' 'name this'
+comment_add "$store" bbb2222 '' '' '' 'Subject line' 'and this'
+comment_load "$store"
+assert_eq 'both records' 2 "${#cm_commit[@]}"
+assert_eq 'the commit of the first' aaa1111 "${cm_commit[0]}"
+assert_eq 'the file of the first' bin/git-review "${cm_file[0]}"
+assert_eq 'the line of the first' 24 "${cm_first[0]}"
+assert_eq 'the body of the first' 'name this' "${cm_body[0]}"
+assert_eq 'a commit comment carries no file' '' "${cm_file[1]}"
+assert_eq 'every record starts unplaced' '' "${cm_row[1]}"
+/bin/rm -f "$store"
+unset store
+
+section 'comment_file_span: the right header, for the right commit'
+# One path, touched by two commits: delta writes a header for each, and only
+# the one below the comment's own commit is that comment's.
+declare -A row_of=([aaa1111]=0 [bbb2222]=50)
+file_rows=(4 12 54 61)
+file_names=(bin/git-review scripts/review.sh bin/git-review README.md)
+sp() { comment_file_span "$1" "$2" && printf '%s..%s' "$REPLY" "$REPLY_END"; }
+assert_eq 'the first commit takes the first header' '4..11' "$(sp aaa1111 bin/git-review)"
+assert_eq 'the second commit takes the second' '54..60' "$(sp bbb2222 bin/git-review)"
+assert_eq 'the span ends where the next file begins' '12..53' "$(sp aaa1111 scripts/review.sh)"
+assert_eq 'the last file runs to the end of the scrollback' '61..-1' "$(sp bbb2222 README.md)"
+assert_eq 'a file that is not there has no span' '' "$(sp aaa1111 nope.txt)"
+assert_eq 'and neither has no file at all' '' "$(sp aaa1111 '')"
+# An unknown commit is not a reason to refuse: the queue outlives the window,
+# and a range that has been rebased under it still names the file.
+assert_eq 'an unknown commit falls back to the first header' '4..11' "$(sp ffffff bin/git-review)"
+unset -f sp
+unset row_of file_rows file_names
+
+section 'comment_anchor: the line, then the file, then the commit'
+declare -A row_of=([aaa1111]=0 [bbb2222]=50)
+file_rows=(4 20)
+file_names=(bin/git-review README.md)
+# Two rows both answering 24: one removed line carrying the old number, one
+# added line carrying the new. The number alone cannot tell them apart.
+# The capture starts at the file header itself, so the header is the first row
+# of the dump and the rows below it are the file's diff.
+grid=$' \ue702 bin/git-review
+  10┊usage() {                    10│usage() {
+  24┊  --range    print the range     │
+    ┊                             23│  local y
+    ┊                             24│  local x
+  30┊done                         31│done'
+# Recorded to a file, not a variable: the capture runs inside a command
+# substitution, which is a subshell, and anything it assigns is gone with it.
+cap_log=$(mktemp)
+tmux() {
+  if [[ $1 == capture-pane ]]; then
+    printf '%s' "$*" >"$cap_log"
+    printf '%s\n' "$grid"
+    return 0
+  fi
+  return 0
+}
+a() { comment_anchor "$@" && printf '%s' "$REPLY"; }
+# The grid above starts at row 5, the row after the file header at 4.
+assert_eq 'the added line wins when the block is its text' 8 \
+  "$(a %1 100 aaa1111 bin/git-review 24 '  local x')"
+assert_eq 'the removed line wins when the block is that instead' 6 \
+  "$(a %1 100 aaa1111 bin/git-review 24 '  --range    print the range')"
+# Nothing to break the tie: the first row bearing the number, which is what a
+# comment written against a line since re-rendered should still land on.
+assert_eq 'with no block it is the first row bearing the number' 6 \
+  "$(a %1 100 aaa1111 bin/git-review 24 '')"
+assert_eq 'a block that matches nothing falls back the same way' 6 \
+  "$(a %1 100 aaa1111 bin/git-review 24 'gone in a rebase')"
+# The block leads with a blank row when the selection began on a rule.
+assert_eq 'a leading blank line in the block is skipped' 8 \
+  "$(a %1 100 aaa1111 bin/git-review 24 $'\n  local x')"
+assert_eq 'a line that is not in the file falls back to its header' 4 \
+  "$(a %1 100 aaa1111 bin/git-review 999 'nothing')"
+assert_eq 'no line at all is the file header' 4 \
+  "$(a %1 100 aaa1111 bin/git-review '' '')"
+assert_eq 'no file at all is the commit header' 50 \
+  "$(a %1 100 bbb2222 '' '' '')"
+assert_eq 'and a record naming neither is unplaced' '' \
+  "$(a %1 100 '' '' '' 'orphaned')"
+# capture-pane counts back from the live grid, the way anchor_text does.
+comment_anchor %1 100 aaa1111 bin/git-review 24 '  local x' >/dev/null
+assert_match 'the span is asked for in capture-pane coordinates' \
+  '\-S -96 -E -81' "$(cat "$cap_log")"
+/bin/rm -f "$cap_log"
+unset -f tmux a
+unset row_of file_rows file_names grid cap_log
+
+section 'wrap_body: words kept whole, paragraphs kept apart'
+w() { wrap_body "$1" "$2"; printf '%s\n' "${WRAPPED[@]}"; }
+assert_eq 'a short body is one row' 'name this' "$(w 'name this' 20)"
+assert_eq 'a long one breaks between words' $'the guard runs\nafter this, so a\nstale range' \
+  "$(w 'the guard runs after this, so a stale range' 16)"
+assert_eq 'a paragraph break is kept' $'one\n\ntwo' "$(w $'one\n\ntwo' 20)"
+# Cut by fit at the draw, not hyphenated here: half a path reads as a path.
+assert_eq 'a word longer than the row is left whole' 'supercalifragilistic' \
+  "$(w 'supercalifragilistic' 8)"
+assert_eq 'an empty body is one empty row' '' "$(w '' 20)"
+unset -f w
+
+section 'comment_rows: every comment placed, then sorted up the diff'
+declare -A row_of=([aaa1111]=0 [bbb2222]=50)
+file_rows=(4)
+file_names=(bin/git-review)
+tmux() { return 0; }
+# Written in the order the reader wrote them, which is not the order they
+# appear in the diff.
+cm_commit=(bbb2222 aaa1111 zzz9999)
+cm_file=('' bin/git-review '')
+cm_first=('' '' '')
+cm_last=('' '' '')
+cm_block=('' '' '')
+cm_body=('on the commit' 'on the file' 'orphaned')
+cm_row=('' '' '')
+comment_rows %1 100
+assert_eq 'the unplaced one sorts to the front' '' "${cm_row[0]}"
+assert_eq 'and keeps its own body' 'orphaned' "${cm_body[0]}"
+assert_eq 'then the file header at 4' 4 "${cm_row[1]}"
+assert_eq 'whose body came with it' 'on the file' "${cm_body[1]}"
+assert_eq 'then the commit header at 50' 50 "${cm_row[2]}"
+assert_eq 'whose body came with it too' 'on the commit' "${cm_body[2]}"
+unset -f tmux
+unset row_of file_rows file_names
+
+section 'render_gutter: a comment on the row its line is on'
+# 20 columns, 8 rows: seven for comments and the foot for what is off screen.
+cm_row=(102 105)
+cm_body=('first' 'second')
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_eq 'one row per row of the pane' 8 "${#g[@]}"
+assert_eq 'the row above the first comment is blank' '' "$(printf '%s' "${g[1]}" | tr -d ' ')"
+assert_match 'the first comment is on its own row' '^█  first' "${g[2]}"
+assert_match 'and the second on its own' '^█  second' "${g[5]}"
+assert_eq 'the foot is empty when nothing is off screen' '' \
+  "$(printf '%s' "${g[7]}" | tr -d ' ')"
+# The bottom row is one cell short of the width on purpose: writing the last
+# cell of the last row wraps the cursor and scrolls the pane.
+assert_eq 'every row fits the pane' 1 \
+  "$(m=1; for l in "${g[@]}"; do dwidth "$l"; ((REPLY > 19)) && m=0; done; printf '%s' "$m")"
+dwidth "${g[7]}"
+assert_eq 'and the last is a cell shorter still' 18 "$REPLY"
+assert_eq 'no trailing newline to scroll on' 0 \
+  "$(printf '%s' "$REPLY_PLAIN" | tail -c1 | grep -c '^$')"
+
+section 'render_gutter: the earlier comment gives way, never the later'
+# Two rows apart, with a body that wants four. Pushing the second down would
+# align it to a line that is not its own, so the first is cut instead.
+cm_row=(102 104)
+cm_body=('one two three four five six seven eight' 'later')
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'the first comment starts where it belongs' '^█  one two' "${g[2]}"
+assert_match 'its second row is a continuation' '^│  ' "${g[3]}"
+assert_match 'which says it was cut' '…' "${g[3]}"
+assert_match 'and the later comment is still on its own row' '^█  later' "${g[4]}"
+
+section 'render_gutter: what is off screen, and what cannot be placed'
+cm_row=('' 90 102 300)
+cm_body=('orphan' 'above' 'here' 'below')
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'a comment with no row is drawn at the top' '^█  orphan' "${g[0]}"
+assert_match 'one in view is on its row' '^█  here' "${g[2]}"
+assert_match 'the foot counts the one above' '↑1' "${g[7]}"
+assert_match 'and the one below' '↓1' "${g[7]}"
+# A pane too narrow to hold anything still has to answer, rather than taking
+# the sidebar down with an arithmetic error.
+render_gutter 2 3 100
+assert_eq 'a pane with no room for a body still renders' 3 \
+  "$(printf '%s' "$REPLY_PLAIN" | grep -c '')"
+unset g
+unset cm_row cm_body
+
+section 'render_gutter: the one being read is marked, and the rest give way'
+cm_row=(102 105)
+cm_body=('first' 'second')
+# Nothing stepped onto yet, so there is no one comment the others are not.
+gutter_cur=-1
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'with nothing focused both carry the mark' '^█  first' "${g[2]}"
+assert_match 'and so does the other' '^█  second' "${g[5]}"
+col_of() { printf '%s' "$REPLY" | sed -n "$1p"; }
+gutter_cur=1
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+# Two cells either way -- the balloon stands in for the mark and the space
+# after it -- so the text starts in the same column whichever is drawn.
+assert_match 'the one being read carries a balloon' "^${comment_glyph} second" "${g[5]}"
+assert_match 'the other keeps its mark' '^█  first' "${g[2]}"
+assert_eq 'and both rows are the same width' \
+  "$(dwidth "${g[2]}"; printf '%s' "$REPLY")" \
+  "$(dwidth "${g[5]}"; printf '%s' "$REPLY")"
+# The one being read keeps its colour; the rest are dimmed, which is what makes
+# stepping through the queue visible in the pane and not only in the diff.
+render_gutter 20 8 100
+# Matched on the colour's own numbers rather than on the escape built out of
+# the variable: a regex assembled from a string full of brackets is a test of
+# the assembling.
+assert_match 'the one being read is drawn in the reading colour' \
+  '38;2;192;202;245' "$(col_of 6)"
+assert_match 'and the others are dimmed' '38;2;86;95;137' "$(col_of 3)"
+assert_eq 'which is not the colour the focused one is in' 0 \
+  "$(col_of 3 | grep -c '38;2;192;202;245')"
+# One cell has only brightness to say it with, so the mark itself does not
+# change -- a column one cell wide cannot afford a second glyph.
+gutter_cur=1
+render_gutter 1 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_eq 'collapsed, the focused row is still one cell' '█' "${g[5]}"
+assert_eq 'and so is the unfocused one' '█' "${g[2]}"
+assert_eq 'every row of a one-column pane is one column' 1 \
+  "$(m=1; while IFS= read -r l; do dwidth "$l"; ((REPLY > 1)) && m=0; done \
+     < <(printf '%s' "$REPLY_PLAIN"); printf '%s' "$m")"
+unset -f col_of
+unset g cm_row cm_body gutter_cur
+
+section 'render_gutter: two comments on one row, and which of them shows'
+# Two notes about the same line, or two that could only be anchored as far as
+# the same file header. The row cannot show both, and dropping the one that
+# does not fit would hide a comment the queue still holds and s still sends.
+cm_row=(683 683)
+cm_body=('first note' 'second note')
+gutter_cur=-1
+render_gutter 30 6 680
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'with none being read the first of them shows' '^█  \(1/2\) first note' "${g[3]}"
+assert_eq 'and it is the only row drawn' 1   "$(printf '%s' "$REPLY_PLAIN" | grep -c 'note')"
+gutter_cur=1
+render_gutter 30 6 680
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'stepping to the second shows that one instead'   "^${comment_glyph} \(2/2\) second note" "${g[3]}"
+gutter_cur=0
+render_gutter 30 6 680
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'and back again' "^${comment_glyph} \(1/2\) first note" "${g[3]}"
+# One on its own is not counted, because there is nothing to count it against.
+cm_row=(683)
+cm_body=('alone')
+gutter_cur=-1
+render_gutter 30 6 680
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'a comment with the row to itself carries no count' '^█  alone' "${g[3]}"
+unset g cm_row cm_body gutter_cur
 
 section 'gutter_line: which line of which file a row is'
 g() { gutter_line "$1" && printf '%s' "$REPLY"; }
@@ -1382,8 +1802,13 @@ cd "$open_cwd" || :
 calls
 assert_match 'the diff pane is a new window named for the range' \
   'new-window .*-n base\.\.HEAD review' "$open_calls"
+# 220 less the 77 the list takes and its border is 142 for the diff pane, and
+# delta is told 40 less than that for the comments pane and two for the border
+# and the slack.
 assert_match 'and it is handed the width delta must render at' \
-  'review\.sh diff base\.\.HEAD 142' "$open_calls"
+  'review\.sh diff base\.\.HEAD 100' "$open_calls"
+assert_match 'with the rest reserved for the comments pane' \
+  '@review_gutter_w 40' "$open_calls"
 assert_match 'the header is split off it at its final width' \
   'split-window -hb -l 77 -t %7 .*review\.sh header %7' "$open_calls"
 assert_match 'and the list under the header, the window less the header' \
@@ -1693,6 +2118,37 @@ pick_args=''; apply_pick '%7' '@9' 6
 assert_eq 'the row that says no agent is running does nothing' '' "$pick_args"
 unset -f tmux; restore_review; unset pick_args
 
+section 'clear_comments: asks first, because nothing brings it back'
+cstore=$(comment_file /tmp/test-repo 'clear..HEAD')
+/bin/rm -f "$cstore"
+said=''
+tmux() { said+="[$*]"; return 0; }
+clear_comments "$cstore"
+assert_eq 'an empty queue is not something to confirm' 1 $?
+assert_match 'and says so' 'nothing queued to clear' "$said"
+comment_add "$cstore" aaa1111 bin/git-review 24 24 '' 'first'
+comment_add "$cstore" bbb2222 bin/git-review 30 30 '' 'second'
+# The answer is read from this process's stdin, so the tests feed it one.
+said=''
+clear_comments "$cstore" <<<'n'
+assert_eq 'anything but y keeps the queue' 1 $?
+assert_eq 'and the queue is still there' 2 "$(comment_count "$cstore")"
+assert_match 'it counts what it is about to discard' 'discard 2 queued comments' "$said"
+assert_match 'and says it kept them' 'review: kept' "$said"
+said=''
+clear_comments "$cstore" <<<'y'
+assert_eq 'y discards it' 0 $?
+assert_eq 'and the queue is gone' 0 "$(comment_count "$cstore")"
+assert_match 'saying how many went' 'review: 2 discarded' "$said"
+# One comment is a comment, not comments.
+comment_add "$cstore" ccc3333 f 1 1 '' 'only'
+said=''
+clear_comments "$cstore" <<<'y'
+assert_match 'a single one is asked about in the singular' 'discard 1 queued comment\?' "$said"
+/bin/rm -f "$cstore"
+unset -f tmux
+unset cstore said
+
 section 'send_comments: to the agent that was chosen, if it is still there'
 send_msgs=''
 comment_send() { send_msgs+="[paste $1]"; return "$send_paste_rc"; }
@@ -1768,9 +2224,12 @@ assert_match 'prefix+g opens a review, in the background' \
   'bind-key g run-shell -b .*/scripts/review\.sh open #\{pane_id\}' "$bound"
 assert_match 'prefix+G is the working tree, in a popup' \
   'bind-key G display-popup .*/bin/git-review --wip' "$bound"
-assert_eq 'eleven keys are bound in copy-mode' 11 \
+assert_eq 'thirteen keys are bound in copy-mode' 13 \
   "$(grep -o 'bind-key -T copy-mode-vi' <<<"$bound" | grep -c .)"
-for k in ']' '\[' '}' '{' c s a n N q Enter; do
+# C and R are bound from the start even though the legend only offers them once
+# there is something queued: a binding that came and went would mean reloading
+# the configuration mid-review, which takes the review's own bindings with it.
+for k in ']' '\[' '}' '{' c C R s a n N q Enter; do
   matched=0; grep -q -- "bind-key -T copy-mode-vi $k " <<<"$bound" || matched=1
   assert_ok "$matched" "copy-mode $k is bound"
 done
@@ -1837,6 +2296,54 @@ assert_eq 'and the state asked for instead' asked "$tick"
 exec {state_fd}<&-
 /bin/rm -f "$state_file"
 unset -f tmux; unset state_file state_asked state_rc state_ok state_fd
+
+section 'ask_state: the reply, not the push a second later'
+ask_w=$(mktemp)
+ask_r=$(mktemp)
+# state_format is the script's own, and the sections after this one read it.
+ask_save_format=$state_format
+# What the control client says back: the command echo, a push that happened to
+# land while the reply was in flight, then the reply itself.
+{
+  printf '%%begin 1 1 1\n'
+  printf '%%subscription-changed rv %%1 0 0 0 : STALE-PUSH\n'
+  printf 'THE-REPLY\n'
+  printf '%%end 1 1 1\n'
+} >"$ask_r"
+exec {ask_rfd}<"$ask_r"
+exec {ask_wfd}>"$ask_w"
+sub_out=$ask_rfd
+sub_in=$ask_wfd
+state_format='#{scroll_position}'
+tick=''
+# Called directly, never through $(...): it sets the caller's tick, and a
+# subshell would both set a copy and read the descriptor to the end.
+ask_state %1
+ask_status=$?
+assert_eq 'it answers true' 0 "$ask_status"
+assert_eq 'the reply is what the tick becomes' 'THE-REPLY' "$tick"
+exec {ask_wfd}>&-
+assert_match 'and the ask went down the control client' \
+  'display-message -p -t %1' "$(cat "$ask_w")"
+exec {ask_rfd}<&-
+# A client that has gone takes the fast path with it rather than hanging.
+printf '%%exit\n' >"$ask_r"
+exec {ask_rfd}<"$ask_r"
+sub_out=$ask_rfd
+exec {ask_wfd}>"$ask_w"
+sub_in=$ask_wfd
+ask_state %1
+ask_status=$?
+assert_eq 'a client that has exited answers false' 1 "$ask_status"
+assert_eq 'and says so, so the caller stops asking' -1 "$sub_out"
+exec {ask_rfd}<&-
+exec {ask_wfd}>&-
+/bin/rm -f "$ask_r" "$ask_w"
+state_format=$ask_save_format
+sub_out=-1
+sub_in=-1
+tick=''
+unset ask_r ask_w ask_save_format ask_status
 
 section 'start_subscription: a control client, subscribed to the one format'
 sub_dir=$(mktemp -d)
@@ -2191,6 +2698,13 @@ trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$so
 if ! tmux -L "$socket" -f /dev/null new-session -d -x 120 -y 40 -c "$repo" 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
+  # -f /dev/null leaves tmux's own 2000-line default, and a review whose diff
+  # is longer than the scrollback can hold loses the commit headers off the top
+  # -- so the row map never completes, and the list sits on its placeholder for
+  # good. Real use does not hit this because .tmux.conf sets 50000; the test
+  # server has to say so too, or the suite passes or fails on how large the
+  # repository's most recent commit happens to be.
+  tmux -L "$socket" set-option -g history-limit 50000
   pane=$(tmux -L "$socket" display-message -p '#{pane_id}')
   tmux -L "$socket" run-shell -b -t "$pane" "$plugin/scripts/review.sh open $pane HEAD~1..HEAD"
 
@@ -2211,7 +2725,17 @@ else
       (($(tmux -L "$socket" list-panes -t "$win" -F x 2>/dev/null | grep -c x) >= 3)) && break
       sleep 0.25
     done
-    sleep 2
+    # Then on the diff saying it is done, because the list shows a placeholder
+    # until it does and that placeholder names the range -- which one of the
+    # assertions below is that it no longer does. A fixed sleep made this test
+    # depend on how large the repository's last commit happened to be.
+    dpane=$(tmux -L "$socket" show-options -w -t "$win" -qv @review_diff_pane)
+    for _ in $(seq 1 160); do
+      [[ $(tmux -L "$socket" show-options -p -t "$dpane" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+    sleep 1
     live=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_dead}' | grep -c '^0$')
     assert_eq 'all three panes are alive' 3 "$live"
 
@@ -2434,6 +2958,209 @@ assert_match 'having closed the review from the pane it was opened over' \
 unset -f tmux quit
 unset sel hdr_calls
 restore_review
+
+section 'gutter_goto: the diff is asked to move, not moved here'
+shas=(aaa bbb ccc)
+declare -A row_of=([aaa]=0 [bbb]=40 [ccc]=200)
+cm_row=(10 40)
+gutter_cur=1
+pending_row=-1
+painted=-1
+paint_index() { painted=$1; }
+gutter_goto
+assert_eq 'the list highlight follows the comment straight away' 1 "$painted"
+# Held rather than sent: the same path a held j takes, so a run of them costs
+# one round trip and not one a key.
+assert_eq 'and the move is left for the pause to flush' 40 "$pending_row"
+# Nothing to go to, and nothing broken by asking.
+cm_row=('')
+gutter_cur=0
+pending_row=-1
+gutter_goto
+assert_eq 'an unanchored comment is not somewhere to send anyone' -1 "$pending_row"
+unset -f paint_index
+unset shas row_of cm_row gutter_cur pending_row painted
+
+section 'paint_gutter: down the pane tty, and only when the frame changed'
+gtty=$(mktemp)
+gutter_tty=$gtty
+gutter_w=20
+shown_gutter=''
+needs_gutter_clear=1
+cm_row=(102)
+cm_body=('hello')
+paint_gutter 100 8
+out=$(cat "$gtty")
+assert_match 'the frame reaches the tty' 'hello' "$out"
+assert_match 'with the cursor homed first' $'^\e\\[H' "$out"
+# Never a full-screen erase: tmux answers \e[2J by pushing the whole screen
+# into the pane's scrollback, which on a pane this tall was seventy-eight lines
+# of debris per redraw. Every row ends in \e[K instead, so the frame erases the
+# screen as it writes it.
+assert_eq 'and never with a full-screen erase' 0 "$(grep -c $'\e\\[2J' <<<"$out")"
+assert_eq 'every row erasing to its own end instead' 8 \
+  "$(grep -o $'\e\\[K' <<<"$out" | grep -c .)"
+: >"$gtty"
+paint_gutter 100 8
+assert_eq 'an identical frame is not written again' '' "$(cat "$gtty")"
+paint_gutter 101 8
+assert_match 'a moved viewport is' 'hello' "$(cat "$gtty")"
+# No tty is not an error: the pane can be killed between a tick reading it and
+# this writing to it.
+gutter_tty=''
+shown_gutter=''
+assert_eq 'a pane that has gone is not written to' 0 \
+  "$(paint_gutter 100 8; printf '%s' $?)"
+/bin/rm -f "$gtty"
+unset gtty out gutter_tty gutter_w shown_gutter needs_gutter_clear cm_row cm_body
+
+section 'the comments pane: the diff keeps the width it was rendered at'
+# The one test that would have caught the only real bug in this pane: git sizes
+# --stat to the terminal, not to delta's --width, so the diffstat came out
+# wider than the rest of the diff and folded the moment the pane was split off.
+# Nothing short of a real delta against a real repository shows that.
+gsock=review-gutter-$$
+gtmp=$(mktemp -d)
+(
+  cd "$gtmp" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  git config commit.gpgsign false
+  # A long path and enough churn that git's own diffstat bar is the widest row
+  # of the whole diff. git scales that bar to the terminal it believes it is
+  # writing to, which is the pane and not delta's --width -- so without
+  # --stat-width this row alone comes out wider than the rest of the diff and
+  # folds the moment the comments pane is split off. The path is deep and the
+  # rows are long for exactly that reason; a short name or a small change
+  # leaves the bar well inside the width and the fold never happens.
+  mkdir -p a/deeply/nested/path/to/some/source
+  f=a/deeply/nested/path/to/some/source/wide-file-name.txt
+  for n in $(seq 1 200); do
+    printf 'line %03d %s\n' "$n" "$(printf 'x%.0s' $(seq 1 90))"
+  done >"$f"
+  git add "$f"
+  git commit -qm 'add the file'
+  for n in $(seq 1 200); do
+    printf 'line %03d %s CHANGED\n' "$n" "$(printf 'y%.0s' $(seq 1 90))"
+  done >"$f"
+  git add "$f"
+  git commit -qm 'rewrite every line of it'
+) >/dev/null 2>&1
+
+# Keyed off the toplevel git reports, not the path mktemp handed back: on this
+# platform the two differ by a /private prefix, and the sidebar works out the
+# queue's name from the former.
+gstore=$(comment_file "$(git -C "$gtmp" rev-parse --show-toplevel)" 'HEAD~1..HEAD')
+rm -f "$gstore"
+comment_add "$gstore" "$(git -C "$gtmp" rev-parse --short HEAD)" \
+  a/deeply/nested/path/to/some/source/wide-file-name.txt 20 20 '' \
+  'queued before the review was ever opened'
+
+if ! tmux -L "$gsock" -f /dev/null new-session -d -x 285 -y 78 -c "$gtmp" 2>/dev/null; then
+  no 'a throwaway tmux server could be started' 'a server' 'none'
+else
+  tmux -L "$gsock" set-option -g history-limit 50000
+  gpane=$(tmux -L "$gsock" display-message -p '#{pane_id}')
+  tmux -L "$gsock" run-shell -b -t "$gpane" \
+    "$plugin/scripts/review.sh open $gpane HEAD~1..HEAD"
+  gwin=''
+  for _ in $(seq 1 80); do
+    gwin=$(tmux -L "$gsock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $gwin ]] && break
+    sleep 0.25
+  done
+  assert_ok "$([[ -n $gwin ]] && echo 0 || echo 1)" 'the review window appears'
+
+  if [[ -n $gwin ]]; then
+    gdiff=$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_diff_pane)
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$gsock" show-options -p -t "$gdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+    sleep 1
+    glist=$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_list_pane)
+    # 285 less the 80 the list takes and its border leaves 204 for the diff
+    # pane; delta is told 40 less for the comments pane, one for its border and
+    # one of slack.
+    assert_eq 'the width for the pane is reserved on the window' 40 \
+      "$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_gutter_w)"
+    assert_match 'and delta is told the narrower number' 'diff HEAD~1\.\.HEAD 162' \
+      "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_start_command}')"
+    # A comment was queued before the review opened, so the marks are already
+    # up without anything being pressed: 285 less the list's 80 and two borders
+    # and the three the marks take.
+    ggut=$(tmux -L "$gsock" list-panes -t "$gwin" -F '#{pane_id} #{pane_start_command}' |
+      grep 'review.sh gutter' | cut -d' ' -f1)
+    assert_ok "$([[ -n $ggut ]] && echo 0 || echo 1)" \
+      'a queued comment brings the marks up on its own'
+    assert_eq 'one column of them, which is all a mark is' 1 \
+      "$(tmux -L "$gsock" display-message -p -t "${ggut:-$gdiff}" '#{pane_width}')"
+    assert_eq 'and the diff keeps the rest' 202 \
+      "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
+    # -e, because the mark is a painted cell rather than a glyph: the text of
+    # that row is a single space, and what makes it a mark is the background.
+    assert_match 'the mark is painted' '48;2;122;162;247' \
+      "$(tmux -L "$gsock" capture-pane -p -e -t "${ggut:-$gdiff}")"
+
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/before.txt"
+    tmux -L "$gsock" send-keys -t "$glist" C
+    for _ in $(seq 1 40); do
+      [[ $(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}') == 40 ]] && break
+      sleep 0.25
+    done
+    sleep 1
+    assert_eq 'C widens it to everything reserved' 40 \
+      "$(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}')"
+    # One more than delta was told, which is the slack that keeps no row of the
+    # diff ever sitting flush against the pane's edge.
+    assert_eq 'leaving the diff a column wider than it rendered at' 163 \
+      "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
+    assert_match 'and the comment itself is readable now' 'queued before' \
+      "$(tmux -L "$gsock" capture-pane -p -t "$ggut")"
+
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/after.txt"
+    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/after.txt" && echo 0 || echo 1)" \
+      'and not one row of the diff reflowed' 'the same scrollback' 'rows folded'
+
+    # The list is a pane of its own and none of this is its business. It used to
+    # work its width out by subtracting the diff from the window, which stopped
+    # describing the layout the moment there were more than two panes -- so it
+    # believed it had the comments pane's cells too and wrapped every row.
+    assert_eq 'the commit list is untouched by any of it' 80 \
+      "$(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}')"
+    # Counted rather than measured: a wrapped row is still two rows of at most
+    # the pane's width, so nothing about its content gives it away -- what gives
+    # it away is that there are more rows than the list has things to say. One
+    # commit in the range, then the rule, the diffstat, the rule and the legend.
+    assert_eq 'and it drew five rows, not ten' 5 \
+      "$(tmux -L "$gsock" capture-pane -p -t "$glist" | grep -c .)"
+
+    # Collapsed again -- back to the marks, not gone: the comment is still queued.
+    tmux -L "$gsock" send-keys -t "$glist" C
+    for _ in $(seq 1 40); do
+      [[ $(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}') == 1 ]] && break
+      sleep 0.25
+    done
+    sleep 1
+    assert_eq 'C again collapses it back to the marks' 1 \
+      "$(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}')"
+    assert_eq 'rather than closing it, because the comment is still queued' 4 \
+      "$(tmux -L "$gsock" list-panes -t "$gwin" -F x | grep -c x)"
+    assert_eq 'and the diff has those cells back' 202 \
+      "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/closed.txt"
+    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/closed.txt" && echo 0 || echo 1)" \
+      'with its scrollback still untouched' 'the same scrollback' 'rows folded'
+  fi
+  tmux -L "$gsock" kill-server 2>/dev/null
+fi
+rm -f "$gstore"
+rm -rf "$gtmp"
+rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"
+unset gsock gtmp gstore gpane gwin gdiff glist ggut
 
 section 'review.sh: the dispatcher'
 # The process that holds the header pane open. Given no tty there is nothing to

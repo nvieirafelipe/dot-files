@@ -42,9 +42,54 @@ diff_min=100
 header_rows=4
 header_offset=$((header_rows + 1))
 
+# The comments pane, split off the right of the diff: how wide it is drawn.
+#
+# Its width is taken out of the diff before delta runs, not when the pane is
+# opened. A diff pane narrowed below the width its content was rendered at
+# folds every full row onto a second line, and rows are what the whole plugin
+# follows the reader by -- so the reserve is spent whether or not the pane is
+# ever shown, as a strip of unused cells at the right of the diff. The
+# alternative is re-rendering the diff on every toggle, which is a second delta
+# run and loses the reader's place.
+#
+# Forty is a sentence at a time. Wider and the diff pays for room the comments
+# do not use; narrower and every comment is three rows of two words.
+gutter_cells=40
+
+# And how wide it sits when it is not expanded. Once anything is queued the pane
+# is always there, narrowed to a marker beside each line that carries a comment
+# -- enough to see that there is one, and where, without giving up the width to
+# read it.
+#
+# One, which is all the mark is. Writing the last cell of a row does leave the
+# cursor at the right margin, but the newline that follows only moves it down --
+# the pending wrap is resolved by the next printable character, and there is
+# never one. Checked on a throwaway server: a one-column pane with every cell of
+# every row written, three frames over, keeps an empty history.
+#
+# The cells between this and gutter_cells are reserved either way, so widening
+# and narrowing only ever moves the border between two panes that were both
+# already accounted for.
+gutter_thin=1
+
 # How many cells the churn bar is drawn in when there is room for it. Ten is
 # enough to read a ratio off and short enough to leave the figures beside it.
 change_bar_cells=10
+
+# The mark drawn beside a line that carries a comment.
+#
+# Painted rather than drawn: even a full block carries the font's own padding,
+# and at one column wide the mark is the whole pane, so that padding is most of
+# what there is to see. A space with a background colour fills the cell exactly,
+# whatever the font does. The glyph below is the uncoloured stand-in, which is
+# what the tests measure and what a caller without colour would get.
+mark_glyph='█'
+
+# And the comment the reader is standing on, once the pane is widened enough to
+# read the bodies. A Nerd Font speech balloon, which draws two cells wide --
+# exactly the mark and the space it stands in for, so moving the focus shifts
+# nothing else on the row.
+comment_glyph=$'\uf075'
 
 # Tokyo Night Storm, the same values .tmux.conf uses. The commit list is
 # coloured field for field like the glog alias -- red sha, green (relative
@@ -63,3 +108,10 @@ removed=$'\e[38;2;247;118;142m'
 # tmux/scripts/repo-icon.sh's colour for .git, so the placeholder's glyph
 # matches the one the status line already shows for a repository.
 c_git=$'\e[38;2;245;77;39m'
+
+# The backgrounds the mark is painted with: a comment, the one being read, and
+# -- at the pane's edges -- what is off it. The same three colours the rest of
+# the list uses as foregrounds, so the pane is of a piece with it.
+mark_bg=$'\e[48;2;122;162;247m'
+mark_bg_read=$'\e[48;2;192;202;245m'
+mark_bg_off=$'\e[48;2;86;95;137m'

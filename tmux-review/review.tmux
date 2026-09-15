@@ -45,10 +45,15 @@ in_review='#{&&:#{@review},#{==:#{pane_mode},copy-mode}}'
 # to a review left with a single pane.
 #
 # pane_at_left is 0 only while some other pane is to the left to route to, which
-# is exactly when routing means anything -- so it covers all three at once. It
-# is still the whole test with the header pane there: that pane and the list are
-# both at the left, so neither routes, and the diff -- the only one that does --
-# is not.
+# is exactly when routing means anything -- so it covers all three at once. The
+# header pane and the list are both at the left, so neither routes, and the
+# diff -- which does -- is not.
+#
+# The comments pane is the exception it survives rather than covers. That pane
+# is at the right, so the guard lets a key pressed there through; what stops the
+# recursion is the target, which names the list and never the pane the key came
+# from. It has a loop of its own reading those keys anyway, so this only comes
+# up when mouse scroll has put it in copy-mode behind that loop's back.
 #
 # Only the routing keys carry it. Enter stays on in_review: it copies in place
 # rather than routing, so it is not in the loop, and refusing it while the diff
@@ -116,6 +121,26 @@ bind -T copy-mode-vi c if-shell -F "$routes_left" "send-keys -t '{bottom-left}' 
 bind -T copy-mode-vi s if-shell -F "$routes_left" "send-keys -t '{bottom-left}' s" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 bind -T copy-mode-vi a if-shell -F "$routes_left" "send-keys -t '{bottom-left}' a" \
+  "if-shell -F '$zoomed_review' 'resize-pane -Z'"
+
+# C shows the comments beside the lines they were written on, in a pane split
+# off the right of the diff, and hides it again. Like c, s and a it means
+# nothing else in copy-mode-vi -- tmux binds no single uppercase C there -- so
+# there is nothing for it to fall back to. Routed to the list's loop like
+# the rest: the queue is there, and so is everything the pane is painted from.
+# It is only offered in the legend once something is queued -- the pane cannot
+# be opened before then -- but the key is bound from the start, because a
+# binding that comes and goes is a reload, and reloading .tmux.conf mid-review
+# takes the review's own bindings with it.
+bind -T copy-mode-vi C if-shell -F "$routes_left" "send-keys -t '{bottom-left}' C" \
+  "if-shell -F '$zoomed_review' 'resize-pane -Z'"
+
+# R throws the queue away, after asking. Uppercase and away from the other
+# keys on purpose: it is the one action here that loses work, since the queue
+# outlives the window it was written in and s is the only other thing that
+# empties it. tmux binds no single R in copy-mode-vi, and prefix+R is a
+# different table, so neither is shadowed.
+bind -T copy-mode-vi R if-shell -F "$routes_left" "send-keys -t '{bottom-left}' R" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 
 # n and N have to keep meaning search-again everywhere else, so they fall back

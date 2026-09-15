@@ -71,6 +71,12 @@ items:
           - name: Send the queue to the agent
             key: s
             command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} s"'
+          - name: Read the comments beside the diff
+            key: C
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} C"'
+          - name: Discard the whole queue
+            key: R
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} R"'
           - separator: true
           - name: Choose which agent
             key: a
