@@ -110,8 +110,15 @@ removed=$'\e[38;2;247;118;142m'
 c_git=$'\e[38;2;245;77;39m'
 
 # The backgrounds the mark is painted with: a comment, the one being read, and
-# -- at the pane's edges -- what is off it. The same three colours the rest of
-# the list uses as foregrounds, so the pane is of a piece with it.
+# -- at the pane's edges -- what is off it.
+#
+# The one being read is amber, which is the one colour in Storm's palette this
+# plugin uses nowhere else. The commit list marks its current row in blue, and
+# with the comments pane open there are two "here you are" marks on screen at
+# once; telling them apart by shape alone was not enough, so they do not share
+# a colour either.
 mark_bg=$'\e[48;2;122;162;247m'
-mark_bg_read=$'\e[48;2;192;202;245m'
+mark_bg_read=$'\e[48;2;224;175;104m'
 mark_bg_off=$'\e[48;2;86;95;137m'
+# And the same amber as a foreground, for the balloon at the head of the bar.
+c_read=$'\e[1;38;2;224;175;104m'

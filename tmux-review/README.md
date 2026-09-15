@@ -55,6 +55,13 @@ being read, or the first of them, and says which of how many it is; `j` and `k`
 step between them there as they do anywhere else, so none is unreachable and
 none is hidden from a queue that still holds it.
 
+Splitting the column off the diff, and widening it, both resize the diff --
+and tmux repositions a pane's copy-mode when the pane is resized, putting the
+cursor on the top row and sliding the view under it. So the sidebar puts the
+view back on the turn after any of its own resizes: writing the first comment
+brings the marks up without the diff moving out from under the reader, and `C`
+leaves them reading the same rows they were.
+
 While the column is up the sidebar asks the server for the diff's position
 rather than waiting to be told. A `refresh-client -B` subscription is
 re-evaluated about once a second, which is fine for everything that follows the
@@ -118,6 +125,7 @@ means the first commit, wherever the reader has been.
 |-----------|-----------------------------------------------------------|
 | `j` / `k` | the agent row / the range row                             |
 | `enter`   | open that row's picker, in the list pane, and follow it   |
+| `R`       | discard the queue, as it does anywhere else               |
 | `q`       | close the review                                          |
 
 The comments pane is reached the same way -- `prefix + l` from the diff. It

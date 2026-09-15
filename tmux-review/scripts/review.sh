@@ -287,6 +287,13 @@ header_key() {
       paint_sel "${hdr_file:-}" "$sel"
       return 0
       ;;
+    # Emptying the queue is not about either row up here, but the legend down
+    # in the list offers it wherever the reader is standing, so it has to work
+    # wherever they are standing. Handed to the list, which owns the queue.
+    R)
+      tmux send-keys -t '{bottom-left}' R 2>/dev/null || true
+      return 0
+      ;;
     *) return 0 ;;
   esac
   # Painted here, published after. The sidebar has to be told -- enter reads
@@ -811,6 +818,12 @@ sidebar() {
   # say which file a comment is against.
   local -a file_rows=() file_names=()
   local mapped=0 width=0 height=0 diff_width=0 shown=-2
+  # Bumped every time the row map is rebuilt, which is the only thing that can
+  # move an anchor. The comments pane keys its own work off this rather than off
+  # the diff's width: widening the pane changes that width without moving a
+  # single row, and re-deriving on it threw away which comment was being read
+  # every time the reader collapsed the pane and opened it again.
+  local map_gen=0
   # Where the reader was, and whether the diff has ever been in copy-mode, so a
   # cancelled copy can be undone -- see the restore below.
   local last_pos=-1 last_scroll=0 last_cy=0 seen_mode=0
@@ -851,6 +864,12 @@ sidebar() {
   # how many cells open() managed to hold back for it -- 0 on a window that had
   # none to spare, which is what makes C answer instead of acting.
   local gutter_expanded=0 gutter_reserved=0
+  # Set by gutter_sync when it has just changed the layout, and the view the
+  # diff was showing before it did. tmux repositions a pane's copy-mode when
+  # the pane is resized -- the cursor is put on the top row and the view is
+  # scrolled under it -- so writing the first comment, which is what brings the
+  # marks up, moved the diff out from under the reader. Put back below.
+  local gutter_moved=0 restore_view=0 restore_scroll=0 restore_cy=0
   # Set when the comments pane has just changed the diff pane's width, so the
   # tick below can tell that from a resize that really did move the content.
   local gutter_resized=0
@@ -1137,7 +1156,12 @@ sidebar() {
         mapped=0
       fi
     fi
-    ((mapped)) || { trace map-rows-start; map_rows "$pane"; trace map-rows-done; }
+    if ((!mapped)); then
+      trace map-rows-start
+      map_rows "$pane"
+      trace map-rows-done
+      map_gen=$((map_gen + 1))
+    fi
 
     # The map is built in a single pass once the diff is complete, and that
     # pass costs about a second on a large one. The placeholder stays up for it
@@ -1220,6 +1244,25 @@ sidebar() {
     # The comments pane, if it is up. Closed on its own once the queue is empty
     # -- after s, or the last comment dropped -- because a gutter with nothing
     # in it is a strip of blank cells holding width the diff could be using.
+    # The pane was split or resized on the last turn, so tmux has moved the
+    # diff's copy-mode out from under the reader. Put it back: the view where
+    # it was, and the cursor on the screen row it was on. Done a turn later
+    # rather than in the same one, because cy has to be read after the move to
+    # know how far the cursor has to come back.
+    if ((restore_view)); then
+      restore_view=0
+      if ((in_mode == 1)); then
+        local -a back=(send-keys -X -t "$pane" goto-line "$restore_scroll")
+        if ((restore_cy > cy)); then
+          back+=(';' send-keys -X -N $((restore_cy - cy)) -t "$pane" cursor-down)
+        elif ((restore_cy < cy)); then
+          back+=(';' send-keys -X -N $((cy - restore_cy)) -t "$pane" cursor-up)
+        fi
+        tmux "${back[@]}" 2>/dev/null || true
+        continue
+      fi
+    fi
+
     # The window has been resized with the comments pane up. tmux redistributes
     # width with no regard for what is in a pane, and the cells this one holds
     # were reserved out of a window that is no longer this size -- so the whole
@@ -1238,13 +1281,24 @@ sidebar() {
     # expanded means the whole of it. Done here rather than on the keypress so
     # that a comment written in the diff brings the marks up on its own.
     gutter_want
+    if ((REPLY != gutter_w)) || { [[ -z $gutter_pane ]] && ((REPLY > 0)); }; then
+      # Remembered before the layout moves, because this tick's numbers are the
+      # last ones taken while the diff was still the size the reader was
+      # reading it at.
+      restore_scroll=$scroll
+      restore_cy=$cy
+    fi
     gutter_sync "$pane" "$REPLY"
+    if ((gutter_moved)); then
+      gutter_moved=0
+      ((in_mode == 1)) && restore_view=1
+    fi
 
     if [[ -n $gutter_pane ]]; then
       # The anchors are derived from the queue and the row map, so they are
       # rebuilt when either changes and not on the tick: what moves many times
       # a second is the viewport, and that is arithmetic.
-      local csig="$comments|$diff_width"
+      local csig="$comments|$map_gen"
       if [[ $csig != "$gutter_sig" ]]; then
         comment_load "$store"
         comment_rows "$pane" "$live"
@@ -1568,16 +1622,16 @@ legend_list_tiers=(
 # shellcheck disable=SC2034
 legend_diff_c_tiers=(
   'jk=line|][=file|}{=commit|c=comment|C=toggle comments|R=clear|s=send'
-  'jk=line|n/N=any|}{=commit|c=comment|C=comments|s=send'
-  'n/N=any|}{=commit|c=comment|C=comments'
-  'n/N=any|c=comment'
+  'jk=line|}{=commit|c=comment|C=comments|R=clear|s=send'
+  '}{=commit|c=comment|C=comments|R=clear'
+  'c=comment|C=comments|R=clear'
 )
 # shellcheck disable=SC2034
 legend_list_c_tiers=(
   'jk=commit|c=comment|C=toggle comments|R=clear|s=send|q=close'
-  'jk=commit|c=comment|C=comments|s=send|q=close'
-  'jk=commit|C=comments|q=close'
-  'jk=commit|q=close'
+  'jk=commit|c=comment|C=comments|R=clear|s=send|q=close'
+  'jk=commit|C=comments|R=clear|q=close'
+  'C=comments|R=clear|q=close'
 )
 # The keys of the comments pane, shown down here while the reader is over
 # there. It answers nothing of its own -- every key is handed to this loop --
@@ -1587,8 +1641,8 @@ legend_list_c_tiers=(
 legend_gutter_tiers=(
   'jk=comment|C=toggle comments|R=clear|s=send|q=close'
   'jk=comment|C=comments|R=clear|s=send|q=close'
-  'jk=comment|C=comments|s=send'
-  'jk=comment'
+  'jk=comment|C=comments|R=clear'
+  'jk=comment|R=clear'
 )
 # Once / or ? has been used the diff's own stops step aside: n and N follow the
 # match, as they do in vim and in less. Files and commits keep ][ and }{, so
@@ -1611,12 +1665,28 @@ legend_range_tiers=(
   'enter=pick|j=agent'
   'enter=pick'
 )
+# And with something queued, because R answers from up there too and a key that
+# works everywhere should be offered everywhere.
+# shellcheck disable=SC2034
+legend_range_c_tiers=(
+  'enter=pick what to review|j=agent|R=clear|q=close'
+  'enter=pick|j=agent|R=clear|q=close'
+  'enter=pick|j=agent|R=clear'
+  'enter=pick|R=clear'
+)
 # shellcheck disable=SC2034
 legend_session_tiers=(
   'enter=pick the agent|k=range|q=close'
   'enter=agent|k=range|q=close'
   'enter=agent|k=range'
   'enter=agent'
+)
+# shellcheck disable=SC2034
+legend_session_c_tiers=(
+  'enter=pick the agent|k=range|R=clear|q=close'
+  'enter=agent|k=range|R=clear|q=close'
+  'enter=agent|k=range|R=clear'
+  'enter=agent|R=clear'
 )
 
 render_legend() {
@@ -2985,11 +3055,11 @@ wrap_body() {
 # is comments and blank rows.
 render_gutter() {
   local width=$1 height=$2 top=$3
-  # Four, not three: the mark and two spaces, or the balloon and one, and then
-  # a column left at the right so no row ever sits flush against the edge. Both
-  # prefixes are three cells wide so that the text starts in the same column
-  # whichever is drawn, and moving the focus shifts nothing.
-  local body_w=$((width - 4)) rows=$((height - 1))
+  # Five: the mark and three spaces, or the balloon and two, and then a column
+  # left at the right so no row ever sits flush against the edge. Both prefixes
+  # are four cells wide so that the text starts in the same column whichever is
+  # drawn, and moving the focus shifts nothing.
+  local body_w=$((width - 5)) rows=$((height - 1))
   local -a plain=() col=()
   local i n above=0 below=0 row rel limit j nxt k avail cnt txt mark status
   local group ordinal pick label
@@ -3102,16 +3172,27 @@ render_gutter() {
       # so two comments in a row are two comments and not one long one. And the
       # one being read carries a balloon in place of the mark -- two cells, the
       # same as the mark and the space after it, so the text does not move.
-      if ((k == 0 && focused)); then
-        plain[rel + k]="${comment_glyph} ${REPLY}"
-        col[rel + k]="${accent}${comment_glyph}${reset} ${txt_col}${REPLY}${reset}"
+      # Four cells of prefix, whichever row this is, so the text starts in the
+      # same column throughout and moving the focus shifts nothing.
+      #
+      # The one being read gets a painted cell on every one of its rows, which
+      # draws a bar down its whole height, and the balloon at the head of it:
+      # one cell plus the balloon's two plus a space is exactly the four. The
+      # rest get a painted cell on their first row and a rule under it, so a
+      # comment that is merely there cannot be mistaken for the one being read.
+      if ((focused && k == 0)); then
+        plain[rel + k]="${mark_glyph}${comment_glyph} ${REPLY}"
+        col[rel + k]="${mark_bg_read} ${reset}${c_read}${comment_glyph}${reset} ${txt_col}${REPLY}${reset}"
+      elif ((focused)); then
+        plain[rel + k]="${mark_glyph}   ${REPLY}"
+        col[rel + k]="${mark_bg_read} ${reset}   ${txt_col}${REPLY}${reset}"
       elif ((k == 0)); then
-        plain[rel + k]="${mark_glyph}  ${REPLY}"
-        col[rel + k]="${mark_bg} ${reset}  ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark_glyph}   ${REPLY}"
+        col[rel + k]="${mark_bg} ${reset}   ${txt_col}${REPLY}${reset}"
       else
         mark='│'
-        plain[rel + k]="${mark}  ${REPLY}"
-        col[rel + k]="${dim}${mark}${reset}  ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark}   ${REPLY}"
+        col[rel + k]="${dim}${mark}${reset}   ${txt_col}${REPLY}${reset}"
       fi
     done
   done
@@ -3160,8 +3241,8 @@ render_gutter() {
         out_plain+=$REPLY
         out_col+=$REPLY
       else
-        out_plain+="   $REPLY"
-        out_col+="   $REPLY"
+        out_plain+="    $REPLY"
+        out_col+="    $REPLY"
       fi
     else
       out_plain+=${plain[i]}
@@ -3241,6 +3322,7 @@ gutter_sync() {
     # The diff is about to get those cells back. Said here so the tick does not
     # read that as a resize and throw the row map away.
     gutter_resized=1
+    gutter_moved=1
     return 0
   fi
 
@@ -3251,6 +3333,7 @@ gutter_sync() {
     [[ -n ${gutter_pane:-} ]] || { gutter_pane=''; gutter_tty=''; return 0; }
     gutter_w=$want
     gutter_resized=1
+    gutter_moved=1
     needs_gutter_clear=1
     shown_gutter=''
     shown_gutter_at=''
@@ -3269,6 +3352,7 @@ gutter_sync() {
     clear-history -t "$gutter_pane" 2>/dev/null || return 0
   gutter_w=$want
   gutter_resized=1
+  gutter_moved=1
   needs_gutter_clear=1
   shown_gutter=''
   shown_gutter_at=''
@@ -3502,9 +3586,17 @@ render() {
   # Only the focused pane's keys. Both rows at once was a row of the list spent
   # on keys that do nothing where the reader is.
   if ((on_range)); then
-    render_legend "$width" range legend_range_tiers
+    if ((queued)); then
+      render_legend "$width" range legend_range_c_tiers
+    else
+      render_legend "$width" range legend_range_tiers
+    fi
   elif ((on_session)); then
-    render_legend "$width" agent legend_session_tiers
+    if ((queued)); then
+      render_legend "$width" agent legend_session_c_tiers
+    else
+      render_legend "$width" agent legend_session_tiers
+    fi
   elif [[ $focus == gutter ]]; then
     render_legend "$width" comments legend_gutter_tiers
   elif [[ $focus == list ]]; then
