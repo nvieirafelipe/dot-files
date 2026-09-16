@@ -25,6 +25,23 @@ plugin=$(cd "$here/.." && pwd)
 repo=$(cd "$plugin/.." && pwd)
 passed=0
 failed=0
+skipped=0
+
+# Whether to run the live sections. They stand real tmux servers up, open real
+# reviews and take minutes; everything else needs nothing and runs in seconds.
+# Both by default, so run_tests is unchanged.
+#
+# Apart from being quicker to iterate on, this is what lets the live sections'
+# worth be measured: run_coverage --scope unit is what the tests reach without
+# them, and the difference from a full run is what they add. There is no scope
+# that runs the live sections alone -- it would mean gating every other section
+# in the file to answer a question the subtraction already answers.
+scope=${REVIEW_TEST_SCOPE:-all}
+case $scope in
+  all | unit) ;;
+  *) printf 'REVIEW_TEST_SCOPE must be all or unit\n' >&2; exit 64 ;;
+esac
+want_live() { [[ $scope == all ]]; }
 
 ok() {
   passed=$((passed + 1))
@@ -36,6 +53,18 @@ no() {
   printf '  \e[31m✗\e[0m %s\n' "$1"
   printf '      expected: %s\n' "${2-}"
   printf '      actual:   %s\n' "${3-}"
+}
+
+# A test the machine could not be put in a position to run: no pty to attach a
+# client to, a server that would not start. Counted and printed, never passed
+# over in silence -- a suite that quietly stops running the thing it was written
+# for reads exactly like one where that thing still works. It is not a failure
+# either: the plugin is not what went wrong, and a red suite that means "this
+# machine is busy" is one nobody reads twice.
+skip() {
+  skipped=$((skipped + 1))
+  printf '  \e[33m~\e[0m %s\n' "$1"
+  printf '      skipped: %s\n' "${2-}"
 }
 
 assert_eq() {
@@ -784,6 +813,32 @@ assert_eq 'and k the same way' 2 "$gutter_cur"
 gutter_cur=-1
 gutter_step next 11
 assert_eq 'a row with no comment on it still finds the next one' 2 "$gutter_cur"
+
+section 'gutter_edge: the ends of the queue, and the only way to an unplaced one'
+# A comment with no row is stepped over by j and k, which move by position and
+# have none to use. comment_after sorts those to the front, so the front of the
+# queue is where they are -- and gg is what goes there. Without this they could
+# be read and sent but never opened or taken back, and R was the only way out.
+cm_row=('' 10 40 '' 90)
+gutter_cur=-1
+gutter_edge first
+assert_eq 'gg goes to the front of the queue' 0 "$gutter_cur"
+assert_eq 'which is a comment j would step over' '' "${cm_row[gutter_cur]}"
+gutter_edge last
+assert_eq 'and G to the back of it' 4 "$gutter_cur"
+# From an unplaced one, stepping carries on by position from the diff, because
+# there is no row of its own to carry on from.
+gutter_cur=0
+gutter_step next 0
+assert_eq 'a step from it finds the first placed comment below the reader' 1 "$gutter_cur"
+# An empty queue has no ends to go to, and says so rather than moving.
+cm_row=()
+gutter_cur=-1
+gutter_edge first
+assert_eq 'an empty queue has no front to go to' 1 "$?"
+assert_eq 'and the reader is left where they were' -1 "$gutter_cur"
+cm_row=('' 10 40 '' 90)
+gutter_cur=-1
 
 # Two on one row cannot be told apart by position, so a step taken while
 # standing on one of them goes to the next in the queue instead.
@@ -2716,6 +2771,130 @@ unset -f tmux anchor_rows anchor_text; restore_review
 unset comment_msgs add_store anchor_rc text_rc queued editor_writes
 unset a_commit a_file a_first a_last a_block
 
+section 'edit_comment: the same editor, under the references as recorded'
+# The end to end section presses e and d against a real review, but only down
+# the one path a reader takes when nothing goes wrong. These are the rest: the
+# empty save that must not be read as a delete, the edit that changes nothing,
+# and the indexes that are not there.
+ed_msgs=''
+ed_mode=replace
+ed_writes='the edited body'
+# Stands in for the popup: replace writes the file, append adds to what the
+# template seeded it with, and none leaves it empty -- which is what saving
+# nothing looks like from out here.
+tmux() {
+  local f
+  case $1 in
+    display-popup)
+      f=${*: -1}; f=${f##* }
+      case $ed_mode in
+        replace) printf '%s\n' "$ed_writes" >|"$f" ;;
+        append) printf '%s\n' "$ed_writes" >>"$f" ;;
+        none) : >|"$f" ;;
+      esac
+      ;;
+    display-message) ed_msgs+="[${*:2}]" ;;
+  esac
+  return 0
+}
+ed_store=$(mktemp); /bin/rm -f "$ed_store"
+ed_seed() {
+  /bin/rm -f "$ed_store"
+  comment_add "$ed_store" abc1234 lib/a.ex 10 12 'defp a do' 'the first'
+  comment_add "$ed_store" def5678 lib/b.ex 3 3 'defp b do' 'the second'
+  comment_load "$ed_store"
+}
+
+ed_seed
+ed_mode=replace ed_writes='the edited body' ed_msgs=''
+edit_comment "$ed_store" 1
+assert_eq 'the body is what was written' 'the edited body' "$(comment_load "$ed_store"; printf '%s' "${cm_body[1]}")"
+assert_match 'and it says so' 'comment edited' "$ed_msgs"
+# The point of the whole function: the references are the ones on record, not
+# whatever the diff is showing now. anchor_rows and anchor_text are never
+# called here -- if they were, a rebase would move the comment silently.
+assert_eq 'the references are the ones that were recorded' 'def5678|lib/b.ex|3|3|defp b do' \
+  "$(comment_load "$ed_store"; printf '%s|%s|%s|%s|%s' "${cm_commit[1]}" "${cm_file[1]}" "${cm_first[1]}" "${cm_last[1]}" "${cm_block[1]}")"
+assert_eq 'and the comment beside it is untouched' 'the first' \
+  "$(comment_load "$ed_store"; printf '%s' "${cm_body[0]}")"
+assert_eq 'with the queue no longer than it was' 2 "$(comment_count "$ed_store")"
+
+# Saving nothing keeps what was there. It cannot mean discard: d is for that,
+# and an editor left by habit would otherwise throw the comment away.
+ed_seed; ed_mode=none; ed_msgs=''
+edit_comment "$ed_store" 0
+assert_eq 'saving nothing keeps the comment' 'the first' \
+  "$(comment_load "$ed_store"; printf '%s' "${cm_body[0]}")"
+assert_match 'and says it is unchanged' 'unchanged' "$ed_msgs"
+assert_eq 'the queue is still whole' 2 "$(comment_count "$ed_store")"
+
+# Saving the same words is not a change either, and must not rewrite the file.
+ed_seed; ed_mode=replace; ed_writes='the first'; ed_msgs=''
+edit_comment "$ed_store" 0
+assert_match 'writing the same words again is unchanged too' 'unchanged' "$ed_msgs"
+assert_eq 'and nothing was edited' 0 "$(printf '%s' "$ed_msgs" | grep -c 'comment edited')"
+
+# The separators are the one thing a body must not carry: it is the last field,
+# so one of those in it would split the queue at that point.
+ed_seed; ed_mode=replace; ed_writes=$'a body \x1f with \x1e separators'; ed_msgs=''
+edit_comment "$ed_store" 0
+assert_eq 'the record separators are stripped out of a body' 'a body  with  separators' \
+  "$(comment_load "$ed_store"; printf '%s' "${cm_body[0]}")"
+assert_eq 'so the queue still reads as two records' 2 "$(comment_count "$ed_store")"
+
+ed_seed; ed_msgs=''
+edit_comment "$ed_store" 9
+assert_eq 'an index past the end edits nothing' 1 "$?"
+edit_comment "$ed_store" -1
+assert_eq 'and neither does one before the start' 1 "$?"
+assert_eq 'with nothing said about either' '' "$ed_msgs"
+
+section 'delete_comment: after asking, and only after'
+ed_seed; ed_msgs=''
+delete_comment "$ed_store" 0 <<<'n'
+assert_eq 'n keeps it' 2 "$(comment_count "$ed_store")"
+assert_match 'and says so' 'kept' "$ed_msgs"
+ed_msgs=''
+delete_comment "$ed_store" 0 </dev/null
+assert_eq 'and so does walking away without answering' 2 "$(comment_count "$ed_store")"
+assert_match 'which is also kept' 'kept' "$ed_msgs"
+
+ed_msgs=''
+delete_comment "$ed_store" 0 <<<'y'
+assert_eq 'y takes it out' 1 "$(comment_count "$ed_store")"
+assert_eq 'and the one that is left is the other' 'the second' \
+  "$(comment_load "$ed_store"; printf '%s' "${cm_body[0]}")"
+assert_eq 'with its references still whole' 'def5678|lib/b.ex|3|3' \
+  "$(comment_load "$ed_store"; printf '%s|%s|%s|%s' "${cm_commit[0]}" "${cm_file[0]}" "${cm_first[0]}" "${cm_last[0]}")"
+assert_match 'and it says what happened' 'comment deleted' "$ed_msgs"
+
+# The last one out leaves no file, which is what the pane reads to know it has
+# nothing to show.
+ed_msgs=''
+delete_comment "$ed_store" 0 <<<'Y'
+assert_eq 'Y answers the same as y' 0 "$(comment_count "$ed_store")"
+assert_eq 'and an emptied queue leaves no file behind' 0 \
+  "$([[ -e $ed_store ]] && echo 1 || echo 0)"
+
+# Which one is going, in the reader's own words, so d on the wrong row of a
+# stacked pair is visibly the wrong one.
+ed_seed; ed_msgs=''
+cm_body[0]=$'a first line that is quite a lot longer than forty characters\nand a second'
+comment_write "$ed_store"; comment_load "$ed_store"
+delete_comment "$ed_store" 0 <<<'n'
+assert_match 'the question quotes the comment it is about' 'a first line that is quite a lot longer' "$ed_msgs"
+assert_match 'cut to one line and to a length that fits' '…' "$ed_msgs"
+assert_eq 'and never the second line of it' 0 "$(printf '%s' "$ed_msgs" | grep -c 'and a second')"
+
+ed_msgs=''
+delete_comment "$ed_store" 9 <<<'y'
+assert_eq 'an index past the end deletes nothing' 1 "$?"
+assert_eq 'and asks nothing either' '' "$ed_msgs"
+
+/bin/rm -f "$ed_store"
+unset -f tmux ed_seed; restore_review
+unset ed_msgs ed_store ed_mode ed_writes
+
 section 'sidebar: the loop, driven by a scripted server'
 # The loop only ever leaves on q or on the pane going away, so the harness
 # scripts a finite run of ticks and lets read_state fail after the last -- which
@@ -2946,7 +3125,9 @@ socket=review-test-$$
 trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$socket"' EXIT
 # -f /dev/null: a server that reads the real config spends half a minute
 # letting TPM load every plugin, and none of them matter here.
-if ! tmux -L "$socket" -f /dev/null new-session -d -x 120 -y 40 -c "$repo" 2>/dev/null; then
+if ! want_live; then
+  skip 'opening a review window' 'live sections are out of scope'
+elif ! tmux -L "$socket" -f /dev/null new-session -d -x 120 -y 40 -c "$repo" 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
   # -f /dev/null leaves tmux's own 2000-line default, and a review whose diff
@@ -3041,7 +3222,9 @@ gsock=review-guard-$$
 trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$socket" \
   "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"' EXIT
 
-if ! tmux -L "$gsock" -f /dev/null new-session -d -x 200 -y 50 2>/dev/null; then
+if ! want_live; then
+  skip 'the routing guard' 'live sections are out of scope'
+elif ! tmux -L "$gsock" -f /dev/null new-session -d -x 200 -y 50 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
   tmux -L "$gsock" split-window -h
@@ -3121,7 +3304,9 @@ trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$so
   "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock" \
   "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$hsock"' EXIT
 
-if ! tmux -L "$hsock" -f /dev/null new-session -d -x 80 -y 24 \
+if ! want_live; then
+  skip 'the header pane answers its own keys' 'live sections are out of scope'
+elif ! tmux -L "$hsock" -f /dev/null new-session -d -x 80 -y 24 \
      'seq 1 400; sleep 600' 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
@@ -3325,7 +3510,9 @@ comment_add "$gstore" "$(git -C "$gtmp" rev-parse --short HEAD)" \
   a/deeply/nested/path/to/some/source/wide-file-name.txt 20 20 '' \
   'queued before the review was ever opened'
 
-if ! tmux -L "$gsock" -f /dev/null new-session -d -x 285 -y 78 -c "$gtmp" 2>/dev/null; then
+if ! want_live; then
+  skip 'the comments pane against a real delta' 'live sections are out of scope'
+elif ! tmux -L "$gsock" -f /dev/null new-session -d -x 285 -y 78 -c "$gtmp" 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
   tmux -L "$gsock" set-option -g history-limit 50000
@@ -3475,7 +3662,9 @@ section 'dwidth: measured against tmux rather than assumed'
 # draws wider, or move to a Nerd Font that is not the Mono variant, and this is
 # what says so before the panes go out of alignment.
 dsock=review-width-$$
-if ! tmux -L "$dsock" -f /dev/null new-session -d -x 40 -y 6 'sleep 60' 2>/dev/null; then
+if ! want_live; then
+  skip 'dwidth measured against tmux' 'live sections are out of scope'
+elif ! tmux -L "$dsock" -f /dev/null new-session -d -x 40 -y 6 'sleep 60' 2>/dev/null; then
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
   # Where the cursor comes to rest after printing the argument, which is the
@@ -3506,7 +3695,218 @@ fi
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$dsock"
 unset dsock
 
+section 'end to end: a comment is written, stepped onto, and deleted'
+# The keys, against a real review, with nothing stubbed but the editor. Every
+# other test of this queue sets cm_row by hand and never presses anything --
+# which is how both halves of "d then y deletes nothing" got in: y was dropped
+# before it reached the read that was waiting for it, and the comment written on
+# the reader's own row was the one comment j would not land on. Neither is
+# visible until a key is actually pressed.
+#
+# Two things this needs that the other live sections do not:
+#
+# A client on a pty. display-popup answers "no current client" on a detached
+# server, so the editor never runs and the comment is never written. script(1)
+# is what allocates one; its arguments differ between BSD and GNU, so the shape
+# that works here is found rather than assumed.
+#
+# An editor that does not wait for anyone. EDITOR is set on the server, which is
+# where the popup's shell reads it from, and points at a script that writes the
+# file it is handed -- the way git's own suite tests a command that opens an
+# editor (t/test-lib-functions.sh, test_set_editor).
+e2e_sock=review-e2e-$$
+e2e_ed=$(mktemp "${TMPDIR:-/tmp}/review-e2e-editor.XXXXXX")
+e2e_bodyfile=$(mktemp "${TMPDIR:-/tmp}/review-e2e-body.XXXXXX")
+e2e_body='a comment written by the test'
+printf '%s\n' "$e2e_body" >"$e2e_bodyfile"
+# The body is copied from a file rather than written into the script, so that
+# nothing here has to survive two rounds of quoting to reach the editor.
+cat >"$e2e_ed" <<EOF
+#!/usr/bin/env bash
+/bin/cat $(printf '%q' "$e2e_bodyfile") >"\$1"
+EOF
+chmod +x "$e2e_ed"
+
+# A client on a pty, which is the one step here with nothing to poll before it.
+#
+# BSD script takes the command as trailing arguments and GNU wants -c; neither
+# fails in a way worth reading, so both are tried and the test is whether a
+# client turns up. Retried as a whole because it is a race against a server
+# that has just started, and a test that fails once in a while for that is
+# worse than one that fails for a reason.
+e2e_waitc() {
+  local _
+  for _ in $(seq 1 20); do
+    (($(tmux -L "$e2e_sock" list-clients 2>/dev/null | grep -c .) > 0)) && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+# The pty is sized from inside itself before tmux is ever attached to it.
+#
+# script builds one at the default 80x24, and tmux sizes a window to its
+# smallest client -- so attaching one shrank the review to 80 columns, at which
+# there is no room to reserve for the comments pane and it is never created.
+# That is the hazard the control client is kept clear of, arriving through the
+# door opened to make display-popup work at all.
+#
+# Sized here rather than held still with window-size manual: that option killed
+# the server outright when the review opened, and a window that is the size it
+# says it is beats one that has been told to ignore its clients.
+e2e_attach() {
+  local try sized="stty cols 285 rows 78 2>/dev/null; exec $*"
+  for try in 1 2 3; do
+    script -q /dev/null sh -c "$sized" >/dev/null 2>&1 &
+    E2E_PTY=$!
+    e2e_waitc && return 0
+    kill "$E2E_PTY" 2>/dev/null || true
+    script -qc "sh -c $(printf '%q' "$sized")" /dev/null >/dev/null 2>&1 &
+    E2E_PTY=$!
+    e2e_waitc && return 0
+    kill "$E2E_PTY" 2>/dev/null || true
+  done
+  return 1
+}
+
+# The session holds a command of its own rather than a login shell: the client
+# is attached and detached a few times getting this far, and a shell that takes
+# a hangup with it takes the session and everything below.
+if ! want_live; then
+  skip 'end to end: a comment is written, stepped onto, and deleted' \
+    'live sections are out of scope'
+elif ! tmux -L "$e2e_sock" -f /dev/null new-session -d -x 285 -y 78 -c "$repo" \
+  'sleep 600' 2>/dev/null; then
+  skip 'end to end: a comment is written, stepped onto, and deleted' \
+    'no throwaway tmux server could be started'
+else
+  tmux -L "$e2e_sock" set-option -g history-limit 50000
+  tmux -L "$e2e_sock" set-environment -g EDITOR "$e2e_ed"
+  e2e_clients=0
+  e2e_attach tmux -L "$e2e_sock" attach -t 0 && e2e_clients=1
+  if ((e2e_clients == 0)); then
+    # Without one, display-popup answers "no current client", the editor never
+    # runs and there is nothing to comment on. That is the machine being unable
+    # to host the test, not the plugin being wrong, so it is skipped and said.
+    skip 'end to end: a comment is written, stepped onto, and deleted' \
+      'no client could be attached over a pty'
+  else
+    e2e_pane=$(tmux -L "$e2e_sock" display-message -p '#{pane_id}')
+    tmux -L "$e2e_sock" run-shell -b -t "$e2e_pane" \
+      "$plugin/scripts/review.sh open $e2e_pane HEAD~1..HEAD"
+    e2e_win=''
+    for _ in $(seq 1 240); do
+      e2e_win=$(tmux -L "$e2e_sock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+        grep review | cut -d' ' -f1)
+      [[ -n $e2e_win ]] && break
+      sleep 0.25
+    done
+    [[ -n $e2e_win ]] ||
+      skip 'end to end: a comment is written, stepped onto, and deleted' \
+        'the review window did not open in time'
+  fi
+
+  if [[ -n ${e2e_win:-} ]]; then
+    e2e_diff=$(tmux -L "$e2e_sock" show-options -w -t "$e2e_win" -qv @review_diff_pane)
+    e2e_list=$(tmux -L "$e2e_sock" show-options -w -t "$e2e_win" -qv @review_list_pane)
+    # On the diff being done, and then on the pane having been paid for: the
+    # width the comments pane needs is taken out of the diff, and C says there
+    # is no room until it has been.
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$e2e_sock" show-options -p -t "$e2e_diff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+
+    e2e_store=$(comment_file "$repo" 'HEAD~1..HEAD')
+    /bin/rm -f "$e2e_store"
+    e2e_count() { comment_count "$e2e_store"; }
+    # Keys go straight to the list: the bindings that route them from the diff
+    # live in .tmux.conf, and this server was started with -f /dev/null.
+    tmux -L "$e2e_sock" copy-mode -t "$e2e_diff"
+    sleep 0.8
+    tmux -L "$e2e_sock" send-keys -t "$e2e_list" c
+    for _ in $(seq 1 60); do (($(e2e_count) >= 1)) && break; sleep 0.25; done
+    assert_eq 'c writes one through the editor and queues it' 1 "$(e2e_count)"
+
+    # A second, somewhere else in the diff, so that deleting one leaves the
+    # other -- an emptied queue and a queue with the wrong record gone look the
+    # same when there is only ever one in it.
+    tmux -L "$e2e_sock" send-keys -X -t "$e2e_diff" -N 15 cursor-up 2>/dev/null || true
+    sleep 0.8
+    tmux -L "$e2e_sock" send-keys -t "$e2e_list" c
+    for _ in $(seq 1 60); do (($(e2e_count) >= 2)) && break; sleep 0.25; done
+    assert_eq 'and a second one from another row' 2 "$(e2e_count)"
+
+    # The marks come up on their own once something is queued -- C is what
+    # widens them, not what creates them -- so the pane is waited for first and
+    # widened second. Waiting on C to produce it waits for something that has
+    # already happened.
+    e2e_gut=''
+    for _ in $(seq 1 60); do
+      e2e_gut=$(tmux -L "$e2e_sock" list-panes -t "$e2e_win" -F '#{pane_id} #{pane_start_command}' 2>/dev/null |
+        grep -i gutter | cut -d' ' -f1)
+      [[ -n $e2e_gut ]] && break
+      sleep 0.25
+    done
+    # Reports what was there rather than just that it was not the pane, because
+    # the answer to "why is there no comments pane" is always in the layout and
+    # in what the window says it reserved for one.
+    assert_ok "$([[ -n $e2e_gut ]] && echo 0 || echo 1)" \
+      'a queued comment brings the marks up on its own' 'a gutter pane' \
+      "reserved=$(tmux -L "$e2e_sock" show-options -w -t "$e2e_win" -qv @review_gutter_w) queued=$(e2e_count) panes=[$(tmux -L "$e2e_sock" list-panes -t "$e2e_win" -F '#{pane_id}:#{pane_width}:#{pane_start_command}' 2>/dev/null | sed 's#[^ ]*/scripts/review.sh#review.sh#' | tr '\n' ' ')]"
+    if [[ -n $e2e_gut ]]; then
+      tmux -L "$e2e_sock" send-keys -t "$e2e_list" C
+      for _ in $(seq 1 60); do
+        [[ $(tmux -L "$e2e_sock" display-message -p -t "$e2e_gut" '#{pane_width}' 2>/dev/null) == 40 ]] &&
+          break
+        sleep 0.25
+      done
+      assert_eq 'and C widens them to the whole pane' 40 \
+        "$(tmux -L "$e2e_sock" display-message -p -t "$e2e_gut" '#{pane_width}' 2>/dev/null)"
+    fi
+  fi
+
+  if [[ -n ${e2e_gut:-} ]]; then
+    tmux -L "$e2e_sock" select-pane -t "$e2e_gut"
+    sleep 0.8
+    # Amber is the colour of the comment being read and of nothing else, so its
+    # arrival in the pane is the reader having landed on one.
+    e2e_amber() {
+      tmux -L "$e2e_sock" capture-pane -p -e -t "$e2e_gut" 2>/dev/null | grep -c '224;175;104'
+    }
+    assert_eq 'with none stepped onto, nothing is drawn as being read' 0 "$(e2e_amber)"
+    tmux -L "$e2e_sock" send-keys -t "$e2e_gut" j
+    for _ in $(seq 1 40); do (($(e2e_amber) > 0)) && break; sleep 0.25; done
+    # This is the half that a strict comparison broke: the comment is on the row
+    # the reader is standing on, and j would step over it to nothing.
+    assert_ok "$(($(e2e_amber) > 0 ? 0 : 1))" 'j lands on a comment'
+
+    tmux -L "$e2e_sock" send-keys -t "$e2e_gut" d
+    sleep 1.5
+    # And this is the other half: d asks, and the y that answers is pressed in
+    # this pane rather than in the one that asked.
+    tmux -L "$e2e_sock" send-keys -t "$e2e_gut" y
+    for _ in $(seq 1 60); do (($(e2e_count) <= 1)) && break; sleep 0.25; done
+    assert_eq 'd and then y take exactly one of them out of the queue' 1 "$(e2e_count)"
+    assert_eq 'and what is left is still a whole record' 1 \
+      "$(comment_load "$e2e_store"; printf '%s' "${#cm_body[@]}")"
+    assert_eq 'with its body intact' "$e2e_body" "$(comment_load "$e2e_store"; printf '%s' "${cm_body[0]}")"
+    unset -f e2e_amber e2e_count
+  fi
+
+  [[ -n ${e2e_store:-} ]] && /bin/rm -f "$e2e_store" "$e2e_store.tmp"
+  kill "${E2E_PTY:-0}" 2>/dev/null || true
+  tmux -L "$e2e_sock" kill-server 2>/dev/null || true
+fi
+/bin/rm -f "$e2e_ed" "$e2e_bodyfile" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$e2e_sock"
+unset -f e2e_attach e2e_waitc
+unset e2e_sock e2e_ed e2e_bodyfile e2e_body e2e_pane e2e_win e2e_diff e2e_list
+unset e2e_store e2e_gut
+unset e2e_clients E2E_PTY
+
 printf '\n\e[1m%s\e[0m  \e[32m%d passed\e[0m' 'total' "$passed"
+((skipped)) && printf '  \e[33m%d skipped\e[0m' "$skipped"
 if ((failed)); then
   printf '  \e[31m%d failed\e[0m\n' "$failed"
   exit 1

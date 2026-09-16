@@ -1491,12 +1491,18 @@ sidebar() {
     # steers the diff as it does from anywhere else.
     if ((on_gutter)); then
       case $key in
-        j | page_down | last)
+        j | page_down)
           gutter_step next "$at_row" && gutter_goto
           continue
           ;;
-        k | page_up | first)
+        k | page_up)
           gutter_step prev "$at_row" && gutter_goto
+          continue
+          ;;
+        # gg and G go to the ends of the queue rather than a row above or below
+        # the reader, which is the only way to a comment that has no row.
+        first | last)
+          gutter_edge "$key" && gutter_goto
           continue
           ;;
       esac
@@ -1710,8 +1716,8 @@ legend_list_c_tiers=(
 # there, which is j and k.
 # shellcheck disable=SC2034
 legend_gutter_tiers=(
-  'jk=comment|C=toggle comments|R=clear|s=send|q=close'
-  'jk=comment|C=comments|R=clear|s=send|q=close'
+  'jk=comment|gg/G=ends|C=toggle comments|R=clear|s=send|q=close'
+  'jk=comment|gg/G=ends|C=comments|R=clear|s=send|q=close'
   'jk=comment|C=comments|R=clear'
   'jk=comment|R=clear'
 )
@@ -1722,8 +1728,8 @@ legend_gutter_tiers=(
 # their place down to the second shortest tier for the same reason.
 # shellcheck disable=SC2034
 legend_gutter_sel_tiers=(
-  'jk=comment|e=edit|d=delete|C=toggle comments|R=clear|s=send|q=close'
-  'jk=comment|e=edit|d=delete|C=comments|R=clear|s=send'
+  'jk=comment|gg/G=ends|e=edit|d=delete|C=toggle comments|R=clear|s=send|q=close'
+  'jk=comment|gg/G=ends|e=edit|d=delete|C=comments|R=clear|s=send'
   'jk=comment|e=edit|d=delete|R=clear'
   'e=edit|d=delete'
 )
@@ -3655,6 +3661,30 @@ gutter_step() {
 # until the reader pauses, so holding j costs one round trip rather than one a
 # key, and the list's highlight is drawn now rather than a tick from now. The
 # same path jump takes from inside this loop.
+# The ends of the queue, by index rather than by row.
+#
+# This is the way to a comment whose anchor could not be found. It belongs to no
+# line, so j and k step over it -- they move by position, and it has none --
+# while render_gutter still draws it, at the top of the pane, because the queue
+# holds it and s still sends it. Left at that it could be read and sent but
+# never opened or taken back, and only R would be rid of it.
+#
+# comment_after sorts those to the front, so the front of the queue is exactly
+# where they are, and gg is the vi key for the front of anything. Reached this
+# way rather than by widening j: counted as lying at the reader's own position
+# they would answer the first j from anywhere, and a comment that cannot be
+# stepped past is worse than one that has to be gone to.
+gutter_edge() {
+  local n=${#cm_row[@]}
+  ((n > 0)) || return 1
+  case $1 in
+    first) gutter_cur=0 ;;
+    last) gutter_cur=$((n - 1)) ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
 gutter_goto() {
   local row=${cm_row[gutter_cur]}
   [[ -n $row ]] || return 0

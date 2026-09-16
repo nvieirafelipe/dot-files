@@ -3,9 +3,22 @@ set -uo pipefail
 
 # Line coverage for the plugin, with nothing to install.
 #
-#   run_coverage            report
-#   run_coverage --min 100  report, and exit 1 under that percentage
-#   run_coverage --missing  report, and list every uncovered line
+#   run_coverage              report
+#   run_coverage --min 100    report, and exit 1 under that percentage
+#   run_coverage --missing    report, and list every uncovered line
+#   run_coverage --scope unit what the tests reach without the live sections
+#
+# Measured, the two are the same number, and the difference is the point: the
+# live sections do their work inside processes the tmux server starts, and that
+# server inherits neither the xtrace setting nor the descriptor the trace is
+# written to. A line only ever reached by pressing a key at a real review is
+# therefore not counted here however thoroughly it runs -- delete_comment read
+# 0 of 19 while the end to end section was demonstrably deleting comments.
+#
+# So this figure is a unit-coverage figure whatever the scope says, and --scope
+# unit is the honest way to ask for it. The live sections are a correctness
+# net, not a contributor here; do not read their absence from this report as
+# their not having run.
 #
 # bash's own xtrace is the instrument, with PS4 rewritten to name the file and
 # the line of each command it runs and BASH_XTRACEFD sending that stream to a
@@ -23,14 +36,20 @@ set -uo pipefail
 # repetition lands inside the separator and the file name is lost.
 
 here=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-min=0 show_missing=0
+min=0 show_missing=0 scope=all
 while (($#)); do
   case $1 in
     --min) min=${2:?a percentage}; shift 2 ;;
     --missing) show_missing=1; shift ;;
-    *) echo "usage: run_coverage [--min <pct>] [--missing]" >&2; exit 64 ;;
+    --scope) scope=${2:?all or unit}; shift 2 ;;
+    *) echo "usage: run_coverage [--min <pct>] [--missing] [--scope all|unit]" >&2
+       exit 64 ;;
   esac
 done
+case $scope in
+  all | unit) ;;
+  *) echo "usage: --scope takes all or unit" >&2; exit 64 ;;
+esac
 
 trace=$(mktemp -t review-cov)
 trap 'rm -f "$trace"' EXIT
@@ -39,11 +58,12 @@ exec 9>|"$trace"
 # PS4 is expanded by the shell being traced, not by this one, so the single
 # quotes are the point.
 # shellcheck disable=SC2016
-env SHELLOPTS=xtrace BASH_XTRACEFD=9 PS4='+@@${BASH_SOURCE}@@${LINENO}@@' \
+env SHELLOPTS=xtrace BASH_XTRACEFD=9 REVIEW_TEST_SCOPE="$scope" \
+  PS4='+@@${BASH_SOURCE}@@${LINENO}@@' \
   bash -c 'source "$1/tests/review_test.sh"' _ "$here" >/dev/null 2>&1
 exec 9>&-
 
-awk -v trace="$trace" -v missing="$show_missing" -v min="$min" '
+awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope" '
   # A line xtrace can emit for: not blank, not a comment, and not one of the
   # bare keywords that close or continue a compound command -- bash traces the
   # commands inside those, never the keyword itself.
@@ -127,7 +147,7 @@ awk -v trace="$trace" -v missing="$show_missing" -v min="$min" '
       if (missing && gap[f] != "") printf "  %-24s %s\n", "(all uncovered)", gap[f]
     }
     pct = total ? 100 * covered / total : 100
-    printf "\n%-18s %4d/%-4d  %5.1f%%\n", "TOTAL", covered, total, pct
+    printf "\n%-18s %4d/%-4d  %5.1f%%   (scope: %s)\n", "TOTAL", covered, total, pct, scope
     if (min > 0 && pct + 0.0001 < min) {
       printf "\nbelow the %s%% this is required to hold\n", min
       exit 1
