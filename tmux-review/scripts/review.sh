@@ -294,6 +294,12 @@ header_key() {
       tmux send-keys -t '{bottom-left}' R 2>/dev/null || true
       return 0
       ;;
+    # And the answer to it, for the same reason: the question is asked by the
+    # list, and the reader is standing up here when it is.
+    y | Y)
+      tmux send-keys -t '{bottom-left}' y 2>/dev/null || true
+      return 0
+      ;;
     *) return 0 ;;
   esac
   # Painted here, published after. The sidebar has to be told -- enter reads
@@ -339,7 +345,11 @@ gutter() {
 gutter_key() {
   local list=$1 key=$2 send=''
   case $key in
-    j | k | q | c | s | a | C | R | n | N | ']' | '[' | '}' | '{') send=$key ;;
+    j | k | q | c | s | a | C | R | e | d | n | N | ']' | '[' | '}' | '{') send=$key ;;
+    # The answer to R and d. The list is blocked on a raw read when either has
+    # been asked, so the keystroke lands there rather than in its key loop.
+    # Outside a question it resolves to nothing there, which is what it means.
+    y | Y) send=y ;;
     first) send=Home ;;
     last) send=End ;;
     page_up) send=PageUp ;;
@@ -686,7 +696,7 @@ file_row_regex() {
 # the last line of the first commit rather than its first.
 hist_base='#{?#{==:#{@review_hist_base},},#{history_size},#{@review_hist_base}}'
 
-state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'
+state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'$'\x1f''#{window_active}'
 
 # A control-mode client, subscribed to that format. tmux pushes the value every
 # time it changes, so the loop stops asking: it used to spend a round trip on
@@ -859,7 +869,8 @@ sidebar() {
   # and the frame last written there. Empty means hidden, which is what it
   # starts as -- there is nothing to show until a comment has been written.
   local gutter_pane='' gutter_tty='' gutter_w=0 shown_gutter='' shown_gutter_at=''
-  local needs_gutter_clear=1 gutter_cur=-1 gutter_sig='' gutter_win=0
+  local needs_gutter_clear=1 gutter_cur=-1 gutter_sig='' gutter_win=0 store_gen=0
+  local gutter_keep=0
   # Whether the reader has asked for the whole pane rather than the marks, and
   # how many cells open() managed to hold back for it -- 0 on a window that had
   # none to spare, which is what makes C answer instead of acting.
@@ -968,7 +979,7 @@ sidebar() {
     fi
 
     local in_mode hist live scroll cy dw ww dh zoomed diff_active searching pos loaded
-    local hdr_sel hdr_open active_pane
+    local hdr_sel hdr_open active_pane win_active
     # Asked for, not waited for, while the comments pane is up -- see ask_state.
     # Everywhere else the push is what this loop has always run on, and costs
     # nothing at all.
@@ -978,7 +989,7 @@ sidebar() {
       read_state "$pane" || return 0
     fi
     IFS=$'\x1f' read -r in_mode hist scroll cy dw ww dh zoomed diff_active searching \
-      loaded live hdr_sel hdr_open active_pane <<<"$tick"
+      loaded live hdr_sel hdr_open active_pane win_active <<<"$tick"
 
     # Which of the two header rows the cursor up there is on, and whether the
     # reader is actually up there. Both, because the highlight is the header
@@ -1298,12 +1309,35 @@ sidebar() {
       # The anchors are derived from the queue and the row map, so they are
       # rebuilt when either changes and not on the tick: what moves many times
       # a second is the viewport, and that is arithmetic.
-      local csig="$comments|$map_gen"
+      # Left the window with a comment open. It is holding rows that the
+      # comments under it would be drawn in, and the reader is no longer here
+      # to step off it -- so coming back to a pane that is still hiding them,
+      # with no memory of having pressed anything to hide them, is the pane
+      # lying about the queue. Read off the format the subscription already
+      # pushes, so noticing costs nothing.
+      if [[ ${win_active:-1} == 0 && $gutter_cur != -1 ]]; then
+        gutter_cur=-1
+        shown_gutter=''
+      fi
+      # store_gen and not the count alone: editing a body leaves the count
+      # where it was, and the pane would go on drawing what it read before.
+      local csig="$comments|$map_gen|$store_gen"
       if [[ $csig != "$gutter_sig" ]]; then
         comment_load "$store"
         comment_rows "$pane" "$live"
         gutter_sig=$csig
-        gutter_cur=-1
+        # A queue that changed under the reader -- a comment written from the
+        # diff, or the map rebuilt -- puts them back at no comment in
+        # particular, because the one they were on may not be there any more.
+        # Their own edit or delete is the exception: they are still standing on
+        # the comment they just changed, and sending them back to the top of a
+        # queue they were working through is the pane taking their place away
+        # for having used it.
+        if ((gutter_keep)); then
+          gutter_keep=0
+        else
+          gutter_cur=-1
+        fi
         shown_gutter=''
       fi
       # The scrollback row at the top of the diff's view, which is what turns
@@ -1410,6 +1444,37 @@ sidebar() {
       fi
       continue
     fi
+    # e and d act on the comment being read, so they answer only once the
+    # reader has stepped onto one. Bound nowhere in the diff: e is next-word-end
+    # in copy-mode-vi and taking it would cost a motion to reach a key that has
+    # nothing to act on there anyway. The comments pane runs a key loop of its
+    # own rather than copy-mode, so from over there they are free.
+    if [[ $key == e || $key == d ]]; then
+      if ((gutter_cur < 0)); then
+        tmux display-message 'review: step onto a comment first -- jk in the comments pane'
+        continue
+      fi
+      if [[ $key == e ]]; then
+        if edit_comment "$store" "$gutter_cur"; then
+          store_gen=$((store_gen + 1))
+          gutter_keep=1
+        fi
+      else
+        if delete_comment "$store" "$gutter_cur"; then
+          store_gen=$((store_gen + 1))
+          gutter_keep=1
+          comments=$(comment_count "$store")
+          # Onto the one that took its place, or the last if it was the last.
+          # Left where it was, the cursor would be reading a comment that is no
+          # longer the one under it.
+          ((gutter_cur >= comments)) && gutter_cur=$((comments - 1))
+          ((comments == 0)) && { gutter_cur=-1; gutter_expanded=0; }
+        fi
+      fi
+      shown_gutter=''
+      continue
+    fi
+
     if [[ $key == C ]]; then
       if ((gutter_reserved < 1)); then
         tmux display-message 'review: no room for the comments pane in this window'
@@ -1552,7 +1617,13 @@ read_key() {
     # z is the key this plugin wakes a pane with -- the diff sends it to the
     # list when it has finished, and the list sends it to the header when what
     # is drawn there has changed. It means nothing in the list's own loop.
-    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z | C | R) ;;
+    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z | C | R | e | d) ;;
+    # y answers the question R and d ask. It means nothing to any loop here --
+    # the one that asked is blocked on a raw read of its own stdin, not on this
+    # -- but it has to survive being resolved, or the pane the reader is
+    # standing in swallows it and the question times out unanswered. Which is
+    # what it did: d and y in the comments pane deleted nothing.
+    y | Y) ;;
     *) key='' ;;
   esac
   REPLY=$key
@@ -1644,6 +1715,18 @@ legend_gutter_tiers=(
   'jk=comment|C=comments|R=clear'
   'jk=comment|R=clear'
 )
+# And once the reader is standing on one of them, the two keys that act on that
+# comment rather than on the queue. Offered only then, because that is when
+# there is something for them to act on -- and listed early, because stepping
+# onto a comment is what a reader does on the way to changing it. They keep
+# their place down to the second shortest tier for the same reason.
+# shellcheck disable=SC2034
+legend_gutter_sel_tiers=(
+  'jk=comment|e=edit|d=delete|C=toggle comments|R=clear|s=send|q=close'
+  'jk=comment|e=edit|d=delete|C=comments|R=clear|s=send'
+  'jk=comment|e=edit|d=delete|R=clear'
+  'e=edit|d=delete'
+)
 # Once / or ? has been used the diff's own stops step aside: n and N follow the
 # match, as they do in vim and in less. Files and commits keep ][ and }{, so
 # nothing is lost by searching. See the binding in .tmux.conf.
@@ -1727,28 +1810,28 @@ render_legend() {
 # is not, and would misalign every row after an ellipsis or an accented name.
 # REPLY rather than stdout keeps it free of a subshell per field, which at three
 # fields a row is the difference between a paint and a noticeable pause.
-# The columns a string occupies, answered in REPLY. Nerd-font glyphs live in
-# the private use areas and render two cells wide, but bash counts each as one
-# character -- so a row measured with ${#s} comes out narrower than it draws,
-# overflows the pane and folds its tail onto a line of its own.
+# The columns a string occupies, answered in REPLY. One per character.
+#
+# Nerd-font glyphs live in the private use areas and were counted as two here,
+# on the assumption that they draw double-width. They do not. tmux advances the
+# cursor exactly one cell for every glyph this plugin uses -- f075, e702, f06a9
+# and f0edf -- and the terminals are all set to SauceCodePro Nerd Font Mono,
+# the variant that draws them inside one cell. Measured by printing each into a
+# pane on a throwaway server and reading #{cursor_x} back; the live test does
+# the same, so a change of glyph or of font cannot put the two out of step
+# again without saying so.
+#
+# Counting them as two made every row that carried one a cell narrower than the
+# width it had been fitted to. That is what put the comments pane's focused row
+# a column to the left of its own continuations, and it is why the string-match
+# tests never saw it: they match what was written, not where it landed.
+#
+# Wide East Asian characters really are two cells and are still counted as one.
+# Nothing this plugin draws has ever contained one -- they could only arrive in
+# a commit subject, which fit() bounds anyway -- so the table that would fix
+# them is not written here.
 dwidth() {
-  local s=$1 n=${#1} i c cp
-  # All ASCII, so the character count is the column count. Every commit row
-  # takes this path, which is why it comes before any per-character work.
-  if [[ $s != *[![:ascii:]]* ]]; then
-    REPLY=$n
-    return 0
-  fi
-  REPLY=0
-  for ((i = 0; i < n; i++)); do
-    c=${s:i:1}
-    printf -v cp '%d' "'$c"
-    if ((cp >= 0xE000 && cp <= 0xF8FF)) || ((cp >= 0xF0000 && cp <= 0x10FFFD)); then
-      REPLY=$((REPLY + 2))
-    else
-      REPLY=$((REPLY + 1))
-    fi
-  done
+  REPLY=${#1}
   return 0
 }
 
@@ -1767,8 +1850,11 @@ fit() {
       n=$((${#text} + 1))
       text+='…'
     else
-      # Cut by column rather than by character: a glyph is one character and
-      # two columns, so a character-indexed slice leaves the row too wide.
+      # Cut by column rather than by character. Every character this plugin
+      # draws is one column, so the two come to the same thing today and this
+      # branch is the ASCII one written out again -- kept because the width
+      # table is the kind of thing that changes, and a wide character arriving
+      # in a commit subject would need exactly this.
       local i c out='' acc=0
       for ((i = 0; i < ${#text}; i++)); do
         c=${text:i:1}
@@ -1876,7 +1962,7 @@ render_loading() {
   col+=("$accent$spinner$reset  $c_subject$range$reset")
   plain+=('')
   col+=('')
-  # Two spaces after the glyph, which takes two cells of its own.
+  # Two spaces after the glyph, which draws inside one cell of its own.
   plain+=("  ${#shas[@]} commit$( ((${#shas[@]} == 1)) || printf s)")
   col+=("${c_git}$reset  $c_subject${#shas[@]}$reset $dim""commit$( ((${#shas[@]} == 1)) || printf s)$reset")
   if [[ -n $change_plain ]]; then
@@ -1890,8 +1976,8 @@ render_loading() {
     out+=$'\n'
   done
   for i in "${!plain[@]}"; do
-    # By column, not by character: the git glyph in the row above counts once
-    # for bash and twice on screen, so centring on ${#} sits it off to the left.
+    # By column rather than by character, which is what dwidth answers: the
+    # escapes are built alongside these rows and never counted into them.
     dwidth "${plain[i]}"
     pad=$(((width - REPLY) / 2))
     ((pad < 0)) && pad=0
@@ -2044,28 +2130,41 @@ row_excerpt() {
 # was written. The header is commented so it can be left in place while writing
 # and stripped afterwards, the way a commit message template works. An empty
 # file cancels, which is how :q! gets out.
-add_comment() {
-  local dpane=$1 store=$2 tmp body
-  anchor_rows "$dpane" || return 0
-  if ! anchor_text "$dpane" "$ANCHOR_FIRST_ROW" "$ANCHOR_LAST_ROW" "$ANCHOR_HIST"; then
-    tmux display-message 'review: nothing there to comment on'
-    return 0
-  fi
-  tmp=$(mktemp "${TMPDIR:-/tmp}/review-comment.XXXXXX") || return 0
+# The editor, on a scratch file headed by an anchor, answering in REPLY with
+# whatever was written. Shared by writing a comment and editing one, so that
+# editing opens the very same thing it was written in, under the very same
+# heading -- and so the heading can only ever be built one way.
+#
+# The anchor is passed in rather than read from ANCHOR_*: editing shows the
+# references as they were recorded, which after a rebase is the only place they
+# still exist. Deriving them again from what is on screen would quietly move the
+# comment to whatever now sits at that row.
+#
+# Any body is seeded into the file above the heading, which is what makes this
+# an edit rather than a fresh start. Empty REPLY means nothing was written.
+compose_comment() {
+  local commit=$1 file=$2 first=$3 last=$4 block=$5 was=${6-} tmp body
+  REPLY=''
+  tmp=$(mktemp "${TMPDIR:-/tmp}/review-comment.XXXXXX") || return 1
   # The same header the agent will be given, so that what is being commented
   # on is in front of the reader while they write the comment.
   {
-    printf '\n#\n'
-    [[ -n $ANCHOR_COMMIT ]] && printf '# commit %s\n' "$ANCHOR_COMMIT"
-    if [[ -n $ANCHOR_FILE ]]; then
-      printf '# %s' "$ANCHOR_FILE"
-      if [[ -n $ANCHOR_FIRST ]]; then
-        printf ':%s' "$ANCHOR_FIRST"
-        [[ $ANCHOR_FIRST == "$ANCHOR_LAST" ]] || printf -- '-%s' "$ANCHOR_LAST"
+    if [[ -n $was ]]; then
+      printf '%s\n' "$was"
+    else
+      printf '\n'
+    fi
+    printf '#\n'
+    [[ -n $commit ]] && printf '# commit %s\n' "$commit"
+    if [[ -n $file ]]; then
+      printf '# %s' "$file"
+      if [[ -n $first ]]; then
+        printf ':%s' "$first"
+        [[ $first == "$last" ]] || printf -- '-%s' "$last"
       fi
       printf '\n'
     fi
-    [[ -n $ANCHOR_BLOCK ]] && printf '%s\n' "${ANCHOR_BLOCK//$'\n'/$'\n'}" | sed 's/^/# > /'
+    [[ -n $block ]] && printf '%s\n' "${block//$'\n'/$'\n'}" | sed 's/^/# > /'
     printf '#\n# Lines beginning with # are dropped. Save nothing to cancel.\n'
   } >"$tmp"
 
@@ -2078,14 +2177,93 @@ add_comment() {
   while [[ $body == $'\n'* ]]; do body=${body#$'\n'}; done
   while [[ $body == *$'\n' ]]; do body=${body%$'\n'}; done
   /bin/rm -f "$tmp"
-  if [[ -z $body ]]; then
+  # The record separators, which are the one thing a body must not carry: it is
+  # the last field, so a stray one would split the queue at that point and every
+  # comment after it would be read as a field of this one.
+  body=${body//$'\x1e'/}
+  body=${body//$'\x1f'/}
+  REPLY=$body
+  return 0
+}
+
+# Opens an editor on a scratch file headed by the anchor, and queues whatever
+# was written. The header is commented so it can be left in place while writing
+# and stripped afterwards, the way a commit message template works. An empty
+# file cancels, which is how :q! gets out.
+add_comment() {
+  local dpane=$1 store=$2
+  anchor_rows "$dpane" || return 0
+  if ! anchor_text "$dpane" "$ANCHOR_FIRST_ROW" "$ANCHOR_LAST_ROW" "$ANCHOR_HIST"; then
+    tmux display-message 'review: nothing there to comment on'
+    return 0
+  fi
+  compose_comment "$ANCHOR_COMMIT" "$ANCHOR_FILE" "$ANCHOR_FIRST" "$ANCHOR_LAST" \
+    "$ANCHOR_BLOCK" || return 0
+  if [[ -z $REPLY ]]; then
     tmux display-message 'review: comment discarded'
     return 0
   fi
   comment_add "$store" "$ANCHOR_COMMIT" "$ANCHOR_FILE" "$ANCHOR_FIRST" \
-    "$ANCHOR_LAST" "$ANCHOR_BLOCK" "$body"
+    "$ANCHOR_LAST" "$ANCHOR_BLOCK" "$REPLY"
   comments=$(comment_count "$store")
   tmux display-message "review: $comments queued for ${agent_label_cur:-no agent}"
+  return 0
+}
+
+# The comment being read, opened again in the editor it was written in. Answers
+# 0 when the queue was rewritten, so the caller knows to reload it.
+#
+# Saving nothing keeps what was there. It cannot mean discard: that is what d
+# is for, and an editor exited by habit would otherwise throw the comment away
+# without asking.
+edit_comment() {
+  local store=$1 i=$2
+  ((i >= 0 && i < ${#cm_body[@]})) || return 1
+  compose_comment "${cm_commit[i]}" "${cm_file[i]}" "${cm_first[i]}" \
+    "${cm_last[i]}" "${cm_block[i]}" "${cm_body[i]}" || return 1
+  if [[ -z $REPLY ]]; then
+    tmux display-message 'review: unchanged'
+    return 1
+  fi
+  if [[ $REPLY == "${cm_body[i]}" ]]; then
+    tmux display-message 'review: unchanged'
+    return 1
+  fi
+  cm_body[i]=$REPLY
+  comment_write "$store" || return 1
+  tmux display-message 'review: comment edited'
+  return 0
+}
+
+# And out of the queue altogether, after asking. The question is the same shape
+# as R's, for the same reason: the queue outlives the window, so nothing thrown
+# away here can be got back by reopening the review.
+delete_comment() {
+  local store=$1 i=$2 answer='' gist
+  ((i >= 0 && i < ${#cm_body[@]})) || return 1
+  # Which one is about to go, in the reader's own words, so that d pressed on
+  # the wrong row of a stacked pair is visibly the wrong one.
+  gist=${cm_body[i]%%$'\n'*}
+  ((${#gist} > 40)) && gist="${gist:0:39}…"
+  tmux display-message -d 8000 \
+    "review: delete \"$gist\"? y to delete, any other key to keep"
+  # Read raw rather than through read_key, as clear_comments does: y means
+  # nothing in this loop, so read_key would resolve it to nothing. A reader who
+  # walks away leaves it unanswered, which keeps the comment.
+  IFS= read -rsn1 -t 10 answer || answer=''
+  if [[ $answer != y && $answer != Y ]]; then
+    tmux display-message 'review: kept'
+    return 1
+  fi
+  cm_commit=("${cm_commit[@]:0:i}" "${cm_commit[@]:i+1}")
+  cm_file=("${cm_file[@]:0:i}" "${cm_file[@]:i+1}")
+  cm_first=("${cm_first[@]:0:i}" "${cm_first[@]:i+1}")
+  cm_last=("${cm_last[@]:0:i}" "${cm_last[@]:i+1}")
+  cm_block=("${cm_block[@]:0:i}" "${cm_block[@]:i+1}")
+  cm_body=("${cm_body[@]:0:i}" "${cm_body[@]:i+1}")
+  cm_row=("${cm_row[@]:0:i}" "${cm_row[@]:i+1}")
+  comment_write "$store" || return 1
+  tmux display-message 'review: comment deleted'
   return 0
 }
 
@@ -2199,6 +2377,30 @@ comment_add() {
   local store=$1 commit=$2 file=$3 first=$4 last=$5 block=$6 body=$7
   printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1e' \
     "$commit" "$file" "$first" "$last" "$block" "$body" >>"$store"
+}
+
+# The arrays back to the file they were loaded from. Written beside the store
+# and moved over it: the queue outlives the window and there is no undo, so a
+# process killed halfway through must leave the old queue rather than half of a
+# new one. Same directory, so the move is a rename and not a copy.
+#
+# An empty queue is no file at all, which is what clear_comments leaves and what
+# the pane reads to know it has nothing to show.
+comment_write() {
+  local store=$1 i
+  local tmp=$store.tmp
+  if ((${#cm_body[@]} == 0)); then
+    /bin/rm -f "$store" "$tmp"
+    return 0
+  fi
+  : >|"$tmp" || return 1
+  for ((i = 0; i < ${#cm_body[@]}; i++)); do
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1e' \
+      "${cm_commit[i]}" "${cm_file[i]}" "${cm_first[i]}" "${cm_last[i]}" \
+      "${cm_block[i]}" "${cm_body[i]}" >>"$tmp"
+  done
+  /bin/mv -f "$tmp" "$store"
+  return 0
 }
 
 comment_count() {
@@ -2776,8 +2978,8 @@ load_pick_sessions() {
       *) glyph='󰚩' ;;
     esac
     pick_kind+=(session)
-    # Two spaces after the glyph, not one: it takes two cells, so a single
-    # space is swallowed by it and the label reads as butted up against it.
+    # Two spaces after the glyph, not one: it is drawn to the full width of
+    # its cell, so a single space reads as the label butted up against it.
     pick_label+=("$glyph  ${agent_label[i]}")
     pick_extra+=("${agent_state[i]}")
     # The pane is what a comment is pasted into; the label is what the row shows.
@@ -3055,13 +3257,19 @@ wrap_body() {
 # is comments and blank rows.
 render_gutter() {
   local width=$1 height=$2 top=$3
-  # Five: the mark and three spaces, or the balloon and two, and then a column
-  # left at the right so no row ever sits flush against the edge. Both prefixes
-  # are four cells wide so that the text starts in the same column whichever is
-  # drawn, and moving the focus shifts nothing.
+  # Five: the mark and the space after it, then a space, the balloon's cell and
+  # a column left at the right so no row ever sits flush against the edge. Two
+  # cells of prefix is what a quoted line has carried since mail -- `> ` -- and
+  # it is as narrow as a rail can be and still read as one.
+  #
+  # The balloon's cell is reserved on every row, not only the row that draws
+  # it. Reserving it per row would move the wrap between a comment being read
+  # and the same comment queued, which is the first-row-against-continuation
+  # drift this pane had before, arriving by another door.
   local body_w=$((width - 5)) rows=$((height - 1))
   local -a plain=() col=()
-  local i n above=0 below=0 row rel limit j nxt k avail cnt txt mark status
+  local i n above=0 below=0 row rel limit j nxt k avail cnt txt mark status cap
+  local covered=-1
   local group ordinal pick label
   # Which comment the reader is standing on, read from the loop the way the
   # queue itself is. -1 until they have stepped onto one, and then nothing is
@@ -3101,18 +3309,32 @@ render_gutter() {
       continue
     fi
 
+    # Already under the comment being read, which has been given these rows and
+    # drawn over them. Drawing this one now would overwrite the middle of that
+    # one, so it waits until the reader steps off and gives the rows back.
+    ((rel < covered)) && continue
+
     # How far down this one may run: to the next comment below it, or to the
-    # foot. The earlier comment gives way, never the later one -- a comment
-    # pushed down to make room is aligned to a line that is not its own, which
-    # is the one thing this pane exists to get right. So it is cut, and says so.
+    # foot. A comment that is merely queued gives way to the one below it and
+    # is cut, never pushed -- pushed down, it would be aligned to a line that
+    # is not its own, which is the one thing this pane exists to get right.
+    #
+    # The one being read is the exception: it runs to its full five rows over
+    # whatever is beneath it. Packed a row apart, every comment was a single
+    # cut line and the pane could not be read at all. What it covers comes
+    # back the moment the reader steps off it, and the reader is the one who
+    # put it there -- so nothing goes missing without a key having been pressed
+    # to hide it.
     limit=$rows
-    for ((j = i + 1; j < n; j++)); do
-      [[ -n ${cm_row[j]} ]] || continue
-      nxt=$((cm_row[j] - top))
-      ((nxt > rel)) || continue
-      ((nxt < limit)) && limit=$nxt
-      break
-    done
+    if ((cur < 0 || i != cur)); then
+      for ((j = i + 1; j < n; j++)); do
+        [[ -n ${cm_row[j]} ]] || continue
+        nxt=$((cm_row[j] - top))
+        ((nxt > rel)) || continue
+        ((nxt < limit)) && limit=$nxt
+        break
+      done
+    fi
 
     # Several comments can land on one row: two notes about the same line, or
     # two that could only be anchored as far as the same file header. One row
@@ -3161,6 +3383,17 @@ render_gutter() {
     cnt=${#WRAPPED[@]}
     avail=$((limit - rel))
     ((avail > cnt)) && avail=$cnt
+    # And no more than its allowance, whatever room happens to be under it. A
+    # queued comment is a line and the one being read is five: without this a
+    # single long comment fills the pane and the rest of the queue is a count
+    # at the foot, which is the pane failing at the one thing it is for.
+    cap=$comment_rows_rest
+    ((focused)) && cap=$comment_rows_read
+    ((avail > cap)) && avail=$cap
+    # The rows the one being read has taken, so the comments under it know to
+    # stand off. Only it can cover anything: every other comment stops above
+    # the next one and cannot reach this far.
+    ((focused)) && covered=$((rel + avail))
     for ((k = 0; k < avail; k++)); do
       txt=${WRAPPED[k]}
       # The last row it is allowed carries the rest of the body, which fit then
@@ -3169,60 +3402,63 @@ render_gutter() {
       ((k == avail - 1 && cnt > avail)) && txt="${WRAPPED[*]:k}"
       fit "$txt" "$body_w"
       # The first row of a comment is marked differently from its continuation,
-      # so two comments in a row are two comments and not one long one. And the
-      # one being read carries a balloon in place of the mark -- two cells, the
-      # same as the mark and the space after it, so the text does not move.
-      # Four cells of prefix, whichever row this is, so the text starts in the
-      # same column throughout and moving the focus shifts nothing.
+      # so two comments in a row are two comments and not one long one.
       #
-      # The one being read gets a painted cell on every one of its rows, which
-      # draws a bar down its whole height, and the balloon at the head of it:
-      # one cell plus the balloon's two plus a space is exactly the four. The
-      # rest get a painted cell on their first row and a rule under it, so a
-      # comment that is merely there cannot be mistaken for the one being read.
+      # The one being read is barred down its whole height -- every row of it
+      # painted, with nothing cut out of the top -- and the balloon sits at the
+      # right of its first row instead. Beside the bar the balloon read as a
+      # notch in the amber rather than as a mark of its own, and the clear row
+      # that kept them apart was costing a line of the five.
+      #
+      # The rest get a painted cell on their first row and a rule under it, so
+      # a comment that is merely there cannot be mistaken for the one being
+      # read.
       if ((focused && k == 0)); then
-        plain[rel + k]="${mark_glyph}${comment_glyph} ${REPLY}"
-        col[rel + k]="${mark_bg_read} ${reset}${c_read}${comment_glyph}${reset} ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark_glyph} ${REPLY} ${comment_glyph}"
+        col[rel + k]="${mark_bg_read} ${reset} ${txt_col}${REPLY}${reset} ${c_read}${comment_glyph}${reset}"
       elif ((focused)); then
-        plain[rel + k]="${mark_glyph}   ${REPLY}"
-        col[rel + k]="${mark_bg_read} ${reset}   ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark_glyph} ${REPLY}  "
+        col[rel + k]="${mark_bg_read} ${reset} ${txt_col}${REPLY}${reset}  "
       elif ((k == 0)); then
-        plain[rel + k]="${mark_glyph}   ${REPLY}"
-        col[rel + k]="${mark_bg} ${reset}   ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark_glyph} ${REPLY}  "
+        col[rel + k]="${mark_bg} ${reset} ${txt_col}${REPLY}${reset}  "
       else
         mark='│'
-        plain[rel + k]="${mark}   ${REPLY}"
-        col[rel + k]="${dim}${mark}${reset}   ${txt_col}${REPLY}${reset}"
+        plain[rel + k]="${mark} ${REPLY}  "
+        col[rel + k]="${dim}${mark}${reset} ${txt_col}${REPLY}${reset}  "
       fi
     done
   done
 
   if ((thin)); then
-    # No room for a count, so what is off screen is said the way a comment is
-    # -- a mark at the edge it lies past, dimmed so it cannot be taken for one.
+    # One column has no room for a count, so what is off screen is said with an
+    # arrow at the edge it lies past: the way to go, which is the part a reader
+    # acts on, and nothing else. An arrow rather than another painted mark --
+    # every cell of this pane is already a mark, and one more at the edge was
+    # read as a comment on that line rather than as a hint about another.
     plain[rows]=''
     col[rows]=''
     if ((below)); then
-      plain[rows]=$mark_glyph
-      col[rows]="${mark_bg_off} ${reset}"
+      plain[rows]=$off_below_glyph
+      col[rows]="${c_off}${off_below_glyph}${reset}"
     fi
     # Never over a comment that is actually on that row: a real mark there says
     # more than the hint would.
     if ((above)) && [[ -z ${plain[0]} ]]; then
-      plain[0]=$mark_glyph
-      col[0]="${mark_bg_off} ${reset}"
+      plain[0]=$off_above_glyph
+      col[0]="${c_off}${off_above_glyph}${reset}"
     fi
   else
     status=''
-    ((above)) && status+="↑$above"
+    ((above)) && status+="${off_above_glyph}$above"
     ((above && below)) && status+='  '
-    ((below)) && status+="↓$below"
+    ((below)) && status+="${off_below_glyph}$below"
     # width - 2, not width - 1. This is the bottom row of the pane, and writing
     # its last cell wraps the cursor onto a row that does not exist, which
     # scrolls the whole pane up by one -- the bug the header pane had.
     fit "$status" $((width - 2))
     plain[rows]=$REPLY
-    col[rows]="${dim}${REPLY}${reset}"
+    col[rows]="${c_off}${REPLY}${reset}"
   fi
 
   # Homed, but never cleared with \e[2J. tmux answers that by pushing the whole
@@ -3235,15 +3471,18 @@ render_gutter() {
     ((i)) && out_plain+=$'\n'
     if [[ -z ${plain[i]} ]]; then
       # An empty row still has to be written, or whatever the last frame left
-      # there stays. fit pads it to the width, which clears it.
-      fit '' "$body_w"
+      # there stays. Padded to the prefix as well as the body, so that a blank
+      # row comes to exactly the width of a row with a comment on it. Counted
+      # from body_w rather than written out as spaces: the two were a literal
+      # four apart once, and narrowing the prefix left every blank row a cell
+      # wider than the pane, which wraps it.
       if ((thin)); then
-        out_plain+=$REPLY
-        out_col+=$REPLY
+        fit '' "$body_w"
       else
-        out_plain+="    $REPLY"
-        out_col+="    $REPLY"
+        fit '' $((body_w + 4))
       fi
+      out_plain+=$REPLY
+      out_col+=$REPLY
     else
       out_plain+=${plain[i]}
       out_col+=${col[i]}
@@ -3388,8 +3627,12 @@ gutter_step() {
         return 1
       fi
       for ((i = 0; i < n; i++)); do
+        # At the reader's own row as well as below it. A comment is written on
+        # the line the reader is standing on, so requiring one strictly below
+        # made the comment just written the one comment j could not reach --
+        # and e and d have nothing to act on until it has been reached.
         [[ -n ${cm_row[i]} ]] || continue
-        ((cm_row[i] > pos)) && { gutter_cur=$i; return 0; }
+        ((cm_row[i] >= pos)) && { gutter_cur=$i; return 0; }
       done
       ;;
     prev)
@@ -3401,7 +3644,7 @@ gutter_step() {
       fi
       for ((i = n - 1; i >= 0; i--)); do
         [[ -n ${cm_row[i]} ]] || continue
-        ((cm_row[i] < pos)) && { gutter_cur=$i; return 0; }
+        ((cm_row[i] <= pos)) && { gutter_cur=$i; return 0; }
       done
       ;;
   esac
@@ -3598,7 +3841,11 @@ render() {
       render_legend "$width" agent legend_session_tiers
     fi
   elif [[ $focus == gutter ]]; then
-    render_legend "$width" comments legend_gutter_tiers
+    if ((${gutter_cur:--1} >= 0)); then
+      render_legend "$width" comments legend_gutter_sel_tiers
+    else
+      render_legend "$width" comments legend_gutter_tiers
+    fi
   elif [[ $focus == list ]]; then
     if ((queued)); then
       render_legend "$width" list legend_list_c_tiers

@@ -100,11 +100,14 @@ restore_review() {
 declare -A stat_of=()
 tmp_counts=$(mktemp)
 
-section 'dwidth: a glyph is two cells'
+section 'dwidth: a glyph is one cell'
 dwidth 'abc'; assert_eq 'ascii is one cell a character' 3 "$REPLY"
 dwidth 'héllo'; assert_eq 'an accent is still one cell' 5 "$REPLY"
-dwidth '󰚩'; assert_eq 'a nerd glyph is two' 2 "$REPLY"
-dwidth ' ab'; assert_eq 'and counts alongside the rest' 5 "$REPLY"
+# One, not two. These glyphs are drawn inside a single cell and tmux advances
+# the cursor by one for each. The live section at the foot of this file measures
+# that against a real server rather than restating the number here.
+dwidth '󰚩'; assert_eq 'a nerd glyph is one' 1 "$REPLY"
+dwidth ' ab'; assert_eq 'and counts alongside the rest' 4 "$REPLY"
 dwidth ''; assert_eq 'empty is nothing' 0 "$REPLY"
 
 section 'reserve_for: the comments pane is paid for before delta runs'
@@ -767,6 +770,21 @@ gutter_step next 50
 assert_eq 'a step from the middle finds the one below' 4 "$gutter_cur"
 gutter_step prev 50
 assert_eq 'and back the one above' 2 "$gutter_cur"
+# The row the reader is standing on counts. A comment is written on the line
+# they are on, so with a strict comparison the comment just written was the one
+# comment j could not reach -- and until it is reached there is nothing for e or
+# d to act on, which is how "d then y deletes nothing" was really reached.
+cm_row=('' 10 40 '' 90)
+gutter_cur=-1
+gutter_step next 10
+assert_eq 'standing on a comment, j lands on it rather than past it' 1 "$gutter_cur"
+gutter_cur=-1
+gutter_step prev 40
+assert_eq 'and k the same way' 2 "$gutter_cur"
+gutter_cur=-1
+gutter_step next 11
+assert_eq 'a row with no comment on it still finds the next one' 2 "$gutter_cur"
+
 # Two on one row cannot be told apart by position, so a step taken while
 # standing on one of them goes to the next in the queue instead.
 cm_row=(683 683 900)
@@ -1021,6 +1039,105 @@ assert_eq 'whose body came with it too' 'on the commit' "${cm_body[2]}"
 unset -f tmux
 unset row_of file_rows file_names
 
+section 'comment_write: the queue back to the file it was read from'
+# The round trip is the whole of edit and delete: both change the arrays and
+# then write them, so anything the write loses is lost from the queue itself.
+cw_store=$(mktemp "${TMPDIR:-/tmp}/review-cw.XXXXXX")
+comment_add "$cw_store" 'abc1234' 'lib/a.ex' 10 12 'defp a do' 'the first'
+comment_add "$cw_store" 'def5678' 'lib/b.ex' 3 3 'defp b do' 'the second'
+comment_add "$cw_store" 'aaa9999' 'lib/c.ex' 7 9 'defp c do' 'the third'
+comment_load "$cw_store"
+assert_eq 'three records were read back' 3 "${#cm_body[@]}"
+
+# A body with a newline and a pipe in it: the pipe is the legend's separator
+# and the newline is what an editor leaves behind, and neither is the record's.
+cm_body[1]=$'edited | with a pipe\nand a second line'
+comment_write "$cw_store"
+comment_load "$cw_store"
+assert_eq 'the edited body survives the round trip' \
+  $'edited | with a pipe\nand a second line' "${cm_body[1]}"
+assert_eq 'and its neighbours are untouched' 'the first|the third' \
+  "${cm_body[0]}|${cm_body[2]}"
+assert_eq 'the anchors come back with them' 'def5678|lib/b.ex|3|3' \
+  "${cm_commit[1]}|${cm_file[1]}|${cm_first[1]}|${cm_last[1]}"
+assert_eq 'and the excerpt too' 'defp b do' "${cm_block[1]}"
+assert_eq 'the count is still three' 3 "$(comment_count "$cw_store")"
+
+# Dropping the first, the way delete_comment does.
+cm_commit=("${cm_commit[@]:1}"); cm_file=("${cm_file[@]:1}")
+cm_first=("${cm_first[@]:1}"); cm_last=("${cm_last[@]:1}")
+cm_block=("${cm_block[@]:1}"); cm_body=("${cm_body[@]:1}")
+cm_row=("${cm_row[@]:1}")
+comment_write "$cw_store"
+comment_load "$cw_store"
+assert_eq 'two are left after a delete' 2 "${#cm_body[@]}"
+assert_eq 'and the right one went' $'edited | with a pipe\nand a second line' "${cm_body[0]}"
+assert_eq 'the count followed it down' 2 "$(comment_count "$cw_store")"
+
+# Emptied, there is no file at all -- which is what the pane reads to know it
+# has nothing to show, and what clear_comments leaves behind.
+cm_commit=(); cm_file=(); cm_first=(); cm_last=(); cm_block=(); cm_body=(); cm_row=()
+comment_write "$cw_store"
+assert_eq 'an emptied queue leaves no file' 0 "$([[ -e $cw_store ]] && echo 1 || echo 0)"
+assert_eq 'and no scratch file beside it' 0 \
+  "$([[ -e $cw_store.tmp ]] && echo 1 || echo 0)"
+assert_eq 'and counts nothing' 0 "$(comment_count "$cw_store")"
+/bin/rm -f "$cw_store"
+unset cw_store
+
+section 'legend: the comment keys appear once one is being read'
+# e and d act on the comment under the reader, so they are offered when there
+# is one and not before. The tiers are separate arrays rather than a group
+# spliced in, because which groups give way first when the pane is narrow is
+# the whole point of a tier.
+# render_legend writes a group as its keys, a space and its label -- the = is
+# the separator in the tier and never reaches the row -- so these look for what
+# is drawn and not for what was written.
+render_legend 120 comments legend_gutter_tiers
+assert_eq 'with none being read, edit is not offered' 0 \
+  "$(printf '%s' "$REPLY_PLAIN" | grep -c 'e edit')"
+assert_eq 'nor delete' 0 "$(printf '%s' "$REPLY_PLAIN" | grep -c 'd delete')"
+assert_match 'but stepping through them is' 'jk comment' "$REPLY_PLAIN"
+render_legend 120 comments legend_gutter_sel_tiers
+assert_match 'standing on one, edit is offered' 'e edit' "$REPLY_PLAIN"
+assert_match 'and delete' 'd delete' "$REPLY_PLAIN"
+assert_match 'without losing the keys that were there before' 'R clear' "$REPLY_PLAIN"
+# Narrow enough that most of it has to go: the two keys the reader stepped onto
+# the comment for are the last to.
+render_legend 22 comments legend_gutter_sel_tiers
+assert_match 'and they outlast the rest when the pane is narrow' 'e edit' "$REPLY_PLAIN"
+
+section 'read_key: the keys that reach the loop at all'
+# A key that is not in this list resolves to nothing, and the loop that read it
+# drops it. That is not a quiet failure: it is a key that looks bound and does
+# nothing. y was missing, so the question d asks in the comments pane could not
+# be answered from the pane the reader was standing in -- it timed out and kept
+# the comment every time.
+for rk_key in e d c s a C R j k q y Y; do
+  printf '%s' "$rk_key" | { read_key 0.05; printf '%s' "$REPLY"; } > "$tmp_counts"
+  assert_eq "read_key passes $rk_key through" "$rk_key" "$(/bin/cat "$tmp_counts")"
+done
+unset rk_key
+
+section 'the answer to a question reaches the pane that asked it'
+# R and d are answered by a raw read on the list's own stdin, so the keystroke
+# has to be sent there from wherever the reader is standing. Every pane that
+# offers either key has to forward the answer, or the question cannot be
+# answered from the pane that offered it.
+rk_sent=''
+tmux() { rk_sent="${*: -1}"; }
+gutter_key fakelist d; assert_eq 'the comments pane forwards d' d "$rk_sent"
+gutter_key fakelist R; assert_eq 'and R' R "$rk_sent"
+gutter_key fakelist y; assert_eq 'and the y that answers them' y "$rk_sent"
+gutter_key fakelist Y; assert_eq 'with Y meaning the same thing' y "$rk_sent"
+rk_sent=''
+gutter_key fakelist x; assert_eq 'while a key it does not know is not sent on' '' "$rk_sent"
+sel=range
+header_key fakewin fakepane R; assert_eq 'the header forwards R' R "$rk_sent"
+header_key fakewin fakepane y; assert_eq 'and the y that answers it' y "$rk_sent"
+unset -f tmux
+unset rk_sent sel
+
 section 'render_gutter: a comment on the row its line is on'
 # 20 columns, 8 rows: seven for comments and the foot for what is off screen.
 cm_row=(102 105)
@@ -1029,8 +1146,8 @@ render_gutter 20 8 100
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
 assert_eq 'one row per row of the pane' 8 "${#g[@]}"
 assert_eq 'the row above the first comment is blank' '' "$(printf '%s' "${g[1]}" | tr -d ' ')"
-assert_match 'the first comment is on its own row' '^█   first' "${g[2]}"
-assert_match 'and the second on its own' '^█   second' "${g[5]}"
+assert_match 'the first comment is on its own row' '^█ first' "${g[2]}"
+assert_match 'and the second on its own' '^█ second' "${g[5]}"
 assert_eq 'the foot is empty when nothing is off screen' '' \
   "$(printf '%s' "${g[7]}" | tr -d ' ')"
 # The bottom row is one cell short of the width on purpose: writing the last
@@ -1045,22 +1162,47 @@ assert_eq 'no trailing newline to scroll on' 0 \
 section 'render_gutter: the earlier comment gives way, never the later'
 # Two rows apart, with a body that wants four. Pushing the second down would
 # align it to a line that is not its own, so the first is cut instead.
+#
+# Queued, it is cut to its one row whatever room happens to be under it. Read,
+# it may take five -- but not the row the later comment is anchored to, which
+# is the rule this section is here for.
 cm_row=(102 104)
 cm_body=('one two three four five six seven eight' 'later')
 render_gutter 20 8 100
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'the first comment starts where it belongs' '^█   one two' "${g[2]}"
-assert_match 'its second row is a continuation' '^│   ' "${g[3]}"
-assert_match 'which says it was cut' '…' "${g[3]}"
-assert_match 'and the later comment is still on its own row' '^█   later' "${g[4]}"
+assert_match 'the first comment starts where it belongs' '^█ one two' "${g[2]}"
+assert_match 'which says it was cut' '…' "${g[2]}"
+assert_eq 'and takes no second row while it is only queued' '' \
+  "$(printf '%s' "${g[3]}" | tr -d ' ')"
+assert_match 'the later comment is still on its own row' '^█ later' "${g[4]}"
+
+# Read, it is the exception: it runs to its full five rows over whatever is
+# beneath it. Packed a row apart, every comment was one cut line and the pane
+# could not be read at all. What it covers comes back when the reader steps
+# off, and it took a keypress to cover it in the first place.
+gutter_cur=0
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'read, it runs on past its first row' '^█ one two' "${g[2]}"
+assert_match 'and carries the balloon at the right' "${comment_glyph}\$" "${g[2]}"
+assert_match 'barring every row it takes' '^█ ' "${g[3]}"
+assert_match 'running on rather than being cut' '^█ seven eight' "${g[4]}"
+assert_eq 'and covering the comment that was on that row' 0 \
+  "$(printf '%s' "$REPLY_PLAIN" | grep -c 'later')"
+# Stepping off gives the covered rows straight back.
+gutter_cur=-1
+render_gutter 20 8 100
+mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'stepped off, the covered comment is back on its row' '^█ later' "${g[4]}"
+assert_match 'and the one that was read is cut again' '…' "${g[2]}"
 
 section 'render_gutter: what is off screen, and what cannot be placed'
 cm_row=('' 90 102 300)
 cm_body=('orphan' 'above' 'here' 'below')
 render_gutter 20 8 100
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'a comment with no row is drawn at the top' '^█   orphan' "${g[0]}"
-assert_match 'one in view is on its row' '^█   here' "${g[2]}"
+assert_match 'a comment with no row is drawn at the top' '^█ orphan' "${g[0]}"
+assert_match 'one in view is on its row' '^█ here' "${g[2]}"
 assert_match 'the foot counts the one above' '↑1' "${g[7]}"
 assert_match 'and the one below' '↓1' "${g[7]}"
 # A pane too narrow to hold anything still has to answer, rather than taking
@@ -1078,28 +1220,35 @@ cm_body=('first' 'second')
 gutter_cur=-1
 render_gutter 20 8 100
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'with nothing focused both carry the mark' '^█   first' "${g[2]}"
-assert_match 'and so does the other' '^█   second' "${g[5]}"
+assert_match 'with nothing focused both carry the mark' '^█ first' "${g[2]}"
+assert_match 'and so does the other' '^█ second' "${g[5]}"
 col_of() { printf '%s' "$REPLY" | sed -n "$1p"; }
 gutter_cur=1
 render_gutter 20 8 100
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-# Two cells either way -- the balloon stands in for the mark and the space
-# after it -- so the text starts in the same column whichever is drawn.
-assert_match 'the one being read carries a balloon' "^█${comment_glyph} second" "${g[5]}"
-assert_match 'the other keeps its mark' '^█   first' "${g[2]}"
+# One cell either way -- the balloon is drawn in the mark's own cell rather
+# than beside it -- so the text starts in the same column whichever is drawn.
+assert_match 'the one being read is barred like the rest' '^█ second' "${g[5]}"
+assert_match 'and carries the balloon at the right of its row' "${comment_glyph}\$" "${g[5]}"
+assert_match 'the other keeps its mark' '^█ first' "${g[2]}"
 # The bar is what tells it from the commit list's own current row, which is
-# marked in blue: this one is amber, and runs the whole height of the comment
-# rather than sitting on its first line.
+# marked in blue: this one is amber, and runs the whole height of the comment.
+# The balloon sits at the right of its first row rather than at the head of
+# the bar -- beside the bar it read as a notch cut out of the amber rather
+# than as a mark of its own.
 cm_body=('first' 'a body long enough to take a second row of its own here')
 gutter_cur=1
 render_gutter 26 8 100
 mapfile -t g2 < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'the bar carries on down the comment' '^█   ' "${g2[6]}"
+assert_match 'the bar carries on down the comment' '^█ ' "${g2[6]}"
 assert_eq 'where an unread one would have a rule instead' 0 \
   "$(printf '%s' "${g2[6]}" | grep -c '│')"
-assert_eq 'and the bar is amber on every row of it' 2 \
-  "$(printf '%s' "$REPLY" | sed -n '6p;7p' | grep -c '48;2;224;175;104')"
+assert_eq 'the bar is painted on its first row as well' 1 \
+  "$(printf '%s' "$REPLY" | sed -n '6p' | grep -c '48;2;224;175;104')"
+assert_eq 'and on the row under it, so it runs the whole height' 1 \
+  "$(printf '%s' "$REPLY" | sed -n '7p' | grep -c '48;2;224;175;104')"
+assert_match 'with the balloon drawn in the amber at the right' '38;2;224;175;104' \
+  "$(printf '%s' "$REPLY" | sed -n '6p')"
 assert_eq 'while the unread one stays blue' 1 \
   "$(printf '%s' "$REPLY" | sed -n '3p' | grep -c '48;2;122;162;247')"
 cm_body=('first' 'second')
@@ -1131,6 +1280,79 @@ assert_eq 'every row of a one-column pane is one column' 1 \
 unset -f col_of
 unset g cm_row cm_body gutter_cur
 
+section 'render_gutter: collapsed, what is off screen is an arrow'
+# One column has no room for a count, so the direction is all it says. An arrow
+# rather than another painted mark: every cell of this pane is a mark already,
+# and one more at the edge was being read as a comment on that line.
+cm_row=(50 102 500)
+cm_body=('above' 'here' 'below')
+gutter_cur=-1
+render_gutter 1 8 100
+mapfile -t g4 < <(printf '%s' "$REPLY_PLAIN")
+assert_eq 'the top row points at what is above it' "$off_above_glyph" "${g4[0]}"
+assert_eq 'the foot points at what is below' "$off_below_glyph" "${g4[7]}"
+assert_eq 'and the comment in view keeps its own mark' '█' "${g4[2]}"
+assert_eq 'with no count anywhere in the column' 0 \
+  "$(printf '%s' "$REPLY_PLAIN" | grep -c '[0-9]')"
+assert_eq 'every row of it is still one column' 1 \
+  "$(m=1; while IFS= read -r l; do dwidth "$l"; ((REPLY > 1)) && m=0; done \
+     < <(printf '%s' "$REPLY_PLAIN"); printf '%s' "$m")"
+assert_match 'the arrows are drawn in the off-screen colour' '38;2;255;255;255' \
+  "$(printf '%s' "$REPLY" | sed -n '1p')"
+
+# Nothing off screen either way, so neither edge says anything.
+cm_row=(102)
+cm_body=('here')
+render_gutter 1 8 100
+mapfile -t g4 < <(printf '%s' "$REPLY_PLAIN")
+assert_eq 'with nothing above, the top row is blank' '' "$(printf '%s' "${g4[0]}" | tr -d ' ')"
+assert_eq 'and with nothing below, so is the foot' '' "$(printf '%s' "${g4[7]}" | tr -d ' ')"
+
+# A comment on the top row outranks the hint: a real mark says more than it.
+cm_row=(50 100)
+cm_body=('above' 'on the first row')
+render_gutter 1 8 100
+mapfile -t g4 < <(printf '%s' "$REPLY_PLAIN")
+assert_eq 'a comment on the top row keeps it' '█' "${g4[0]}"
+unset g4
+
+section 'render_gutter: the bar runs the whole height, the balloon sits right'
+# Five rows at most, every one of them barred, and the balloon on the first of
+# them at the right-hand end. The balloon's cell is reserved on every row, so
+# the wrap does not move between a comment being read and the same comment
+# queued.
+cm_row=(102)
+cm_body=('a body long enough that it must wrap onto three separate rows of this pane before it ends')
+gutter_cur=0
+render_gutter 40 10 100
+mapfile -t g3 < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'the first row is barred like the rest' '^█ ' "${g3[2]}"
+assert_match 'and carries the balloon at its right' "${comment_glyph}\$" "${g3[2]}"
+assert_match 'the row under it is barred too' '^█ ' "${g3[3]}"
+assert_eq 'and carries no balloon of its own' 0 \
+  "$(printf '%s' "${g3[3]}" | grep -c "$comment_glyph")"
+assert_match 'as is the row below that' '^█ ' "${g3[4]}"
+
+# Capped at five however much room is under it.
+cm_row=(102)
+cm_body=("$(printf 'word%s ' {1..90})")
+gutter_cur=0
+render_gutter 40 16 100
+mapfile -t g3 < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'the fifth row is the last one drawn' '^█ ' "${g3[6]}"
+assert_match 'and says it was cut' '…' "${g3[6]}"
+assert_eq 'the sixth is empty' '' "$(printf '%s' "${g3[7]}" | tr -d ' ')"
+
+# Queued, it is one row and keeps the reserved cell without drawing in it.
+gutter_cur=-1
+render_gutter 40 16 100
+mapfile -t g3 < <(printf '%s' "$REPLY_PLAIN")
+assert_match 'queued, it is one row' '^█ ' "${g3[2]}"
+assert_eq 'with no balloon on it' 0 \
+  "$(printf '%s' "${g3[2]}" | grep -c "$comment_glyph")"
+assert_eq 'and nothing on the row under it' '' "$(printf '%s' "${g3[3]}" | tr -d ' ')"
+unset g3
+
 section 'render_gutter: two comments on one row, and which of them shows'
 # Two notes about the same line, or two that could only be anchored as far as
 # the same file header. The row cannot show both, and dropping the one that
@@ -1140,23 +1362,23 @@ cm_body=('first note' 'second note')
 gutter_cur=-1
 render_gutter 30 6 680
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'with none being read the first of them shows' '^█   \(1/2\) first note' "${g[3]}"
+assert_match 'with none being read the first of them shows' '^█ \(1/2\) first note' "${g[3]}"
 assert_eq 'and it is the only row drawn' 1   "$(printf '%s' "$REPLY_PLAIN" | grep -c 'note')"
 gutter_cur=1
 render_gutter 30 6 680
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'stepping to the second shows that one instead'   "^█${comment_glyph} \(2/2\) second note" "${g[3]}"
+assert_match 'stepping to the second shows that one instead'   '^█ \(2/2\) second note' "${g[3]}"
 gutter_cur=0
 render_gutter 30 6 680
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'and back again' "^█${comment_glyph} \(1/2\) first note" "${g[3]}"
+assert_match 'and back again' '^█ \(1/2\) first note' "${g[3]}"
 # One on its own is not counted, because there is nothing to count it against.
 cm_row=(683)
 cm_body=('alone')
 gutter_cur=-1
 render_gutter 30 6 680
 mapfile -t g < <(printf '%s' "$REPLY_PLAIN")
-assert_match 'a comment with the row to itself carries no count' '^█   alone' "${g[3]}"
+assert_match 'a comment with the row to itself carries no count' '^█ alone' "${g[3]}"
 unset g cm_row cm_body gutter_cur
 
 section 'gutter_line: which line of which file a row is'
@@ -3245,6 +3467,44 @@ assert_match 'usage names every mode' 'open .*diff .*sidebar .*quit .*nav .*jump
   "$(tr '\n' ' ' <<<"$usage_text")"
 literal=0; [[ $usage_text != *'\n'* ]] || literal=1
 assert_ok "$literal" 'usage has no literal backslash-n' 'real newlines' "$usage_text"
+
+section 'dwidth: measured against tmux rather than assumed'
+# Every glyph in this plugin was counted as two cells for months, and no test
+# caught it: they all matched the string that was written rather than the
+# column it landed in. This one asks tmux itself. Swap a glyph for one the font
+# draws wider, or move to a Nerd Font that is not the Mono variant, and this is
+# what says so before the panes go out of alignment.
+dsock=review-width-$$
+if ! tmux -L "$dsock" -f /dev/null new-session -d -x 40 -y 6 'sleep 60' 2>/dev/null; then
+  no 'a throwaway tmux server could be started' 'a server' 'none'
+else
+  # Where the cursor comes to rest after printing the argument, which is the
+  # number of cells tmux gave it. Polled rather than slept on: respawn-pane
+  # returns before the command inside it has run.
+  advance() {
+    local i x=''
+    tmux -L "$dsock" respawn-pane -k -t 0 "printf %s '$1'; sleep 30" 2>/dev/null
+    for ((i = 0; i < 60; i++)); do
+      x=$(tmux -L "$dsock" display -p -t 0 '#{cursor_x}' 2>/dev/null)
+      [[ -n $x && $x != 0 ]] && break
+      sleep 0.05
+    done
+    printf '%s' "$x"
+  }
+  # A control at each width, so a harness that has stopped measuring anything
+  # cannot pass by answering the same number every time.
+  assert_eq 'tmux gives an ascii character one cell' 1 "$(advance a)"
+  assert_eq 'and a wide one two' 2 "$(advance 中)"
+  for glyph in "$comment_glyph" '' '󰚩' '󰻟'; do
+    dwidth "$glyph"
+    assert_eq "dwidth agrees with tmux about $glyph" "$(advance "$glyph")" "$REPLY"
+  done
+  tmux -L "$dsock" kill-server 2>/dev/null
+  unset -f advance
+  unset glyph
+fi
+rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$dsock"
+unset dsock
 
 printf '\n\e[1m%s\e[0m  \e[32m%d passed\e[0m' 'total' "$passed"
 if ((failed)); then

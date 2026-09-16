@@ -76,6 +76,16 @@ gutter_thin=1
 # enough to read a ratio off and short enough to leave the figures beside it.
 change_bar_cells=10
 
+# How many rows of the pane a comment is given. One for a comment that is
+# merely queued -- enough to say it is there and roughly what it says, cut with
+# an ellipsis -- and five for the one being read, which is as much as can be
+# spared before the comments start hiding each other. A comment longer than its
+# allowance is cut, never dropped: the queue still holds it and s still sends
+# it, so showing less than all of it must not look like holding less than all
+# of it.
+comment_rows_read=5
+comment_rows_rest=1
+
 # The mark drawn beside a line that carries a comment.
 #
 # Painted rather than drawn: even a full block carries the font's own padding,
@@ -86,9 +96,9 @@ change_bar_cells=10
 mark_glyph='█'
 
 # And the comment the reader is standing on, once the pane is widened enough to
-# read the bodies. A Nerd Font speech balloon, which draws two cells wide --
-# exactly the mark and the space it stands in for, so moving the focus shifts
-# nothing else on the row.
+# read the bodies. A Nerd Font speech balloon, drawn in the mark's own cell
+# rather than beside it: one cell, measured, so the row it heads starts its
+# text in the same column as every other row in the pane.
 comment_glyph=$'\uf075'
 
 # Tokyo Night Storm, the same values .tmux.conf uses. The commit list is
@@ -119,6 +129,18 @@ c_git=$'\e[38;2;245;77;39m'
 # a colour either.
 mark_bg=$'\e[48;2;122;162;247m'
 mark_bg_read=$'\e[48;2;224;175;104m'
+# What is off screen is an arrow at the edge it lies past, rather than a mark
+# of its own: collapsed, the pane is one column wide and every cell in it is
+# already a comment, so another painted cell there was being counted as one.
+# Measured at one cell each, which is what the collapsed pane has to give.
+off_above_glyph=$'\u2191'
+off_below_glyph=$'\u2193'
 mark_bg_off=$'\e[48;2;86;95;137m'
-# And the same amber as a foreground, for the balloon at the head of the bar.
+# The count of what is off screen, at the foot of the pane. White, not dimmed:
+# it is the only thing that says a comment exists somewhere the reader cannot
+# see, and in the dim it was being missed.
+c_off=$'\e[1;38;2;255;255;255m'
+# The balloon at the head of the comment, drawn rather than painted: its row
+# carries no bar behind it, so the glyph reads as itself and not as a notch cut
+# out of the amber. The same amber as a foreground, on the pane's own ground.
 c_read=$'\e[1;38;2;224;175;104m'
