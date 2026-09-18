@@ -42,17 +42,22 @@ diff_min=100
 header_rows=4
 header_offset=$((header_rows + 1))
 
-# The comments pane, split off the right of the diff: how wide it is drawn.
+# The comments pane, split off the right of the diff: how wide it is drawn
+# when the reader is reading it rather than glancing at the marks.
 #
-# Its width is taken out of the diff before delta runs, not when the pane is
-# opened. A diff pane narrowed below the width its content was rendered at
-# folds every full row onto a second line, and rows are what the whole plugin
-# follows the reader by -- so the reserve is spent whether or not the pane is
-# ever shown, as a strip of unused cells at the right of the diff. The
-# alternative is re-rendering the diff on every toggle, which is a second delta
-# run and loses the reader's place.
+# These cells come from the commit list, not from the diff, and only for as
+# long as the pane is open. A diff pane narrowed below the width its content
+# was rendered at folds every full row onto a second line, and rows are what
+# the whole plugin follows the reader by -- so the diff's width is settled
+# before delta runs and never moved again. The list can afford what the diff
+# cannot: what it gives up is subject, which fit already cuts, and the whole
+# message is printed above the diff a keypress away.
 #
-# Forty is a sentence at a time. Wider and the diff pays for room the comments
+# Which means this is not free at every size. Handing these over must leave the
+# list sidebar_min, or the pane stays at the marks and the key says why; see
+# gutter_can_expand. At 285 columns the list goes to 41 and back.
+#
+# Forty is a sentence at a time. Wider and the list pays for room the comments
 # do not use; narrower and every comment is three rows of two words.
 gutter_cells=40
 
@@ -67,9 +72,11 @@ gutter_cells=40
 # never one. Checked on a throwaway server: a one-column pane with every cell of
 # every row written, three frames over, keeps an empty history.
 #
-# The cells between this and gutter_cells are reserved either way, so widening
-# and narrowing only ever moves the border between two panes that were both
-# already accounted for.
+# This column, and the border beside it, are the only cells the diff ever gives
+# up -- taken before delta runs, and kept whether or not anything is queued.
+# Everything between this and gutter_cells is borrowed from the commit list at
+# the moment the pane is opened and handed back when it closes, by restating the
+# whole window layout at once rather than dragging a border. See gutter_sync.
 gutter_thin=1
 
 # How many cells the churn bar is drawn in when there is room for it. Ten is

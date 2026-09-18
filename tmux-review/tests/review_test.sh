@@ -141,15 +141,64 @@ dwidth ''; assert_eq 'empty is nothing' 0 "$REPLY"
 
 section 'reserve_for: the comments pane is paid for before delta runs'
 r() { reserve_for "$1"; printf '%s %s' "$REPLY" "$REPLY_GUTTER"; }
-# The pane, its border and one column of slack come out of the diff.
-assert_eq 'a wide diff gives the pane its cells' '162 40' "$(r 204)"
-# Exactly at the floor: delta_min is what is left, so the reserve still stands.
-assert_eq 'and keeps giving them down to the floor' '100 40' "$(r 142)"
+# Only the marks and their border, which is two columns of the two hundred and
+# four -- not the forty the pane is read at. Those are taken from the commit
+# list at the moment it is widened, so the diff never pays for them.
+assert_eq 'a wide diff keeps all but the marks' '202 40' "$(r 204)"
+# Exactly at the floor: diff_min is what is left, so the reserve still stands.
+assert_eq 'and keeps giving them down to the floor' '100 40' "$(r 102)"
 # One column short of it. Taking the reserve here would leave delta too little
 # to show two columns, which is worse than having no comments pane.
-assert_eq 'a column below the floor takes nothing' '141 0' "$(r 141)"
+assert_eq 'a column below the floor takes nothing' '101 0' "$(r 101)"
 assert_eq 'and a narrow window keeps the whole diff' '80 0' "$(r 80)"
 unset -f r
+
+section 'review_layout: the window written the way select-layout reads it'
+# The three strings below are not constructed here -- they were read off a real
+# tmux server built into the review's shape with display-message -p
+# '#{window_layout}', and pasted in. A layout tmux did not write is worth
+# nothing as an expectation: the checksum is the whole point, and a checksum
+# agreeing with itself proves only that this file can add.
+layout_csum '285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],204x78,81,0,0}'
+assert_eq 'the checksum is tmux own, reimplemented' '9702' "$REPLY"
+review_layout 285 78 80 204 0 %1 %2 %0 %3
+assert_eq 'a window with no comments pane' \
+  '9702,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],204x78,81,0,0}' "$REPLY"
+review_layout 285 78 80 202 1 %1 %2 %0 %3
+assert_eq 'the marks take two columns off the diff' \
+  '400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}' "$REPLY"
+# The one that matters: the diff is the same 202 it was, and the thirty-nine
+# came out of the list. Checked against tmux by applying it, in the live
+# section below.
+review_layout 285 78 41 202 40 %1 %2 %0 %3
+assert_eq 'and reading them is paid for by the list, not the diff' \
+  '7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}' "$REPLY"
+
+section 'sidebar_max_for: how wide the list may be drawn before the diff folds'
+# With no comments pane the diff pane holds two columns it is not drawing on --
+# the pair reserved for the marks -- so the list may take those two and no more.
+sidebar_max_for 285 0
+assert_eq 'the two columns held back for the marks, and nothing else' 82 "$REPLY"
+# Once the marks are up the diff pane is exactly its content, so there is
+# nothing spare left to take.
+sidebar_max_for 285 1
+assert_eq 'with the marks up there is nothing spare at all' 80 "$REPLY"
+# Expanded, the list has already handed over thirty-nine and cannot take them
+# back while the comment is still being read.
+sidebar_max_for 285 40
+assert_eq 'and while a comment is open it is what the layout left it' 41 "$REPLY"
+# A narrow window still leaves a little: 120 gives the list 34, delta 83, and
+# the border one, so two columns are spare.
+sidebar_max_for 120 0
+assert_eq 'a narrow window leaves what little it has' 36 "$REPLY"
+
+section 'diff_pinned_for: the width the diff is held at for good'
+diff_pinned_for 285
+assert_eq 'the window less the list, the marks and two borders' 202 "$REPLY"
+# Independent of how wide the comments pane is at the time, which is what lets
+# the layout state it rather than work it out from what is left over.
+diff_pinned_for 200
+assert_eq 'and it follows the window down' $((200 - 70 - 3)) "$REPLY"
 
 section 'columns_for: a share of the window, then the clamps'
 # Depends on the window alone -- which is what lets open settle the layout
@@ -702,28 +751,70 @@ section 'gutter_want: nothing, the marks, or the whole pane'
 comments=0
 gutter_reserved=40
 gutter_expanded=0
-gutter_want
+gutter_want 285
 assert_eq 'an empty queue wants no pane at all' 0 "$REPLY"
 comments=2
-gutter_want
+gutter_want 285
 assert_eq 'something queued wants the column of marks' 1 "$REPLY"
 gutter_expanded=1
-gutter_want
+gutter_want 285
 assert_eq 'and expanded wants every cell held back for it' 40 "$REPLY"
+# Expanding is paid for by the commit list, so a window whose list cannot
+# spare the difference does not get to expand. At 200 the list is 70, and
+# giving up thirty-nine would leave 31 -- under sidebar_min, which is where the
+# list stops being able to say which commit is which.
+gutter_want 200
+assert_eq 'a list that cannot afford it stays at the marks' 1 "$REPLY"
+# The narrowest window that can afford it: at 209 the list is 73, and 73 less
+# the thirty-nine is exactly sidebar_min. One column narrower and it is not.
+gutter_want 209
+assert_eq 'the narrowest window that can afford it does expand' 40 "$REPLY"
+gutter_want 208
+assert_eq 'and one column under that cannot' 1 "$REPLY"
+# Refused, not deferred: collapsed is a state the caller can be left in, and
+# the reader pressed a key that did nothing rather than one that half-worked.
+gutter_expanded=0
+gutter_want 200
+assert_eq 'collapsed at that width is the marks either way' 1 "$REPLY"
 # A window too narrow for the reserve has none to give, however much is queued.
 gutter_reserved=0
-gutter_want
+gutter_want 285
 assert_eq 'with nothing reserved there is nothing to want' 0 "$REPLY"
 unset comments gutter_reserved gutter_expanded
+
+section 'gutter_can_expand: whether the commit list can pay for it'
+# The same rule as gutter_want above, in the one place both its callers read it
+# from: the key that opens the pane has to say no out loud, and gutter_want has
+# to hold the pane at the marks if it was opened anyway. Two copies of an
+# arithmetic like this drift, and the shape they drift into is a pane that
+# reports itself open and is not.
+gutter_reserved=40
+gutter_can_expand 285
+assert_eq 'a wide window can' 0 "$?"
+gutter_can_expand 209
+assert_eq 'and so can the narrowest that leaves the list sidebar_min' 0 "$?"
+gutter_can_expand 208
+assert_eq 'one column under that cannot' 1 "$?"
+gutter_can_expand 200
+assert_eq 'nor can a window narrower still' 1 "$?"
+# Nothing was reserved, so there is nothing to expand into at any width.
+gutter_reserved=0
+gutter_can_expand 285
+assert_eq 'and with nothing reserved there is nothing to expand' 1 "$?"
+unset gutter_reserved
 
 section 'gutter_sync: split, resized, or taken away'
 # Logged to a file, not an array: the split runs inside a process substitution,
 # which is a subshell, and anything it appends to a variable is gone with it.
 tmux_log=$(mktemp)
 calls() { cat "$tmux_log"; }
+# layout_now is what the stub server believes its window looks like, which
+# gutter_sync checks before it restates it.
+layout_now=''
 tmux() {
   printf '[%s]' "$*" >>"$tmux_log"
   [[ $1 == split-window ]] && printf '%%9 /dev/ttys9'
+  [[ $1 == display-message && $* == *window_layout* ]] && printf '%s' "$layout_now"
   return 0
 }
 self=/plugin/review.sh
@@ -755,19 +846,68 @@ gutter_resized=0
 gutter_sync %7 1
 assert_eq 'asking again for the width it already has does nothing' '' "$(calls)"
 assert_eq 'and claims no resize' 0 "$gutter_resized"
-gutter_sync %7 40
-assert_match 'a different width is a resize, not a second pane' \
-  'resize-pane -x 40 -t %9' "$(calls)"
-assert_eq 'recorded at the new width' 40 "$gutter_w"
-assert_eq 'and declared, the same way' 1 "$gutter_resized"
+# Widening is not a resize. Those cells belong to the commit list, and
+# resize-pane can only take them from the pane next door -- which is the diff.
+# The whole layout is restated instead, with the diff written down at the 202
+# it already is. Panes named to match the layouts above: %0 diff, %1 header,
+# %2 list, %3 the comments pane.
 : >"$tmux_log"
+gutter_pane=%3
+gutter_w=1
+gutter_resized=0
+layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+gutter_sync %0 40 285 78 %1 %2
+# Compared literally, not matched: a layout is mostly brackets and braces,
+# and every one of them means something else to a regular expression.
+assert_eq 'the window is restated, not one border moved' 1 \
+  "$(calls | grep -cF 'select-layout -t %0 7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}')"
+assert_eq 'no border is moved on its own' 0 \
+  "$(calls | grep -c 'resize-pane')"
+assert_match 'and the pane own rows are dropped with it' 'clear-history -t %3' "$(calls)"
+assert_eq 'recorded at the new width' 40 "$gutter_w"
+# And no resize is declared, which is the opposite of the two paths above.
+# gutter_resized says the diff has changed width without its content moving, so
+# that the tick keeps the row map instead of spending a second rebuilding it.
+# The tick clears it by noticing the width change it describes -- and this path
+# does not change the diff's width at all. Setting it here would leave it
+# standing until some later resize that really did reflow the diff, and that one
+# would then keep a map that no longer describes it.
+assert_eq 'and no resize is claimed, because the diff did not move' 0 \
+  "$gutter_resized"
+
+# The layout is asserted rather than negotiated, so it is only ever applied to
+# the window it was written for. A window that is some other shape -- the
+# reader split a pane of their own, or zoomed one -- is left alone, and the
+# comment simply does not widen.
+: >"$tmux_log"
+gutter_w=1
+gutter_resized=0
+layout_now='beef,285x78,0,0{142x78,0,0,1,142x78,143,0,0}'
+gutter_sync %0 40 285 78 %1 %2
+assert_eq 'a window of another shape is not rearranged' 0 \
+  "$(calls | grep -c 'select-layout')"
+assert_eq 'and the pane keeps the width it had' 1 "$gutter_w"
+assert_eq 'with no resize claimed, so the row map stands' 0 "$gutter_resized"
+
+# Without the window and the panes to write a layout from there is nothing to
+# restate, and resize-pane would take the difference out of the diff.
+: >"$tmux_log"
+layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+gutter_sync %0 40
+assert_eq 'and with nothing to write a layout from, nothing happens' 0 \
+  "$(calls | grep -c 'select-layout')"
+assert_eq 'the pane still keeping its width' 1 "$gutter_w"
+
+: >"$tmux_log"
+gutter_pane=%9
+gutter_w=40
 gutter_sync %7 0
 assert_eq 'nothing wanted takes it away' '' "$gutter_pane"
 assert_match 'by killing the pane' 'kill-pane -t %9' "$(calls)"
 assert_eq 'and forgets how wide it was' 0 "$gutter_w"
 /bin/rm -f "$tmux_log"
 unset -f tmux calls
-unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter
+unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter layout_now
 unset shown_gutter_at gutter_sig needs_gutter_clear self
 
 section 'gutter_step: through the queue, over what could not be anchored'
@@ -2109,10 +2249,11 @@ calls
 assert_match 'the diff pane is a new window named for the range' \
   'new-window .*-n base\.\.HEAD review' "$open_calls"
 # 220 less the 77 the list takes and its border is 142 for the diff pane, and
-# delta is told 40 less than that for the comments pane and two for the border
-# and the slack.
+# delta is told two less than that: the column the marks sit in and its border,
+# which are the only cells the diff gives up for good. The other thirty-nine
+# come out of the list, and only while the pane is being read.
 assert_match 'and it is handed the width delta must render at' \
-  'review\.sh diff base\.\.HEAD 100' "$open_calls"
+  'review\.sh diff base\.\.HEAD 140' "$open_calls"
 assert_match 'with the rest reserved for the comments pane' \
   '@review_gutter_w 40' "$open_calls"
 assert_match 'the header is split off it at its final width' \
@@ -3199,6 +3340,130 @@ else
   tmux -L "$socket" kill-server 2>/dev/null
 fi
 
+# The reader can drag the border between the list and the diff, and tmux tells
+# neither pane that anyone did. The list used to render at the share of the
+# window it was opened with whatever its pane had become: dragged narrower, its
+# rows wrapped and pushed the commits off the top; dragged wider, it drew into
+# 80 columns of a 100-column pane and left the rest blank.
+#
+# 285 wide: the list's share is 80, delta renders at 202, and 82 is the widest
+# the list can be before the diff is narrower than it rendered at.
+section 'the commit list follows the border the reader drags'
+rsock=review-resize-$$
+if ! want_live; then
+  skip 'the list against a dragged border' 'live sections are out of scope'
+elif ! tmux -L "$rsock" -f /dev/null new-session -d -x 285 -y 78 -c "$repo" \
+  'sleep 900' 2>/dev/null; then
+  skip 'the list against a dragged border' 'no tmux server could be started'
+else
+  tmux -L "$rsock" set-option -g history-limit 50000
+  rpane=$(tmux -L "$rsock" display-message -p '#{pane_id}')
+  tmux -L "$rsock" run-shell -b -t "$rpane" \
+    "$plugin/scripts/review.sh open $rpane HEAD~2..HEAD"
+  rwin=''
+  for _ in $(seq 1 120); do
+    rwin=$(tmux -L "$rsock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $rwin ]] && break
+    sleep 0.25
+  done
+  if [[ -z $rwin ]]; then
+    skip 'the list against a dragged border' 'the review window never opened'
+  else
+    rdiff=$(tmux -L "$rsock" show-options -w -t "$rwin" -qv @review_diff_pane)
+    rlist=$(tmux -L "$rsock" show-options -w -t "$rwin" -qv @review_list_pane)
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$rsock" show-options -p -t "$rdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+    rwidth() { tmux -L "$rsock" display-message -p -t "$1" '#{pane_width}'; }
+    # The widest row the list drew, and how many rows are wider than the pane --
+    # both in columns rather than bytes. The rule is box-drawing and the
+    # subjects are cut with an ellipsis, which are three bytes a glyph, so awk's
+    # length() and wc -c both read an 80-column row as 235. ${#var} counts
+    # characters under a UTF-8 locale, which is what dwidth relies on too.
+    rcols() {
+      local line max=0
+      while IFS= read -r line; do ((${#line} > max)) && max=${#line}; done \
+        < <(tmux -L "$rsock" capture-pane -p -t "$rlist")
+      printf '%s' "$max"
+    }
+    rover() {
+      local line n=0
+      while IFS= read -r line; do ((${#line} > $1)) && n=$((n + 1)); done \
+        < <(tmux -L "$rsock" capture-pane -p -t "$rlist")
+      printf '%s' "$n"
+    }
+    # Waited for, not slept on. tmux moves the border at once, but the rows are
+    # rebuilt on the sidebar's next tick and a fixed sleep races it -- caught in
+    # the suite with the pane already 82 and its rows still drawn for 60.
+    # Returns regardless: what the state actually is, is the assertions' to say.
+    rsettle() {
+      local _
+      for _ in $(seq 1 200); do
+        [[ $(rwidth "$rlist") == "$1" && $(rcols) == "$2" ]] && return 0
+        sleep 0.25
+      done
+      return 0
+    }
+    # The list is zoomed over the whole window while the diff renders, and the
+    # diff pane drops the zoom once its first commit is down. Resizing before
+    # then is thrown away: the width goes to the zoomed pane, and unzooming
+    # restores the layout the pane had before it -- which cost a run here, the
+    # drag to 60 coming back as 80. @review_loaded is the diff saying it has
+    # finished writing, not the list saying it has finished drawing, so both are
+    # waited for.
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$rsock" display-message -p -t "$rwin" '#{window_zoomed_flag}') == 0 ]] &&
+        break
+      sleep 0.25
+    done
+    rsettle 80 80
+    tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" >"$tmp/rs_base.txt"
+
+    assert_eq 'the list opens at its share of the window' 80 "$(rwidth "$rlist")"
+    assert_eq 'and draws rows that exactly fill it' 80 "$(rcols)"
+
+    # Dragged narrower. The diff only gets wider, so nothing it holds can fold.
+    tmux -L "$rsock" resize-pane -x 60 -t "$rlist"
+    rsettle 60 60
+    assert_eq 'dragged narrower, the pane is where it was put' 60 "$(rwidth "$rlist")"
+    assert_eq 'and the rows are rebuilt to fit it' 60 "$(rcols)"
+    # The failure this replaces: rows built for 80 in a 60-column pane wrap, and
+    # every wrapped row costs a second one, so the commits scroll off the top.
+    assert_eq 'with no row wide enough to wrap' 0 "$(rover 60)"
+
+    # Dragged wider, but only into what the diff is not drawing on: the two
+    # columns held back for the marks. Allowed, and followed.
+    tmux -L "$rsock" resize-pane -x 82 -t "$rlist"
+    rsettle 82 82
+    assert_eq 'dragged wider but within the diff means, the pane stands' 82 \
+      "$(rwidth "$rlist")"
+    assert_eq 'and the rows are rebuilt again' 82 "$(rcols)"
+    assert_eq 'the diff left exactly the width it rendered at' 202 \
+      "$(rwidth "$rdiff")"
+
+    # Dragged wider than the diff can afford. The border is taken back to the
+    # last width that leaves the diff the 202 it rendered at.
+    tmux -L "$rsock" resize-pane -x 100 -t "$rlist"
+    rsettle 82 82
+    assert_eq 'dragged too wide, the border is taken back' 82 "$(rwidth "$rlist")"
+    assert_eq 'to exactly what the diff rendered at' 202 "$(rwidth "$rdiff")"
+    assert_eq 'and the rows follow it there too' 82 "$(rcols)"
+    tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" >"$tmp/rs_after.txt"
+    # The whole reason for the clamp. A diff narrower than its content folds
+    # every full row, which breaks the row map and breaks searching across the
+    # fold. Measured before the clamp existed: this drag wrapped 26 rows.
+    assert_ok "$(cmp -s "$tmp/rs_base.txt" "$tmp/rs_after.txt" && echo 0 || echo 1)" \
+      'and not one row of the diff folded on the way' 'the same scrollback' 'rows folded'
+    unset -f rwidth rcols rover rsettle
+  fi
+  tmux -L "$rsock" kill-server 2>/dev/null
+fi
+rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$rsock"
+unset rsock rpane rwin rdiff rlist
+
 # A routed key is sent to {left}, and {left} is the leftmost *visible* pane --
 # so in any arrangement where the pressing pane is itself the leftmost visible
 # one, send-keys hands the key straight back to the binding that sent it. The
@@ -3538,17 +3803,26 @@ else
     sleep 1
     glist=$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_list_pane)
     # 285 less the 80 the list takes and its border leaves 204 for the diff
-    # pane; delta is told 40 less for the comments pane, one for its border and
-    # one of slack.
+    # pane; delta is told two less, for the column the marks sit in and its
+    # border. That is the whole of what the diff gives up.
     assert_eq 'the width for the pane is reserved on the window' 40 \
       "$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_gutter_w)"
-    assert_match 'and delta is told the narrower number' 'diff HEAD~1\.\.HEAD 162' \
+    assert_match 'and delta is told the narrower number' 'diff HEAD~1\.\.HEAD 202' \
       "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_start_command}')"
     # A comment was queued before the review opened, so the marks are already
     # up without anything being pressed: 285 less the list's 80 and two borders
     # and the three the marks take.
-    ggut=$(tmux -L "$gsock" list-panes -t "$gwin" -F '#{pane_id} #{pane_start_command}' |
-      grep 'review.sh gutter' | cut -d' ' -f1)
+    # Waited for rather than slept on. The marks come up when the sidebar's loop
+    # next reads the store, and the fixed sleep above races that tick: caught
+    # twice, the pane was simply not there yet and every assertion after it
+    # failed on the geometry of a review that had no comments pane.
+    ggut=''
+    for _ in $(seq 1 80); do
+      ggut=$(tmux -L "$gsock" list-panes -t "$gwin" -F '#{pane_id} #{pane_start_command}' |
+        grep 'review.sh gutter' | cut -d' ' -f1)
+      [[ -n $ggut ]] && break
+      sleep 0.25
+    done
     assert_ok "$([[ -n $ggut ]] && echo 0 || echo 1)" \
       'a queued comment brings the marks up on its own'
     assert_eq 'one column of them, which is all a mark is' 1 \
@@ -3561,6 +3835,7 @@ else
       "$(tmux -L "$gsock" capture-pane -p -e -t "${ggut:-$gdiff}")"
 
     tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/before.txt"
+    ghist_before=$(tmux -L "$gsock" display-message -p -t "$glist" '#{history_size}')
 
     # Put the reader somewhere that is not an edge, so that a view which moves
     # has somewhere to move to. tmux repositions a pane's copy-mode whenever the
@@ -3586,9 +3861,10 @@ else
     sleep 1
     assert_eq 'C widens it to everything reserved' 40 \
       "$(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}')"
-    # One more than delta was told, which is the slack that keeps no row of the
-    # diff ever sitting flush against the pane's edge.
-    assert_eq 'leaving the diff a column wider than it rendered at' 163 \
+    # The point of the whole exercise: widening the comments pane does not cost
+    # the diff a single column. It is the width it was opened at and the width
+    # delta rendered at, before and after.
+    assert_eq 'and the diff does not give up one column for it' 202 \
       "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
     assert_match 'and the comment itself is readable now' 'queued before' \
       "$(tmux -L "$gsock" capture-pane -p -t "$ggut")"
@@ -3598,12 +3874,19 @@ else
     assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/after.txt" && echo 0 || echo 1)" \
       'and not one row of the diff reflowed' 'the same scrollback' 'rows folded'
 
-    # The list is a pane of its own and none of this is its business. It used to
-    # work its width out by subtracting the diff from the window, which stopped
-    # describing the layout the moment there were more than two panes -- so it
-    # believed it had the comments pane's cells too and wrapped every row.
-    assert_eq 'the commit list is untouched by any of it' 80 \
+    # Where the cells came from. The list is the one pane that can afford them:
+    # what it gives up is subject, which fit already cuts, and the whole message
+    # is printed above the diff a keypress away. 80 less the 39 between a column
+    # of marks and a pane wide enough to read one.
+    assert_eq 'the commit list is what paid for them' 41 \
       "$(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}')"
+    # Stated rather than left over, which is the whole reason the layout is
+    # restated instead of a border dragged: the three panes and their two
+    # borders still account for every column of the window, exactly.
+    assert_eq 'and the window still adds up to itself' 285 \
+      "$(($(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}') +
+          $(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}') +
+          $(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}') + 2))"
     # Counted rather than measured: a wrapped row is still two rows of at most
     # the pane's width, so nothing about its content gives it away -- what gives
     # it away is that there are more rows than the list has things to say. One
@@ -3623,8 +3906,29 @@ else
     assert_eq 'rather than closing it, because the comment is still queued' 4 \
       "$(tmux -L "$gsock" list-panes -t "$gwin" -F x | grep -c x)"
     assert_eq 'and still is after it narrows again' "$gbefore" "$(gview)"
-    assert_eq 'and the diff has those cells back' 202 \
+    assert_eq 'and the diff never moved at all' 202 \
       "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
+    assert_eq 'the list having got its own cells back' 80 \
+      "$(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}')"
+    # Every pane that moved is cleared with the layout that moved it. Their rows
+    # are as wide as they are, so tmux rewraps them into the scrollback on the
+    # way down and joins them on the way up -- none of it ever on screen, all of
+    # it accumulating. Measured rather than reasoned about: the list moves by
+    # only thirty-nine columns, and the first time this was asked a single
+    # widen and narrow had left ten rows behind on top of what it started with.
+    #
+    # Asked as "no more than it started with" rather than for a number. A
+    # review is opened once and its comments read many times, so what matters
+    # is that a cycle does not add -- and the pane starts with whatever the
+    # reveal left in it, which is not this test's business.
+    ghist_after=$(tmux -L "$gsock" display-message -p -t "$glist" '#{history_size}')
+    assert_ok "$((ghist_after > ghist_before))" \
+      'and a widen and a narrow leave the list no more scrollback than they found' \
+      "$ghist_after rows, from $ghist_before" "$ghist_after rows, up from $ghist_before"
+    ghdr=$(tmux -L "$gsock" list-panes -t "$gwin" -F '#{pane_id} #{pane_start_command}' |
+      grep 'review.sh header' | cut -d' ' -f1)
+    assert_eq 'nor the header above it, which moves with it' 0 \
+      "$(tmux -L "$gsock" display-message -p -t "${ghdr:-$glist}" '#{history_size}')"
     tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/closed.txt"
     assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/closed.txt" && echo 0 || echo 1)" \
       'with its scrollback still untouched' 'the same scrollback' 'rows folded'
@@ -3635,7 +3939,8 @@ rm -f "$gstore"
 rm -rf "$gtmp"
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"
 unset -f gview
-unset gsock gtmp gstore gpane gwin gdiff glist ggut gbefore
+unset gsock gtmp gstore gpane gwin gdiff glist ggut ghdr gbefore
+unset ghist_before ghist_after
 
 section 'review.sh: the dispatcher'
 # The process that holds the header pane open. Given no tty there is nothing to

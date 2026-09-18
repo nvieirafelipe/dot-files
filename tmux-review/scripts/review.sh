@@ -131,9 +131,12 @@ open() {
   # are queued, which of the rows is selected -- and a second process could only
   # learn any of it by asking, once a tick, forever.
   #
-  # -l "$columns" is the final width, not a floor: the panes are born the size
-  # they will stay, so the reveal has no resize to do and the diff's scrollback
-  # is never reflowed under the row map.
+  # -l "$columns" is the width the reveal finds, not a floor and not quite
+  # forever: the panes are born the size they will stay, so the reveal has no
+  # resize to do and the diff's scrollback is never reflowed under the row map.
+  # This column is also what pays for the comments pane later -- it gives up
+  # thirty-nine of these while one is being read, and takes them back when it
+  # closes -- but that is a layout away and nothing here has to know it.
   local hdr_pane hdr_tty
   read -r hdr_pane hdr_tty < <(tmux split-window -hb -l "$columns" -t "$diff_pane" \
     -c "$cwd" -P -F '#{pane_id} #{pane_tty}' "$self header $diff_pane")
@@ -448,17 +451,30 @@ columns_for() {
 
 # What delta renders at, and how wide the comments pane may be.
 #
-# The pane's width has to come out of the diff before delta runs -- see the
-# note in variables.sh -- so this is settled in open, alongside the share of the
-# window the list takes, and neither pane has to be asked about it afterwards.
+# Only the marks are paid for here. The diff pane is the one thing in the window
+# whose width must never change once delta has written into it -- a narrower
+# pane folds every full row, and rows are what the whole plugin follows the
+# reader by -- so the column the marks sit in, and its border, come out of the
+# diff before delta runs and are never given back. Expanding the pane to read
+# the bodies does not touch the diff at all: those cells are taken from the
+# commit list instead, by restating the whole layout at once. See gutter_sync.
 #
-# The extra column keeps the content strictly narrower than the pane, which is
-# not the same as fitting. tmux sets a row's wrap flag when the cursor reaches
-# the right margin, so a row that exactly fills the pane is indistinguishable in
-# the grid from one that wrapped -- and widening the pane then joins it to the
-# row below, which narrowing again does not undo. Measured on a real diff: of
-# 1749 rows rendered at --width=204, eighteen come out exactly 204 wide. One
-# column of slack means none of them can ever sit flush against the edge.
+# This used to reserve all forty, on the reasoning that the pane could not be
+# widened later without narrowing the diff. That was true, and it cost the diff
+# thirty-nine columns it never used: a 285-column window rendered its diff at
+# 162 so that a pane which is usually collapsed, and often never opened, could
+# be widened without a reflow. It now renders at 202.
+#
+# There is no column of slack, and there was never a need for one. The worry was
+# that tmux sets a row's wrap flag when the cursor reaches the right margin, so
+# a row exactly filling the pane would be indistinguishable from one that
+# wrapped, and widening would join it to the row below. It does not: the pending
+# wrap is resolved by the next printable character, and at the end of a row
+# there is never one -- only the newline, which just moves down. Measured both
+# ways on real delta output rendered at exactly the pane's width: narrowing the
+# pane to it, and widening away from it, both leave the scrollback byte for
+# byte identical. One column narrower than the content, for comparison, folds
+# 1354 rows.
 #
 # Below diff_min there is nothing to spare: a diff that cannot show two columns
 # is worse than a review with no comments pane, so the reserve is not taken and
@@ -468,7 +484,7 @@ reserve_for() {
   # statement that declares the name it reads, and under set -u that is an
   # unbound variable rather than the argument just assigned.
   local diff_w=$1
-  local narrow=$((diff_w - gutter_cells - 2))
+  local narrow=$((diff_w - gutter_thin - 1))
   if ((narrow >= diff_min)); then
     REPLY=$narrow
     REPLY_GUTTER=$gutter_cells
@@ -477,6 +493,119 @@ reserve_for() {
     REPLY_GUTTER=0
   fi
   return 0
+}
+
+# tmux's own layout checksum, from layout-custom.c: the running total rotated
+# right by one within sixteen bits, then the byte added. Reimplemented rather
+# than read off the server because select-layout refuses a layout whose checksum
+# does not match, and the layout being described here does not exist yet -- there
+# is nothing to ask about.
+layout_csum() {
+  local body=$1 i n c sum=0
+  n=${#body}
+  for ((i = 0; i < n; i++)); do
+    printf -v c '%d' "'${body:i:1}"
+    sum=$((((sum >> 1) + ((sum & 1) << 15) + c) & 0xffff))
+  done
+  printf -v REPLY '%04x' "$sum"
+}
+
+# The review window written in tmux's layout grammar: the whole geometry in one
+# string, which is the point of using it.
+#
+# resize-pane can only move one border, and moving one border to widen the
+# comments pane takes the cells from whichever pane is next to it -- the diff.
+# Doing it as two resizes, even in a single invocation, runs tmux's layout fixer
+# between them: the diff was measured going 204 to 241 to 202 on its way to a
+# width it started at, reflowing twice. A layout states every pane's width at
+# once, so the diff's is a number this function wrote down rather than whatever
+# is left over, and it cannot drift.
+#
+# The shape is the one open builds and is not discovered: the commit list and
+# the header stacked in a column on the left, the diff beside it, the comments
+# pane on the right when there is one. Panes are named by the number in their
+# id, which is what the grammar wants.
+review_layout() {
+  local w=$1 h=$2 list_w=$3 diff_w=$4 gutter_w=$5
+  local hdr=$6 lst=$7 dif=$8 gut=$9
+  local list_h=$((h - header_offset)) body
+  ((list_h < 1)) && list_h=1
+  body="${w}x${h},0,0{${list_w}x${h},0,0"
+  body+="[${list_w}x${header_rows},0,0,${hdr#%}"
+  body+=",${list_w}x${list_h},0,${header_offset},${lst#%}]"
+  body+=",${diff_w}x${h},$((list_w + 1)),0,${dif#%}"
+  ((gutter_w > 0)) && body+=",${gutter_w}x${h},$((list_w + diff_w + 2)),0,${gut#%}"
+  body+='}'
+  layout_csum "$body"
+  REPLY="$REPLY,$body"
+}
+
+# The widest the commit list may be before the diff is narrower than the width
+# delta rendered it at, which is the width at which its rows start folding.
+#
+# Not the same as the share it opens at. With no comments pane the diff pane is
+# two columns wider than its content -- the pair held back for the marks -- so
+# the list may take those two and nothing more. Once the marks are up it is
+# exactly its content and the list may take none; expanded, the list has already
+# given up thirty-nine and may not take them back until it collapses.
+#
+# Never below sidebar_min, which is the width the list stops being able to say
+# which commit is which at. A window too narrow for even that has bigger
+# problems than this rule, and refusing to let the list exist is not an
+# improvement on letting it be cramped.
+sidebar_max_for() {
+  local window=$1 gutter=$2
+  diff_pinned_for "$window"
+  REPLY=$((window - REPLY - 1))
+  ((gutter > 0)) && REPLY=$((REPLY - gutter - 1))
+  ((REPLY < sidebar_min)) && REPLY=$sidebar_min
+  # Said rather than left to the last test, which answers false whenever the
+  # window had room to spare -- and a function whose last command answers false
+  # answers false itself, which under set -e takes the sidebar down at the call.
+  return 0
+}
+
+# Moves the borders by restating the whole window, and only if tmux agrees the
+# window is the shape being described.
+#
+# Every caller that moves a border comes through here, because a layout is
+# asserted rather than negotiated: handing select-layout a geometry for a window
+# that is not this shape would rearrange whatever the reader had actually done --
+# split a pane of their own, zoomed one -- into this function's idea of the
+# review. So the window is described as it stands before it is described as it
+# should be, and a disagreement means nothing happens at all.
+#
+# Both geometries are passed in full rather than one being derived from the
+# other, because the callers start from different places: the comments pane
+# trades cells with the list at a diff width that never moves, while the clamp
+# is undoing a drag that has already moved the diff.
+#
+# Answers false when it did nothing, so a caller can tell a refusal from a move.
+relayout() {
+  local dpane=$1 ww=$2 wh=$3 hdr=$4 lst=$5 gut=$6
+  local cur_l=$7 cur_d=$8 cur_g=$9 new_l=${10} new_d=${11} new_g=${12}
+  [[ -n $hdr && -n $lst ]] || return 1
+  ((ww > 0 && wh > 0)) || return 1
+  review_layout "$ww" "$wh" "$cur_l" "$cur_d" "$cur_g" "$hdr" "$lst" "$dpane" "$gut"
+  # Quoted, because the right of == in [[ ]] is a pattern unless it is: a
+  # layout is mostly brackets and braces, and unquoted it is a glob that matches
+  # nothing it should.
+  [[ $REPLY == "$(tmux display-message -p -t "$dpane" '#{window_layout}' 2>/dev/null)" ]] ||
+    return 1
+  review_layout "$ww" "$wh" "$new_l" "$new_d" "$new_g" "$hdr" "$lst" "$dpane" "$gut"
+  tmux select-layout -t "$dpane" "$REPLY" 2>/dev/null || return 1
+  return 0
+}
+
+# The width the diff is pinned to for the life of the review: the window, less
+# the list's share, less the marks and the two borders. Independent of how wide
+# the comments pane happens to be -- widening it takes the difference out of the
+# list -- which is what makes it a number the layout can assert rather than a
+# remainder that moves.
+diff_pinned_for() {
+  local window=$1
+  columns_for "$window"
+  REPLY=$((window - REPLY - gutter_thin - 2))
 }
 
 diff_pane_cmd() {
@@ -696,7 +825,7 @@ file_row_regex() {
 # the last line of the first commit rather than its first.
 hist_base='#{?#{==:#{@review_hist_base},},#{history_size},#{@review_hist_base}}'
 
-state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'$'\x1f''#{window_active}'
+state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'$'\x1f''#{window_active}'$'\x1f''#{window_height}'
 
 # A control-mode client, subscribed to that format. tmux pushes the value every
 # time it changes, so the loop stops asking: it used to spend a round trip on
@@ -875,6 +1004,10 @@ sidebar() {
   # how many cells open() managed to hold back for it -- 0 on a window that had
   # none to spare, which is what makes C answer instead of acting.
   local gutter_expanded=0 gutter_reserved=0
+  # Whether the reader has already been told the list cannot grow any further.
+  # The drag that provoked it stays provoking it until they drag back, and one
+  # message per tick is not a message, it is a stuck status line.
+  local clamp_said=0
   # Set by gutter_sync when it has just changed the layout, and the view the
   # diff was showing before it did. tmux repositions a pane's copy-mode when
   # the pane is resized -- the cursor is put on the top row and the view is
@@ -979,7 +1112,7 @@ sidebar() {
     fi
 
     local in_mode hist live scroll cy dw ww dh zoomed diff_active searching pos loaded
-    local hdr_sel hdr_open active_pane win_active
+    local hdr_sel hdr_open active_pane win_active wh
     # Asked for, not waited for, while the comments pane is up -- see ask_state.
     # Everywhere else the push is what this loop has always run on, and costs
     # nothing at all.
@@ -989,7 +1122,7 @@ sidebar() {
       read_state "$pane" || return 0
     fi
     IFS=$'\x1f' read -r in_mode hist scroll cy dw ww dh zoomed diff_active searching \
-      loaded live hdr_sel hdr_open active_pane win_active <<<"$tick"
+      loaded live hdr_sel hdr_open active_pane win_active wh <<<"$tick"
 
     # Which of the two header rows the cursor up there is on, and whether the
     # reader is actually up there. Both, because the highlight is the header
@@ -1090,8 +1223,59 @@ sidebar() {
     #
     # While the diff is still rendering this pane is zoomed over the whole
     # window, so its width is the window's.
-    columns_for "$ww"
-    local w=$REPLY
+    # The window has been resized with the comments pane up. tmux redistributes
+    # width with no regard for what is in a pane, and the cells this one holds
+    # were reserved out of a window that is no longer this size -- so the whole
+    # reserve is given up, rather than the diff being left narrower than delta
+    # rendered it and every row of it folded under the map.
+    #
+    # Given up here, above the width, and not below it where the pane is
+    # actually taken away. An expanded pane is paid for out of this one, so
+    # while it stands this pane is thirty-nine columns short of its share -- and
+    # claim_width, which is what answers a resized window, would read that as a
+    # pane to be widened back and take the difference from the diff. Dropping
+    # the reserve first means the width settled below is the plain share again
+    # and there is nothing for it to correct.
+    if ((gutter_win != ww)); then
+      if [[ -n $gutter_pane ]]; then
+        gutter_reserved=0
+        gutter_expanded=0
+        tmux display-message 'review: the window was resized -- reopen the review for comments'
+      fi
+      gutter_win=$ww
+    fi
+
+    # What the comments pane will be by the end of this tick, asked before the
+    # width is settled rather than after: expanding it is paid for out of this
+    # pane, so the rows have to be built for the width it is about to have. The
+    # other order draws one frame of eighty-column rows into a forty-one column
+    # pane, and every one of them wraps.
+    gutter_want "$ww"
+    local gutter_target=$REPLY
+
+    # How wide this pane actually is, which is not the same as the share it was
+    # opened at: the reader can drag the border between it and the diff, and
+    # tmux does not tell a pane when someone else has resized it. Worked out
+    # rather than asked for -- the tick reads the diff pane, and no tmux format
+    # reaches a second pane from inside the same call, so asking would be
+    # another round trip on a path that is measured in them. The window is this
+    # pane, a border, the diff, and, when there is one, the comments pane and
+    # its border; every term is in this tick already.
+    local list_now=$((ww - dw - 1))
+    [[ -n ${gutter_pane:-} ]] && list_now=$((list_now - gutter_w - 1))
+    ((list_now < 1)) && list_now=1
+
+    # The width to build rows for. Normally the one the pane has, so a drag is
+    # followed. The exception is a comments pane about to be widened or
+    # narrowed: that restates the layout below and sets this pane's width with
+    # it, so the rows have to be built for what it is about to be. Measuring
+    # here instead draws one frame of eighty-column rows into a forty-one column
+    # pane, and every one of them wraps.
+    local w=$list_now
+    if ((gutter_target > 0 && gutter_w > 0 && gutter_target != gutter_w)); then
+      diff_pinned_for "$ww"
+      w=$((ww - REPLY - gutter_target - 2))
+    fi
     ((zoomed)) && w=$ww
     # dh is the diff pane's height, which is the window's. This pane sits under
     # the header and is that much shorter -- except while it is zoomed over the
@@ -1122,8 +1306,58 @@ sidebar() {
     # while the diff is still arriving means the map below is built once,
     # against a pane that has stopped moving. Claiming it resizes this pane,
     # which resizes the diff, which reflows its scrollback and moves every row.
-    if ! claim_width "$pane" "$ww" "$w"; then
+    # The pane's own width, not the width being rendered at: after a drag those
+    # differ, and comparing the share against itself is a comparison that can
+    # never fire.
+    if ! claim_width "$pane" "$ww" "$list_now"; then
       continue
+    fi
+
+    # A drag wider than the diff can afford is taken back.
+    #
+    # The diff renders once, at a width settled before delta ran, and a pane
+    # narrower than its content folds every full row onto a second line. Rows
+    # are what this whole plugin follows the reader by, and a fold breaks
+    # searching too: a match spanning the fold is no longer one string in the
+    # scrollback. So the border stops where the diff would start folding --
+    # measured, the drag to 100 columns wrapped 26 rows of a two-commit diff.
+    #
+    # Only growth is refused. Shrinking this pane only ever makes the diff wider
+    # than the width it rendered at, which costs a strip of unused cells at its
+    # right and folds nothing.
+    #
+    # Taken back by restating the layout rather than by dragging the border the
+    # other way: a second resize-pane is how the diff gets damaged in the first
+    # place, and the reflow it would cause is only reversible while the folded
+    # rows still fit in history-limit. Restating states the diff's width.
+    if ((!zoomed)); then
+      local cur_g=0 list_max
+      [[ -n ${gutter_pane:-} ]] && cur_g=$gutter_w
+      sidebar_max_for "$ww" "$cur_g"
+      list_max=$REPLY
+      if ((list_now <= list_max)); then
+        # Back inside the window's means, so the next drag past it is worth
+        # saying something about again.
+        clamp_said=0
+      elif relayout "$pane" "$ww" "$dh" "$hdr_pane" "${TMUX_PANE:-}" "${gutter_pane:-}" \
+        "$list_now" "$dw" "$cur_g" \
+        "$list_max" "$((ww - list_max - cur_g - (cur_g > 0 ? 2 : 1)))" "$cur_g"; then
+        ((clamp_said)) || tmux display-message \
+          'review: the diff needs the rest of the window -- the list stops here'
+        clamp_said=1
+        continue
+      else
+        # The border could not be taken back: relayout only moves a window it
+        # recognises, and this one has been rearranged -- a pane of the reader's
+        # own, or one zoomed. Which leaves the diff genuinely narrower than it
+        # rendered at, with its rows folded and the row map rebuilt against
+        # them. Nothing here can undo that, so it is said rather than hidden,
+        # and said once: the condition holds every tick until the reader does
+        # something about it.
+        ((clamp_said)) || tmux display-message \
+          'review: the diff is narrower than it was drawn -- q and reopen the review'
+        clamp_said=1
+      fi
     fi
 
     # Still loading. The zoom used to stand for this, but the diff pane now
@@ -1274,24 +1508,10 @@ sidebar() {
       fi
     fi
 
-    # The window has been resized with the comments pane up. tmux redistributes
-    # width with no regard for what is in a pane, and the cells this one holds
-    # were reserved out of a window that is no longer this size -- so the whole
-    # reserve is given up, rather than the diff being left narrower than delta
-    # rendered it and every row of it folded under the map.
-    if ((gutter_win != ww)); then
-      if [[ -n $gutter_pane ]]; then
-        gutter_reserved=0
-        gutter_expanded=0
-        tmux display-message 'review: the window was resized -- reopen the review for comments'
-      fi
-      gutter_win=$ww
-    fi
-
     # Nothing queued means no pane; something queued means at least the marks;
     # expanded means the whole of it. Done here rather than on the keypress so
     # that a comment written in the diff brings the marks up on its own.
-    gutter_want
+    gutter_want "$ww"
     if ((REPLY != gutter_w)) || { [[ -z $gutter_pane ]] && ((REPLY > 0)); }; then
       # Remembered before the layout moves, because this tick's numbers are the
       # last ones taken while the diff was still the size the reader was
@@ -1299,7 +1519,13 @@ sidebar() {
       restore_scroll=$scroll
       restore_cy=$cy
     fi
-    gutter_sync "$pane" "$REPLY"
+    # wh, not dh. dh is the diff pane's height, which is the window's only
+    # while nothing makes a pane shorter than its cell in the layout --
+    # pane-border-status takes a row for the border's text and they differ by
+    # one. A layout is written in window rows, and one that disagrees with the
+    # window by a row is one tmux will not recognise as this window at all, so
+    # the pane would simply stop widening.
+    gutter_sync "$pane" "$REPLY" "$ww" "$wh" "$hdr_pane" "${TMUX_PANE:-}"
     if ((gutter_moved)); then
       gutter_moved=0
       ((in_mode == 1)) && restore_view=1
@@ -1480,6 +1706,14 @@ sidebar() {
         tmux display-message 'review: no room for the comments pane in this window'
       elif ((comments == 0)); then
         tmux display-message 'review: nothing queued yet -- c writes a comment'
+      elif ((gutter_expanded == 0)) && ! gutter_can_expand "$ww"; then
+        # Asked before the flag is flipped, not after. Widening is paid for by
+        # the commit list, and a window whose list cannot spare the cells will
+        # refuse -- so flipping first would leave the pane where it was with the
+        # state saying it had opened, and the next C would collapse something
+        # that was never expanded.
+        tmux display-message \
+          'review: the window is too narrow to read comments in -- widen it, or q and q'
       else
         gutter_expanded=$((1 - gutter_expanded))
       fi
@@ -3535,11 +3769,32 @@ paint_gutter() {
 # How wide the comments pane should be this tick: gone with nothing queued, a
 # column of marks once something is, and the full reserved width while the
 # reader has it expanded.
+#
+# Expanding is the one state that has to be afforded. The marks are paid for out
+# of the diff before delta runs, but the cells that turn them into readable
+# comments come out of the commit list, and a narrow window has none to give: at
+# 200 columns the list is 70, and handing over the thirty-nine would leave 31 --
+# below sidebar_min, which is the width the list stops being able to say which
+# commit is which at. Refused rather than squeezed, and refused by reporting the
+# marks, so the caller has nothing to undo.
+# Whether the commit list can pay for the pane being read rather than merely
+# marked. Its own function because two callers have to agree about it: the key
+# that opens the pane, which has to say no out loud, and gutter_want, which has
+# to hold the pane at the marks if it was opened anyway.
+gutter_can_expand() {
+  local window=$1 left
+  ((${gutter_reserved:-0} > 0)) || return 1
+  columns_for "$window"
+  left=$((REPLY - (gutter_reserved - gutter_thin)))
+  ((left >= sidebar_min))
+}
+
 gutter_want() {
+  local window=${1:-0}
   REPLY=0
   ((${comments:-0} > 0)) || return 0
   ((${gutter_reserved:-0} > 0)) || return 0
-  if ((${gutter_expanded:-0})); then
+  if ((${gutter_expanded:-0})) && gutter_can_expand "$window"; then
     REPLY=$gutter_reserved
   else
     REPLY=$gutter_thin
@@ -3549,13 +3804,18 @@ gutter_want() {
 
 # Makes the pane match that: splits it, resizes it, or takes it away.
 #
-# Split off the diff, which is where the reserved cells are, so the diff never
-# goes below the width delta rendered at in any of the three states and nothing
-# folds. -d because a comment appearing should not move the reader out of the
-# diff they are reading -- the pane is reached the way the header is, with
-# tmux's own pane keys.
+# Appearing and disappearing are splits off the diff, which is where the marks'
+# cells were reserved: the diff goes from the width it was opened at to exactly
+# the width delta rendered at, and back, and neither folds a row. -d because a
+# comment appearing should not move the reader out of the diff they are reading
+# -- the pane is reached the way the header is, with tmux's own pane keys.
+#
+# Widening and narrowing are neither. Those cells belong to the commit list, and
+# there is no way to ask resize-pane to move two borders at once, so the whole
+# window layout is restated instead -- with the diff's width written down rather
+# than left over. See review_layout.
 gutter_sync() {
-  local dpane=$1 want=$2
+  local dpane=$1 want=$2 ww=${3:-0} wh=${4:-0} hdr=${5:-} lst=${6:-}
   if ((want == 0)); then
     [[ -n ${gutter_pane:-} ]] || return 0
     tmux kill-pane -t "$gutter_pane" 2>/dev/null || true
@@ -3587,16 +3847,35 @@ gutter_sync() {
   fi
 
   ((gutter_w == want)) && return 0
-  # Cleared in the same breath as the resize. This pane's own rows are as wide
-  # as it is, so tmux reflows them like any other: widening joins them and
-  # narrowing wraps each one into as many rows as it has cells -- going from
-  # forty columns back to one pushed three thousand lines of debris into the
-  # scrollback. The frame that follows repaints the screen either way, so none
-  # of it was ever visible; it was only accumulating.
-  tmux resize-pane -x "$want" -t "$gutter_pane" ';' \
-    clear-history -t "$gutter_pane" 2>/dev/null || return 0
+  # The cells come from the commit list, which means two borders move at once
+  # and resize-pane cannot do it -- it only ever takes from the pane next door,
+  # and next door is the diff.
+  diff_pinned_for "$ww"
+  local pinned=$REPLY
+  relayout "$dpane" "$ww" "$wh" "$hdr" "$lst" "$gutter_pane" \
+    "$((ww - pinned - gutter_w - 2))" "$pinned" "$gutter_w" \
+    "$((ww - pinned - want - 2))" "$pinned" "$want" || return 0
+
+  # All three movers cleared in the same breath as the layout that moved them.
+  # Every one of these panes has rows as wide as it is, so tmux reflows them
+  # like any other: widening joins them and narrowing wraps each one into as
+  # many rows as it has cells -- taking the comments pane from forty columns
+  # back to one pushed three thousand lines of debris into the scrollback, and
+  # the list, which only moves by thirty-nine, still managed fifty-eight. The
+  # frame that follows repaints all of them either way, so none of it was ever
+  # visible; it was only accumulating. The diff is the one pane left alone,
+  # because it is the one pane that does not move.
+  tmux clear-history -t "$gutter_pane" ';' \
+    clear-history -t "$lst" ';' \
+    clear-history -t "$hdr" 2>/dev/null || true
   gutter_w=$want
-  gutter_resized=1
+  # No gutter_resized here, unlike the two paths above. That flag says the diff
+  # has just changed width without its content moving, so that the tick does not
+  # throw the row map away -- and it is only ever cleared by the tick noticing
+  # the width change it describes. This path does not change the diff's width at
+  # all: that is the whole point of restating the layout. Setting it would leave
+  # it standing until some later resize that really did reflow the diff, which
+  # would then keep a map that no longer describes it.
   gutter_moved=1
   needs_gutter_clear=1
   shown_gutter=''
