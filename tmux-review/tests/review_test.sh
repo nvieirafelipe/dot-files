@@ -856,13 +856,21 @@ gutter_pane=%3
 gutter_w=1
 gutter_resized=0
 layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
-gutter_sync %0 40 285 78 %1 %2
+gutter_list_back=''
+gutter_focus_back=''
+gutter_sync %0 40 285 78 %1 %2 80 %0
 # Compared literally, not matched: a layout is mostly brackets and braces,
 # and every one of them means something else to a regular expression.
 assert_eq 'the window is restated, not one border moved' 1 \
   "$(calls | grep -cF 'select-layout -t %0 7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}')"
 assert_eq 'no border is moved on its own' 0 \
   "$(calls | grep -c 'resize-pane')"
+# Opening it is a request to read what is in it, so that is where the reader is
+# put. Sent with the clears rather than on its own: this path already costs a
+# fork and does not need a second.
+assert_eq 'and the reader is moved into the pane they opened' 1 \
+  "$(calls | grep -cF 'select-pane -t %3')"
+assert_eq 'and the pane they came from is kept, to go back to' '%0' "$gutter_focus_back"
 assert_match 'and the pane own rows are dropped with it' 'clear-history -t %3' "$(calls)"
 assert_eq 'recorded at the new width' 40 "$gutter_w"
 # And no resize is declared, which is the opposite of the two paths above.
@@ -875,6 +883,63 @@ assert_eq 'recorded at the new width' 40 "$gutter_w"
 assert_eq 'and no resize is claimed, because the diff did not move' 0 \
   "$gutter_resized"
 
+# The same widening, from a border the reader has dragged. The geometry being
+# left is the one tmux reports rather than the one the list's share implies,
+# which is the whole of what was wrong: the two agreed only while the list sat
+# on its share, so from the first drag the restatement was refused and the pane
+# stopped opening at all. The width it opens to is the same 41 either way --
+# with the pane up the list has that much room and no more, wherever it stood.
+: >"$tmux_log"
+gutter_w=1
+gutter_resized=0
+gutter_list_back=''
+layout_now='7ce9,285x78,0,0{60x78,0,0[60x4,0,0,1,60x73,0,5,2],222x78,61,0,0,1x78,284,0,3}'
+gutter_sync %0 40 285 78 %1 %2 60 %2
+assert_eq 'a dragged border is restated from where it actually is' 1 \
+  "$(calls | grep -cF 'select-layout -t %0 7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}')"
+assert_eq 'and where it stood is kept, because it is owed back' 60 "$gutter_list_back"
+assert_eq 'and so is the list it was opened from' '%2' "$gutter_focus_back"
+
+# Collapsing pays it back. The border returns to the 60 the reader dragged to
+# and not the 80 its share would choose, and the diff keeps the 222 that leaves
+# it -- more than the 202 it rendered at, which folds nothing.
+: >"$tmux_log"
+gutter_w=40
+gutter_resized=0
+layout_now='7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}'
+gutter_sync %0 1 285 78 %1 %2 41 %3
+assert_eq 'collapsing puts the border back where it was dragged' 1 \
+  "$(calls | grep -cF 'select-layout -t %0 7ce9,285x78,0,0{60x78,0,0[60x4,0,0,1,60x73,0,5,2],222x78,61,0,0,1x78,284,0,3}')"
+assert_eq 'and forgets it, having spent it' '' "$gutter_list_back"
+assert_eq 'the pane recorded at the marks again' 1 "$gutter_w"
+# And the reader goes back to the pane the toggle was reached from, which here
+# was the commit list and not the diff. Standing in the comments pane at the
+# time makes no difference: what is remembered is where it was opened from.
+assert_eq 'and the reader is put back in the list they opened it from' 1 \
+  "$(calls | grep -cF 'select-pane -t %2')"
+assert_eq 'and forgets that too' '' "$gutter_focus_back"
+
+# With nothing remembered -- the pane was opened before this loop was watching,
+# or the reader was standing in the marks when they pressed C -- the diff is
+# the answer, because it is the pane the comments are painted against.
+: >"$tmux_log"
+gutter_w=40
+gutter_list_back=''
+gutter_focus_back=''
+layout_now='7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}'
+gutter_sync %0 1 285 78 %1 %2 41 %3
+assert_eq 'with nowhere remembered, the reader goes to the diff' 1 \
+  "$(calls | grep -cF 'select-pane -t %0')"
+
+# And a reader standing in the marks when they open it is not sent back there.
+: >"$tmux_log"
+gutter_w=1
+gutter_focus_back=''
+layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+gutter_sync %0 40 285 78 %1 %2 80 %3
+assert_eq 'opening it from the marks remembers the diff, not the marks' '%0' \
+  "$gutter_focus_back"
+
 # The layout is asserted rather than negotiated, so it is only ever applied to
 # the window it was written for. A window that is some other shape -- the
 # reader split a pane of their own, or zoomed one -- is left alone, and the
@@ -883,9 +948,12 @@ assert_eq 'and no resize is claimed, because the diff did not move' 0 \
 gutter_w=1
 gutter_resized=0
 layout_now='beef,285x78,0,0{142x78,0,0,1,142x78,143,0,0}'
-gutter_sync %0 40 285 78 %1 %2
+gutter_sync %0 40 285 78 %1 %2 80
 assert_eq 'a window of another shape is not rearranged' 0 \
   "$(calls | grep -c 'select-layout')"
+# Nor is the reader moved. Nothing happened, so there is nowhere new to be.
+assert_eq 'and the reader is left standing where they were' 0 \
+  "$(calls | grep -c 'select-pane')"
 assert_eq 'and the pane keeps the width it had' 1 "$gutter_w"
 assert_eq 'with no resize claimed, so the row map stands' 0 "$gutter_resized"
 
@@ -908,6 +976,7 @@ assert_eq 'and forgets how wide it was' 0 "$gutter_w"
 /bin/rm -f "$tmux_log"
 unset -f tmux calls
 unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter layout_now
+unset gutter_list_back gutter_focus_back
 unset shown_gutter_at gutter_sig needs_gutter_clear self
 
 section 'gutter_step: through the queue, over what could not be anchored'
@@ -3936,6 +4005,12 @@ else
       tmux -L "$gsock" display-message -p -t "$gdiff" \
         '#{e|-:#{@review_hist_base},#{scroll_position}}:#{copy_cursor_y}'
     }
+    # Which pane the window says is active, asked of the window rather than of
+    # a pane: -t a pane still lists every pane of its window, so a filter is
+    # what picks the one out.
+    gactive() {
+      tmux -L "$gsock" list-panes -t "$gwin" -F '#{pane_id}' -f '#{pane_active}'
+    }
     tmux -L "$gsock" select-pane -t "$gdiff"
     tmux -L "$gsock" send-keys -X -t "$gdiff" -N 20 scroll-up
     tmux -L "$gsock" send-keys -X -t "$gdiff" -N 12 cursor-down
@@ -3958,6 +4033,8 @@ else
       "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
     assert_match 'and the comment itself is readable now' 'queued before' \
       "$(tmux -L "$gsock" capture-pane -p -t "$ggut")"
+    assert_eq 'and the reader is standing in it, which is what they asked for' \
+      "$ggut" "$(gactive)"
     assert_eq 'the diff is left exactly where the reader had it' "$gbefore" "$(gview)"
 
     tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/after.txt"
@@ -3998,6 +4075,8 @@ else
     assert_eq 'and still is after it narrows again' "$gbefore" "$(gview)"
     assert_eq 'and the diff never moved at all' 202 \
       "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')"
+    assert_eq 'with the reader back in the diff they were reading' \
+      "$gdiff" "$(gactive)"
     assert_eq 'the list having got its own cells back' 80 \
       "$(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}')"
     # Every pane that moved is cleared with the layout that moved it. Their rows
@@ -4022,15 +4101,115 @@ else
     tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/closed.txt"
     assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/closed.txt" && echo 0 || echo 1)" \
       'with its scrollback still untouched' 'the same scrollback' 'rows folded'
+
+    # The border the reader drags, against the pane that is paid for out of it.
+    #
+    # These two had never met in a test, and they did not work. The comments
+    # pane takes its cells from the commit list by restating the whole layout,
+    # and the layout it restated described the list at its share of the window
+    # -- so the moment the reader had dragged that border anywhere else, tmux
+    # no longer recognised the window being described, the restatement was
+    # refused, and the pane did not widen. Silently, every tick, until the
+    # reader dragged back onto 80 or overshot and let the clamp put them there.
+    #
+    # 285 wide: the diff is pinned at 202 and the pane reserves 40, so with it
+    # open the list has 41 to live in and no more. A drag narrower than that is
+    # kept, and the cells come out of the strip the diff is not drawing on; a
+    # drag wider is squeezed to 41 and handed back when the pane collapses.
+    gsettle() {
+      local _
+      for _ in $(seq 1 80); do
+        [[ $(tmux -L "$gsock" display-message -p -t "$1" '#{pane_width}') == "$2" ]] && return 0
+        sleep 0.25
+      done
+      return 0
+    }
+    # All three in one string, because what matters is that they still add up to
+    # the window: a geometry is asserted whole or the one pane that drifted is
+    # the one the assertion did not name.
+    gwidths() {
+      printf '%s/%s/%s' \
+        "$(tmux -L "$gsock" display-message -p -t "$glist" '#{pane_width}')" \
+        "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')" \
+        "$(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}')"
+    }
+
+    # Dragged wider than the open pane leaves room for. 285 less the 60 the
+    # list takes, its border, the marks and theirs.
+    tmux -L "$gsock" resize-pane -x 60 -t "$glist"
+    gsettle "$glist" 60
+    assert_eq 'the border moves with the pane still at the marks' '60/222/1' "$(gwidths)"
+
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 40
+    assert_eq 'C opens it anyway, squeezing the list to what is left' '41/202/40' \
+      "$(gwidths)"
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/dragged.txt"
+    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/dragged.txt" && echo 0 || echo 1)" \
+      'with the diff still exactly as delta drew it' 'the same scrollback' 'rows folded'
+
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 1
+    assert_eq 'and collapsing returns the drag, not the share' '60/222/1' "$(gwidths)"
+
+    # Dragged inside the 41 instead, where nothing has to be taken from the list
+    # at all: the diff is sitting on 244 and only has to keep the 202 it
+    # rendered at, so the thirty-nine come out of the forty-two it is not
+    # drawing on and the border does not move.
+    tmux -L "$gsock" resize-pane -x 38 -t "$glist"
+    gsettle "$glist" 38
+    assert_eq 'dragged inside what the open pane leaves' '38/244/1' "$(gwidths)"
+    # How many rows the list draws at this width, taken here rather than
+    # written down: 38 columns is narrow enough that the legend wraps on its
+    # own, and how many rows that comes to is the reader's business and not
+    # this test's. What is this test's business is that opening the pane does
+    # not add to it.
+    grows_before=$(tmux -L "$gsock" capture-pane -p -t "$glist" | grep -c .)
+
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 40
+    assert_eq 'the pane opens without moving the border at all' '38/205/40' "$(gwidths)"
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/kept.txt"
+    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/kept.txt" && echo 0 || echo 1)" \
+      'and the diff untouched there too' 'the same scrollback' 'rows folded'
+    # Counted rather than measured. A row built for a width the pane does not
+    # have wraps, and a wrapped row is still a row of at most the pane's width,
+    # so nothing about one gives it away except that there are more of them
+    # than there were. This is the assertion that catches the row-building
+    # width and the layout disagreeing about where the border went: the layout
+    # leaves the border at 38 and a frame built for 41 folds into 39.
+    assert_eq 'and the list drew the same rows it drew before' "$grows_before" \
+      "$(tmux -L "$gsock" capture-pane -p -t "$glist" | grep -c .)"
+
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 1
+    assert_eq 'and the border is still where the reader put it' '38/244/1' "$(gwidths)"
+
+    # And from wherever else it was pressed. The toggle is offered in the list
+    # as well as the diff, and a reader who opens the comments from the list is
+    # put back in the list when they close them -- not in the diff, which they
+    # were not in to begin with. Slept on rather than waited for: what has to
+    # settle is the loop noticing which pane is active, and no pane width
+    # changes to wait on in the meantime.
+    tmux -L "$gsock" select-pane -t "$glist"
+    sleep 1
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 40
+    assert_eq 'opened from the list, the reader still lands in the comments' \
+      "$ggut" "$(gactive)"
+    tmux -L "$gsock" send-keys -t "$glist" C
+    gsettle "$ggut" 1
+    assert_eq 'and closing returns them to the list they opened it from' \
+      "$glist" "$(gactive)"
   fi
   tmux -L "$gsock" kill-server 2>/dev/null
 fi
 rm -f "$gstore"
 rm -rf "$gtmp"
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"
-unset -f gview
+unset -f gview gsettle gwidths gactive
 unset gsock gtmp gstore gpane gwin gdiff glist ggut ghdr gbefore
-unset ghist_before ghist_after
+unset ghist_before ghist_after grows_before
 
 section 'review.sh: the dispatcher'
 # The process that holds the header pane open. Given no tty there is nothing to

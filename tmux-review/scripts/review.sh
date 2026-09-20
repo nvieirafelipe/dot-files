@@ -565,6 +565,43 @@ sidebar_max_for() {
   return 0
 }
 
+# Where the commit list's border goes once the comments pane is the width it is
+# heading for: where the reader left it, or the widest the diff can afford,
+# whichever is less.
+#
+# The two are the same rule seen from either end. The diff is never allowed
+# below the width delta rendered at, and every column of the window is spoken
+# for, so holding the list still until it reaches sidebar_max_for is exactly
+# spending the strip the diff is not drawing on first. A list dragged inside
+# that width does not move at all when the pane opens; one dragged outside it
+# is squeezed to the edge and no further.
+#
+# Its own function because two callers have to agree about it, the way
+# gutter_can_expand does: gutter_sync moves the border, and the tick has to
+# build the list's rows for the width it is about to have. Two answers here
+# means one frame of rows drawn for a pane of the other width, and every one of
+# them wraps.
+#
+# No floor of its own. sidebar_min governs the widths this plugin picks, not the
+# ones the reader drags to: the clamp above refuses growth only, so a border
+# dragged below sidebar_min already stands, and putting it back here would undo
+# a drag on the one path that is meant to preserve them.
+list_for_gutter() {
+  local window=$1 from=$2 to=$3 now=$4
+  # Collapsing spends the width the border had before the pane opened, because
+  # opening is what took it. Opening works from where the border is now, which
+  # is wherever the reader last left it.
+  #
+  # A drag made while the pane is open is not remembered: collapsing returns the
+  # border to where it stood before opening, not to where it was last dragged.
+  # There is little to drag at 41 columns, and telling the two apart means
+  # tracking every width this plugin sets as well as every width it finds.
+  ((to < from)) && now=${gutter_list_back:-$now}
+  sidebar_max_for "$window" "$to"
+  ((now < REPLY)) && REPLY=$now
+  return 0
+}
+
 # Moves the borders by restating the whole window, and only if tmux agrees the
 # window is the shape being described.
 #
@@ -1004,6 +1041,16 @@ sidebar() {
   # how many cells open() managed to hold back for it -- 0 on a window that had
   # none to spare, which is what makes C answer instead of acting.
   local gutter_expanded=0 gutter_reserved=0
+  # Where the border was before the comments pane last opened, so that
+  # collapsing can put it back. Opening may have to squeeze the list past where
+  # the reader dragged it -- the open pane leaves the list a fixed width and
+  # nothing can be done about that -- but it only borrows the difference.
+  # Empty when the pane is not open, which is what makes it safe to read.
+  local gutter_list_back=''
+  # And which pane the toggle was reached from, so that closing the comments
+  # puts the reader back where opening them took them from rather than always
+  # in the diff. Empty when the pane is not open, same as the border above.
+  local gutter_focus_back=''
   # Whether the reader has already been told the list cannot grow any further.
   # The drag that provoked it stays provoking it until they drag back, and one
   # message per tick is not a message, it is a stuck status line.
@@ -1240,6 +1287,11 @@ sidebar() {
       if [[ -n $gutter_pane ]]; then
         gutter_reserved=0
         gutter_expanded=0
+        # The width it was going to give back was measured in a window this is
+        # no longer, and the pane is about to close at the next tick anyway.
+        # The pane it would have returned to goes with it.
+        gutter_list_back=''
+        gutter_focus_back=''
         tmux display-message 'review: the window was resized -- reopen the review for comments'
       fi
       gutter_win=$ww
@@ -1273,8 +1325,8 @@ sidebar() {
     # pane, and every one of them wraps.
     local w=$list_now
     if ((gutter_target > 0 && gutter_w > 0 && gutter_target != gutter_w)); then
-      diff_pinned_for "$ww"
-      w=$((ww - REPLY - gutter_target - 2))
+      list_for_gutter "$ww" "$gutter_w" "$gutter_target" "$list_now"
+      w=$REPLY
     fi
     ((zoomed)) && w=$ww
     # dh is the diff pane's height, which is the window's. This pane sits under
@@ -1525,7 +1577,8 @@ sidebar() {
     # one. A layout is written in window rows, and one that disagrees with the
     # window by a row is one tmux will not recognise as this window at all, so
     # the pane would simply stop widening.
-    gutter_sync "$pane" "$REPLY" "$ww" "$wh" "$hdr_pane" "${TMUX_PANE:-}"
+    gutter_sync "$pane" "$REPLY" "$ww" "$wh" "$hdr_pane" "${TMUX_PANE:-}" "$list_now" \
+      "${active_pane:-}"
     if ((gutter_moved)); then
       gutter_moved=0
       ((in_mode == 1)) && restore_view=1
@@ -3826,7 +3879,8 @@ gutter_want() {
 # window layout is restated instead -- with the diff's width written down rather
 # than left over. See review_layout.
 gutter_sync() {
-  local dpane=$1 want=$2 ww=${3:-0} wh=${4:-0} hdr=${5:-} lst=${6:-}
+  local dpane=$1 want=$2 ww=${3:-0} wh=${4:-0} hdr=${5:-} lst=${6:-} list_now=${7:-0}
+  local active=${8:-}
   if ((want == 0)); then
     [[ -n ${gutter_pane:-} ]] || return 0
     tmux kill-pane -t "$gutter_pane" 2>/dev/null || true
@@ -3861,11 +3915,47 @@ gutter_sync() {
   # The cells come from the commit list, which means two borders move at once
   # and resize-pane cannot do it -- it only ever takes from the pane next door,
   # and next door is the diff.
-  diff_pinned_for "$ww"
-  local pinned=$REPLY
+  #
+  # The geometry this is leaving is measured, not worked out from the list's
+  # share. It used to be the share, and that was right only for as long as the
+  # list sat on it: relayout refuses a window it does not recognise, so from
+  # the moment the reader dragged that border the restatement was refused and
+  # the pane did not widen -- silently, every tick, until they dragged back
+  # onto the share or overshot and let the clamp put them there. list_now is
+  # the tick's own measurement, taken from the diff pane's width.
+  local cur_l=$list_now
+  list_for_gutter "$ww" "$gutter_w" "$want" "$list_now"
+  local new_l=$REPLY
   relayout "$dpane" "$ww" "$wh" "$hdr" "$lst" "$gutter_pane" \
-    "$((ww - pinned - gutter_w - 2))" "$pinned" "$gutter_w" \
-    "$((ww - pinned - want - 2))" "$pinned" "$want" || return 0
+    "$cur_l" "$((ww - cur_l - gutter_w - 2))" "$gutter_w" \
+    "$new_l" "$((ww - new_l - want - 2))" "$want" || return 0
+  # Remembered on the way up and spent on the way down, and only once the
+  # layout has actually moved: a refusal above leaves both the border and the
+  # memory of it exactly as they were.
+  #
+  # Written after the width this tick builds its rows for has already been
+  # worked out, further up the loop, which is the order this depends on: the
+  # rows that read this are the next tick's, drawn for the pane once it has
+  # moved. Moving this call above that one collapses the list to the wrong
+  # width for one frame and wraps every row of it.
+  #
+  # Where the reader goes when this closes is decided here too, and before the
+  # memory below is spent: the pane the toggle was reached from. Standing in
+  # the marks and pressing C is the one answer that is no answer -- it would
+  # send the reader back to a column one cell wide -- so that one reads as the
+  # diff, which is what the marks are painted against.
+  local focus_to=$gutter_pane
+  ((want < gutter_w)) && focus_to=${gutter_focus_back:-$dpane}
+
+  if ((want > gutter_w)); then
+    gutter_list_back=$cur_l
+    gutter_focus_back=$active
+    [[ -z $gutter_focus_back || $gutter_focus_back == "$gutter_pane" ]] &&
+      gutter_focus_back=$dpane
+  else
+    gutter_list_back=''
+    gutter_focus_back=''
+  fi
 
   # All three movers cleared in the same breath as the layout that moved them.
   # Every one of these panes has rows as wide as it is, so tmux reflows them
@@ -3876,9 +3966,26 @@ gutter_sync() {
   # frame that follows repaints all of them either way, so none of it was ever
   # visible; it was only accumulating. The diff is the one pane left alone,
   # because it is the one pane that does not move.
+  #
+  # The focus goes with them. Opening the pane is a request to read what is in
+  # it, so that is where the reader is put; collapsing it puts them back in the
+  # pane they opened it from, which is usually the diff and is the list when
+  # the toggle was pressed there.
+  # Both are states the rest of the plugin already knows: the comments pane
+  # hands every key it is given to the list's loop, and the list draws its
+  # legend for whichever of the three the reader is in.
+  #
+  # Only on the toggle, which is the only thing that moves this pane between
+  # the marks and its full width. The split that first brings the marks up is
+  # -d on purpose and stays that way: a comment arriving is not a request to
+  # go and read it.
+  #
+  # Sent with the clears, because this path already costs a fork and the pane
+  # it selects has just been given its cells by the layout above.
   tmux clear-history -t "$gutter_pane" ';' \
     clear-history -t "$lst" ';' \
-    clear-history -t "$hdr" 2>/dev/null || true
+    clear-history -t "$hdr" ';' \
+    select-pane -t "$focus_to" 2>/dev/null || true
   gutter_w=$want
   # No gutter_resized here, unlike the two paths above. That flag says the diff
   # has just changed width without its content moving, so that the tick does not
