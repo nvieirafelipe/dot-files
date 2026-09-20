@@ -143,5 +143,14 @@ export PATH="/Users/nvieirafelipe/.rd/bin:$PATH"
 # opencode
 export PATH=/Users/nvieirafelipe/.opencode/bin:$PATH
 
+# noclobber: keep it at the prompt, drop it everywhere else.
+#
+# Prezto's environment module sets NO_CLOBBER, so `> file` fails when the file
+# exists. At an interactive prompt that is the guardrail you want. In a
+# non-interactive shell it is a trap: scripts and agent tool calls source this
+# file, their redirects fail silently mid-pipeline, and the damage surfaces
+# later as an empty file or a commit amended with a stale message.
+[[ -o interactive ]] || setopt clobber
+
 # Machine-local overrides (untracked)
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
