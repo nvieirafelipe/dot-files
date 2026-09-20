@@ -33,6 +33,21 @@
             "type": "command",
             "command": "~/.claude/bin/gh-write-guard.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/bin/aws-write-guard.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/bin/worktree-edit-guard.sh \"$PPID\"",
+            "timeout": 10
           }
         ]
       }
