@@ -143,6 +143,40 @@ bind -T copy-mode-vi C if-shell -F "$routes_left" "send-keys -t '{bottom-left}' 
 bind -T copy-mode-vi R if-shell -F "$routes_left" "send-keys -t '{bottom-left}' R" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 
+# And the y that answers it, for as long as it is being asked. The list asks by
+# blocking on a raw read of its own stdin, so the answer has to be sent there
+# from wherever the reader is standing -- the comments pane and the header both
+# forward their own y already, and the diff, which has no loop of its own, is
+# the one that never did. y there is tmux-yank's, so R from the diff put the
+# selection on the clipboard and left the queue exactly where it was, ten
+# seconds later, every time. d was never bound here at all, which is why
+# deleting one comment worked while clearing them all did not.
+#
+# @review_asking is up only while that read is waiting, so yanking is untouched
+# the rest of the time. The fallback is whatever y was bound to a moment ago
+# rather than a spelled-out copy-pipe, because @yank_action decides that in
+# .tmux.conf and this file does not get to see it. Reading the table back is
+# safe here for the same reason Enter is bound here at all: the copy-mode-vi
+# table is already settled by the time this runs.
+answers_question="#{&&:$routes_left,#{@review_asking}}"
+yank_y=$(tmux list-keys -T copy-mode-vi y 2>/dev/null) || yank_y=''
+# list-keys prints a bind-key command so its output can be fed back in; what is
+# wanted is the command on the end of it.
+yank_y=${yank_y#*-T copy-mode-vi }
+yank_y=${yank_y#y }
+# Sourced again without tpm having re-bound y first -- reloading this file on
+# its own does that -- would capture the binding written here and nest it
+# inside itself. The one already in place still answers, and still falls back
+# to the yank it captured the first time.
+if [[ $yank_y != *@review_asking* ]]; then
+  answer=(-T copy-mode-vi y if-shell -F "$answers_question" \
+    "send-keys -t '{bottom-left}' y")
+  # A y with nothing bound to it has nothing to fall back to, and if-shell is
+  # content with the two arguments.
+  [[ -n $yank_y ]] && answer+=("$yank_y")
+  bind "${answer[@]}"
+fi
+
 # n and N have to keep meaning search-again everywhere else, so they fall back
 # to it. if-shell -F spawns nothing, so search outside a review stays instant.
 #

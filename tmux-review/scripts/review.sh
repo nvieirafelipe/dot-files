@@ -2577,12 +2577,23 @@ clear_comments() {
     tmux display-message 'review: nothing queued to clear'
     return 1
   fi
+  # Published on the window before the question is drawn, because the reader
+  # can answer the moment they see it. R is offered from the diff, and y in the
+  # diff is tmux-yank's -- so the answer went to the clipboard, this read timed
+  # out ten seconds later, and the queue was still there every time. The
+  # binding that lends y to this read for as long as the question is up is
+  # guarded on this option, so yanking is untouched the rest of the time.
+  tmux set-option -w -t "${TMUX_PANE:-}" @review_asking 1 2>/dev/null || true
   tmux display-message -d 8000 \
     "review: discard $n queued comment$( ((n == 1)) || printf s )? y to discard, any other key to keep"
   # Read raw rather than through read_key: y is not one of the keys that mean
   # anything in this loop, so read_key would resolve it to nothing. A reader who
   # walks away leaves it unanswered, which keeps the queue.
   IFS= read -rsn1 -t 10 answer || answer=''
+  # However the question ends, including the ten seconds that end it
+  # unanswered. Left up, it would keep y away from the yank for the rest of the
+  # review.
+  tmux set-option -w -t "${TMUX_PANE:-}" -u @review_asking 2>/dev/null || true
   if [[ $answer != y && $answer != Y ]]; then
     tmux display-message 'review: kept'
     return 1

@@ -2596,6 +2596,49 @@ assert_match 'a single one is asked about in the singular' 'discard 1 queued com
 unset -f tmux
 unset cstore said
 
+section 'clear_comments: y is lent to the read for the length of the question'
+# The bug this is here for. R is offered from the diff pane, the question it
+# asks is answered by a raw read on the list's own stdin, and y in the diff is
+# tmux-yank's -- so the answer went to the clipboard, the read timed out ten
+# seconds later, and the queue was still there every time. d never had the
+# problem because it is offered only in the comments pane, which forwards its
+# own y, which is why deleting one worked while clearing them all did not.
+#
+# The half of the fix that lives here is the flag the binding is guarded on.
+# Asserted as the whole sequence rather than call by call, because raised and
+# never lowered reads exactly like the working case one call at a time, and it
+# would keep y away from the yank for the rest of the review.
+askstore=$(comment_file /tmp/test-repo 'asking..HEAD')
+/bin/rm -f "$askstore"
+asked=''
+tmux() { asked+="[$*]"; return 0; }
+ask_saved_pane=${TMUX_PANE-}
+# The option goes on the window the read is waiting in, which is this process's
+# own pane -- the same one claim_width resizes.
+TMUX_PANE='%9'
+comment_add "$askstore" aaa1111 bin/git-review 24 24 '' 'first'
+clear_comments "$askstore" <<<'y'
+assert_eq 'up before the question is drawn, down before the queue goes' \
+  '[set-option -w -t %9 @review_asking 1][display-message -d 8000 review: discard 1 queued comment? y to discard, any other key to keep][set-option -w -t %9 -u @review_asking][display-message review: 1 discarded]' \
+  "$asked"
+comment_add "$askstore" bbb2222 bin/git-review 30 30 '' 'second'
+asked=''
+clear_comments "$askstore" <<<'n'
+assert_eq 'and down again on the answer that keeps the queue' \
+  '[set-option -w -t %9 @review_asking 1][display-message -d 8000 review: discard 1 queued comment? y to discard, any other key to keep][set-option -w -t %9 -u @review_asking][display-message review: kept]' \
+  "$asked"
+# Nothing queued is nothing to ask about, so there is nothing to lend y for
+# either -- and a flag raised here would never come down, because the reader is
+# never given the chance to answer.
+/bin/rm -f "$askstore"
+asked=''
+clear_comments "$askstore"
+assert_eq 'an empty queue never raises it at all' \
+  '[display-message review: nothing queued to clear]' "$asked"
+[[ -n $ask_saved_pane ]] && TMUX_PANE=$ask_saved_pane
+unset -f tmux
+unset askstore asked ask_saved_pane
+
 section 'send_comments: to the agent that was chosen, if it is still there'
 send_msgs=''
 comment_send() { send_msgs+="[paste $1]"; return "$send_paste_rc"; }
@@ -2655,31 +2698,56 @@ tmux_log=$(mktemp)
 fake_bin=$(mktemp -d)
 cat >"$fake_bin/tmux" <<'FAKE'
 #!/usr/bin/env bash
-# show-option is how the entry point reads its two settable keys; everything
-# else is the one call that binds.
+# show-option is how the entry point reads its two settable keys, and list-keys
+# how it reads back the yank it has to leave behind the y it borrows;
+# everything else is the one call that binds.
 if [[ $1 == show-option ]]; then
   printf '\n'
+  exit 0
+fi
+if [[ $1 == list-keys ]]; then
+  printf '%s\n' "${YANK_Y-}"
   exit 0
 fi
 printf '%s\n' "$*" >>"$TMUX_LOG"
 FAKE
 chmod +x "$fake_bin/tmux"
-TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+# What tmux-yank leaves in the copy-mode-vi table, printed the way list-keys
+# prints it -- a bind-key command, so that its output can be fed straight back
+# in. What the fallback wants is the command on the end of it.
+yank_binding='bind-key -T copy-mode-vi y send-keys -X copy-pipe pbcopy'
+YANK_Y=$yank_binding TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
 bound=$(cat "$tmux_log")
 assert_eq 'the bindings are sent as one call, not a dozen' 1 "$(grep -c . <<<"$bound")"
 assert_match 'prefix+g opens a review, in the background' \
   'bind-key g run-shell -b .*/scripts/review\.sh open #\{pane_id\}' "$bound"
 assert_match 'prefix+G is the working tree, in a popup' \
   'bind-key G display-popup .*/bin/git-review --wip' "$bound"
-assert_eq 'thirteen keys are bound in copy-mode' 13 \
+assert_eq 'fourteen keys are bound in copy-mode' 14 \
   "$(grep -o 'bind-key -T copy-mode-vi' <<<"$bound" | grep -c .)"
 # C and R are bound from the start even though the legend only offers them once
 # there is something queued: a binding that came and went would mean reloading
 # the configuration mid-review, which takes the review's own bindings with it.
-for k in ']' '\[' '}' '{' c C R s a n N q Enter; do
+for k in ']' '\[' '}' '{' c C R s a n N q y Enter; do
   matched=0; grep -q -- "bind-key -T copy-mode-vi $k " <<<"$bound" || matched=1
   assert_ok "$matched" "copy-mode $k is bound"
 done
+# y is why R never worked from the diff. The list asks its question by blocking
+# on a raw read of its own stdin, and every pane that offers R has to send the
+# answer there -- the comments pane and the header forward their own y, and the
+# diff, which has no loop of its own, had nothing bound at all. So the answer
+# went to tmux-yank, the read timed out ten seconds later, and the queue was
+# still there. d was never offered here, which is why deleting one comment
+# worked while clearing them all did not.
+#
+# The whole binding, because the half of it that matters is the half that is
+# easy to lose: routed while a question is up, and the yank it displaced put
+# back underneath for the rest of the time.
+ybound=${bound#*bind-key -T copy-mode-vi y }
+ybound=${ybound%% ; *}
+assert_eq 'y answers a question while one is up, and yanks while none is' \
+  "if-shell -F #{&&:#{&&:#{&&:#{@review},#{==:#{pane_mode},copy-mode}},#{==:#{pane_at_left},0}},#{@review_asking}} send-keys -t '{bottom-left}' y ${yank_binding#*copy-mode-vi y }" \
+  "$ybound"
 assert_match 'every one is guarded on the window being a review' \
   '@review' "$bound"
 assert_match 'and on the pane being read rather than showing output' \
@@ -2687,6 +2755,24 @@ assert_match 'and on the pane being read rather than showing output' \
 assert_match 'n falls back to search-again outside a review' \
   "send-keys -X search-again" "$bound"
 assert_match 'and Enter to the yank that cancels' 'copy-pipe-and-cancel' "$bound"
+# A y with nothing bound to it has no yank to put back, and if-shell is content
+# with the two arguments.
+: >"$tmux_log"
+YANK_Y='' TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+bound=$(cat "$tmux_log")
+ybound=${bound#*bind-key -T copy-mode-vi y }
+ybound=${ybound%% ; *}
+assert_eq 'a y that was never bound is routed and nothing more' \
+  "if-shell -F #{&&:#{&&:#{&&:#{@review},#{==:#{pane_mode},copy-mode}},#{==:#{pane_at_left},0}},#{@review_asking}} send-keys -t '{bottom-left}' y" \
+  "$ybound"
+# Sourced again without tpm having re-bound y first, which is what reloading
+# this file on its own does. Read back and wrapped a second time, the binding
+# would nest inside itself and grow a level on every reload.
+: >"$tmux_log"
+YANK_Y="bind-key -T copy-mode-vi y $ybound" TMUX_LOG=$tmux_log \
+  PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+assert_eq 'the one already in place is left exactly as it is' 0 \
+  "$(grep -c -- 'bind-key -T copy-mode-vi y ' "$tmux_log")"
 # The two keys that can be moved.
 : >"$tmux_log"
 cat >"$fake_bin/tmux" <<'FAKE'
@@ -2698,6 +2784,10 @@ if [[ $1 == show-option ]]; then
   esac
   exit 0
 fi
+if [[ $1 == list-keys ]]; then
+  printf '%s\n' "${YANK_Y-}"
+  exit 0
+fi
 printf '%s\n' "$*" >>"$TMUX_LOG"
 FAKE
 chmod +x "$fake_bin/tmux"
@@ -2706,7 +2796,7 @@ bound=$(cat "$tmux_log")
 assert_match 'a key set by the user is the one bound' 'bind-key R run-shell' "$bound"
 assert_match 'and so is the one for the working tree' 'bind-key W display-popup' "$bound"
 /bin/rm -rf "$fake_bin"; /bin/rm -f "$tmux_log"
-unset bound tmux_log fake_bin
+unset bound ybound yank_binding tmux_log fake_bin
 
 section 'read_state: whatever the server pushed since the last turn'
 state_file=$(mktemp)
