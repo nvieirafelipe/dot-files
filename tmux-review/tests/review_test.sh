@@ -3347,9 +3347,9 @@ sidebar_empty() {
 assert_match 'a range with nothing in it says so and waits' \
   'nothing to review' "$(sidebar_empty | strip)"
 
-/bin/rm -f "$sb_log" "$sb_out" "$sb_ix" "$sb_ticks"
+/bin/rm -f "$sb_log" "$sb_out" "$sb_ix" "$sb_ticks" "$sb_hdr"
 unset -f sidebar_run sidebar_empty sb_tick
-unset sb_log sb_out sb_ix sb_ticks sb_seen sb_normal sb_loading sb_unfocus sb_cancelled
+unset sb_log sb_out sb_ix sb_ticks sb_hdr sb_seen sb_normal sb_loading sb_unfocus sb_cancelled
 
 section 'git-review: the range it resolves'
 tmp=$(mktemp -d)
@@ -3418,11 +3418,19 @@ assert_eq 'an unknown flag exits 64' 64 "$?"
 # arithmetic subscript and set -u then kills the sidebar over. Nothing but
 # actually opening a window catches that, so this opens one -- on its own tmux
 # server, so it cannot disturb the one in use.
+# Every socket a run stands up is named for that run's pid, so one glob takes
+# all of them -- including the servers whose variable has since been reassigned
+# to the next section's, which is how review-guard outlived a trap that named
+# $gsock after $gsock had become review-gutter.
+clean_sockets() {
+  /bin/rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/"review-*-$$ 2>/dev/null || :
+}
+
 section 'opening a review window: all three panes survive it'
 socket=review-test-$$
 # kill-server does not always take the socket file with it, and a suite that
 # has been run a few hundred times leaves a few hundred of them behind.
-trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$socket"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
 # -f /dev/null: a server that reads the real config spends half a minute
 # letting TPM load every plugin, and none of them matter here.
 if ! want_live; then
@@ -3643,8 +3651,7 @@ assert_ok "$([[ -n ${in_review:-} && -n ${routes_left:-} && -n ${zoomed_review:-
   "${in_review:-} / ${routes_left:-} / ${zoomed_review:-}"
 
 gsock=review-guard-$$
-trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$socket" \
-  "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the routing guard' 'live sections are out of scope'
@@ -3724,9 +3731,7 @@ assert_ok "$([[ -n ${hist_base:-} ]] && echo 0 || echo 1)" \
 was='#{?@review_hist_base,#{@review_hist_base},#{history_size}}'
 
 hsock=review-basis-$$
-trap 'rm -rf "$tmp" "$tmp_counts"; rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$socket" \
-  "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock" \
-  "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$hsock"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the header pane answers its own keys' 'live sections are out of scope'
