@@ -20,8 +20,11 @@ gr_usage() {
   cat >&2 <<'USAGE'
 usage: git review [--wip | --staged | --stash <ref> | --range | <n> | <base> | <range>]
 
-  (no args)  commits this branch has that the remote base branch does not.
-             On the base branch itself, that is everything unpushed.
+  (no args)  commits this branch has that its base does not. The base is the
+             published branch closest behind HEAD -- the trunk for a branch cut
+             from it, the branch beneath for a branch stacked on another. On the
+             base branch itself, that is everything unpushed. Override for one
+             branch with `git config branch.<name>.reviewBase <ref>`.
   <n>        the last n commits.
   <base>     commits since <base> -- any rev: main, origin/main, a tag, a sha.
   <range>    an explicit rev range, e.g. abc1234..def5678.
@@ -51,6 +54,127 @@ gr_base_branch() {
   return 1
 }
 
+# The trunk is the right base whenever the work sits directly on it, and the
+# wrong one the moment a branch is stacked on a long-lived branch: reviewing
+# against trunk then buries the handful of commits the branch owns under
+# everything the branch beneath it carries. 872 commits under 5, in the
+# repository this was written for.
+#
+# So look for the ancestor of HEAD that sits closest behind it. Only published
+# refs count -- a remote-tracking ref, or a local branch that has one. Published
+# is what separates a base from a scratch ref left pointing a couple of commits
+# back on the same line: a base is something the work was branched from and will
+# go back into, and that is a branch someone else can fetch.
+#
+# $1 is the trunk's branch name, which is left out of the search: trunk is what
+# the conventional resolution already answers, and a local `main` sitting ahead
+# of `origin/main` is an alias for it rather than a base of its own. Without
+# that, pushing nothing to trunk for a day would quietly change what a review of
+# a branch cut from trunk shows.
+#
+# Answers in REPLY, with the distance in REPLY_DIST. REPLY is empty when no such
+# ancestor exists, which is the ordinary case on a branch cut from trunk.
+gr_nearest_base() {
+  REPLY=''
+  REPLY_DIST=0
+  local trunk=${1-} head branch refs
+  head=$(git rev-parse --verify --quiet HEAD) || return 0
+  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
+
+  # One walk for every ref that is an ancestor of HEAD. --merged is what keeps
+  # this from costing a merge-base call per branch in the repository.
+  refs=$(git for-each-ref --merged HEAD \
+    --format='%(objectname) %(refname) %(refname:short)' refs/heads refs/remotes 2>/dev/null) ||
+    return 0
+  [[ -n $refs ]] || return 0
+
+  local -A published=() at_head=() name_for=() rank_for=()
+  local obj ref short name rank
+
+  # Which branch names exist on a remote. A local branch is a candidate only if
+  # its name is among them. And which names sit on HEAD: a branch there is what
+  # the reader is on, so its twin on a remote is not a base either, however far
+  # behind it has fallen. Detaching from a branch would otherwise change what a
+  # review shows -- the twin stops being excluded by name the moment there is no
+  # branch name to exclude it by, and one unpushed commit becomes the review.
+  while read -r obj ref short; do
+    case $ref in
+      */HEAD) continue ;;
+      refs/remotes/*) published[${ref#refs/remotes/*/}]=1; name=${ref#refs/remotes/*/} ;;
+      refs/heads/*) name=${ref#refs/heads/} ;;
+      *) continue ;;
+    esac
+    [[ $obj == "$head" ]] && at_head[$name]=1
+  done <<<"$refs"
+
+  # refs/remotes/<remote>/HEAD is another name for the trunk rather than a
+  # branch of its own, and offering `origin` as a base reads as a mistake.
+  while read -r obj ref short; do
+    [[ $ref == */HEAD ]] && continue
+    [[ $obj == "$head" ]] && continue
+    case $ref in
+      refs/heads/*)   name=${ref#refs/heads/};   rank=0 ;;
+      refs/remotes/*) name=${ref#refs/remotes/*/}; rank=1 ;;
+      *) continue ;;
+    esac
+    # A branch is never its own base: its remote twin trails it whenever there
+    # is anything unpushed, and reviewing against that shows what has not been
+    # pushed rather than what the branch is.
+    [[ -n $branch && $name == "$branch" ]] && continue
+    [[ -n ${at_head[$name]-} ]] && continue
+    [[ -n $trunk && $name == "$trunk" ]] && continue
+    ((rank == 0)) && [[ -z ${published[$name]-} ]] && continue
+    # Ties on the same commit go to the local name: it is the one the reader
+    # rebases, and the shorter of the two to read in the header pane.
+    if [[ -z ${name_for[$obj]-} ]] || ((rank < rank_for[$obj])); then
+      name_for[$obj]=$short
+      rank_for[$obj]=$rank
+    fi
+  done <<<"$refs"
+
+  ((${#name_for[@]})) || return 0
+
+  # A candidate that is an ancestor of another candidate can never be the
+  # nearest: everything the nearer one leaves out of the range, the further one
+  # leaves out too. merge-base --independent drops them all in a single walk --
+  # 152 candidates strung along one line come back as 1 -- so the counting below
+  # runs over what survives, which is one ref unless HEAD is a merge of two
+  # published lines.
+  #
+  # Counting every candidate instead cost a rev-list apiece, and on a clone that
+  # keeps its merged branches that was a second and a half on the path the
+  # reader waits on. Taking the first candidate a --topo-order walk meets would
+  # have been two execs flat, but topo order only promises a commit before its
+  # ancestors -- not that the first candidate it reaches is the one fewest
+  # commits behind HEAD, which is a different question and the one being asked.
+  local -a maximal=()
+  local sha
+  while read -r sha; do
+    [[ -n ${name_for[$sha]-} ]] && maximal+=("$sha")
+  done < <(git merge-base --independent "${!name_for[@]}" 2>/dev/null)
+  ((${#maximal[@]})) || return 0
+
+  local dist best=''
+  for obj in "${maximal[@]}"; do
+    dist=$(git rev-list --count "$obj..$head" 2>/dev/null) || continue
+    ((dist > 0)) || continue
+    # Two published lines can sit equally far behind a merge, and the order they
+    # come back in is git's business. The name decides, so the same repository
+    # answers the same way twice.
+    if [[ -z $best ]] || ((dist < best)) ||
+      { ((dist == best)) && [[ ${name_for[$obj]} < $REPLY ]]; }; then
+      best=$dist
+      REPLY=${name_for[$obj]}
+      REPLY_DIST=$dist
+    fi
+  done
+}
+
+# How far HEAD has come since a ref, or nothing when the ref will not resolve.
+gr_distance() {
+  git rev-list --count "$1..HEAD" 2>/dev/null
+}
+
 # Answers in REPLY rather than on stdout. Read through $(...) it cost a fork,
 # and on a machine whose endpoint agent inspects every exec that is a quarter
 # of a second on the path a reader is waiting on.
@@ -66,9 +190,41 @@ gr_resolve_range() {
     return
   fi
 
-  local base range
-  base=$(gr_base_branch) ||
-    { echo 'git review: no base branch found, pass one explicitly' >&2; return 1; }
+  local base range branch configured base_dist
+
+  # Set once per branch and the search is skipped: `git config
+  # branch.<name>.reviewBase <ref>` is the way to say a base the shape of the
+  # history cannot be read off.
+  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
+  configured=''
+  if [[ -n $branch ]]; then
+    configured=$(git config --get "branch.$branch.reviewBase" 2>/dev/null) || configured=''
+  fi
+  if [[ -n $configured ]]; then
+    REPLY="$configured..HEAD"
+    return
+  fi
+
+  if base=$(gr_base_branch); then
+    # gr_base_branch only ever answers origin/<trunk> or a bare trunk name.
+    gr_nearest_base "${base#origin/}"
+    # The trunk keeps the range whenever nothing published sits closer, so a
+    # branch cut from trunk resolves exactly as it always did -- and the range
+    # line goes on naming origin/main rather than a local alias for it.
+    base_dist=$(gr_distance "$base")
+    if [[ -n $REPLY && -n $base_dist ]] && ((REPLY_DIST < base_dist)); then
+      base=$REPLY
+    fi
+  else
+    gr_nearest_base
+    if [[ -n $REPLY ]]; then
+      base=$REPLY
+    else
+      echo 'git review: no base branch found, pass one explicitly' >&2
+      return 1
+    fi
+  fi
+
   range="$base..HEAD"
   # Up to date with the base: nothing is outstanding, so review the tip commit.
   if [[ -z $(git rev-list -1 "$range") ]]; then

@@ -3403,6 +3403,175 @@ assert_eq 'a branch resolves against the same base' 'origin/main..HEAD' \
 assert_eq 'the base branch still has a range' 'origin/main..HEAD' \
   "$(cd "$tmp" && "$review" --range)"
 
+# A branch off a long-lived branch off trunk. Reviewing it against trunk buries
+# the few commits it owns under everything the long-lived branch carries -- 872
+# commits under 5, in the repository this was written for. The base is whichever
+# published ancestor sits closest behind HEAD, so the reader sees their own work.
+stack=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack"' EXIT
+(
+  cd "$stack" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  echo trunk > trunk && git add trunk && git commit -qm trunk
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git checkout -q -b long-lived
+  for n in 1 2 3; do echo "$n" > "long$n"; git add "long$n"; git commit -qm "long $n"; done
+  # Published: the rule only trusts a local branch that has a remote twin.
+  git update-ref refs/remotes/origin/long-lived HEAD
+  git checkout -q -b feature
+  for n in 1 2; do echo "$n" > "feat$n"; git add "feat$n"; git commit -qm "feat $n"; done
+) >/dev/null 2>&1
+
+assert_eq 'the stacked branch owns two commits' 2 \
+  "$(git -C "$stack" rev-list --count long-lived..HEAD 2>/dev/null)"
+assert_eq 'the closest published ancestor is the base' 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# Trunk is still the base where nothing closer exists: the long-lived branch
+# itself resolves the way it always did.
+assert_eq 'a branch off trunk is unchanged' 'origin/main..HEAD' \
+  "$(cd "$stack" && git checkout -q long-lived && "$review" --range)"
+(cd "$stack" && git checkout -q feature) >/dev/null 2>&1
+
+# A ref sitting on HEAD itself leaves nothing to review, so it is not a base.
+(cd "$stack" && git branch -f twin HEAD && git update-ref refs/remotes/origin/twin HEAD) >/dev/null 2>&1
+assert_eq 'a ref level with HEAD is not the base' 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# The branch's own remote twin trails it whenever there is anything unpushed.
+# Reviewing against that shows what has not been pushed, not what the branch is.
+(cd "$stack" && git update-ref refs/remotes/origin/feature HEAD~1) >/dev/null 2>&1
+assert_eq "a branch's own remote twin is never its base" 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# An unpublished branch is a scratch ref, not a base: no remote twin, no say.
+(cd "$stack" && git branch -f wip HEAD~1) >/dev/null 2>&1
+assert_eq 'an unpublished branch is not a base' 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# Set once per branch, and the search is skipped entirely.
+(cd "$stack" && git config branch.feature.reviewBase origin/main) >/dev/null 2>&1
+assert_eq 'reviewBase overrides the search' 'origin/main..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+(cd "$stack" && git config --unset branch.feature.reviewBase) >/dev/null 2>&1
+
+# The remote HEAD symref is a name for trunk, not a branch in its own right --
+# `origin` must never be offered as a base.
+assert_eq 'the remote HEAD symref is not a base' 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# An explicit argument still wins over everything.
+assert_eq 'an explicit base beats the search' 'origin/main..HEAD' \
+  "$(cd "$stack" && "$review" --range origin/main)"
+
+# A local trunk that has run ahead of its remote is an alias for trunk, not a
+# base of its own. Were it allowed to compete, a day of unpushed commits on main
+# would quietly change what a review of a branch cut from main shows.
+(cd "$stack" && git checkout -q main && echo ahead > ahead &&
+  git add ahead && git commit -qm ahead && git checkout -q long-lived) >/dev/null 2>&1
+assert_eq 'local trunk ahead of its remote is still trunk' 'origin/main..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+(cd "$stack" && git checkout -q feature) >/dev/null 2>&1
+assert_eq 'and it does not displace a nearer base' 'long-lived..HEAD' \
+  "$(cd "$stack" && "$review" --range)"
+
+# Where HEAD is a merge, two published lines are both ancestors and the nearer
+# of the two is the base. Which one a history walk reaches first is git's
+# business and not the question being asked, so the counting decides it.
+merged=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged"' EXIT
+(
+  cd "$merged" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  echo trunk > trunk && git add trunk && git commit -qm trunk
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  # far: two commits, but twenty behind HEAD once near is merged in.
+  git checkout -q -b far
+  for n in 1 2; do echo "$n" > "far$n"; git add "far$n"; git commit -qm "far $n"; done
+  git update-ref refs/remotes/origin/far HEAD
+  # near: twenty commits, but four behind HEAD.
+  git checkout -q -b near main
+  for n in $(seq 1 20); do echo "$n" > "near$n"; git add "near$n"; git commit -qm "near $n"; done
+  git update-ref refs/remotes/origin/near HEAD
+  git checkout -q -b feature far
+  echo f > f && git add f && git commit -qm f
+  git merge -q --no-ff near -m merge
+) >/dev/null 2>&1
+
+assert_eq 'the far line is twenty-two behind' 22 \
+  "$(git -C "$merged" rev-list --count far..HEAD 2>/dev/null)"
+assert_eq 'the near line is four behind' 4 \
+  "$(git -C "$merged" rev-list --count near..HEAD 2>/dev/null)"
+assert_eq 'under a merge the nearer line is the base' 'near..HEAD' \
+  "$(cd "$merged" && "$review" --range)"
+
+# Detached: there is no branch name to exclude and no reviewBase to read, but
+# the refs sitting on HEAD are still not bases, so the answer does not move.
+assert_eq 'a detached HEAD resolves the same way' 'long-lived..HEAD' \
+  "$(cd "$stack" && git checkout -q --detach && "$review" --range)"
+(cd "$stack" && git checkout -q feature) >/dev/null 2>&1
+
+# Two published lines equally far behind a merge. Which one git hands back first
+# is its business, so the name decides and the answer is the same twice running.
+tie=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie"' EXIT
+(
+  cd "$tie" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  echo trunk > trunk && git add trunk && git commit -qm trunk
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git checkout -q -b aaa && echo a > a && git add a && git commit -qm a
+  git update-ref refs/remotes/origin/aaa HEAD
+  git checkout -q -b zzz main && echo z > z && git add z && git commit -qm z
+  git update-ref refs/remotes/origin/zzz HEAD
+  git checkout -q -b feature aaa
+  git merge -q --no-ff zzz -m merge
+) >/dev/null 2>&1
+
+assert_eq 'both lines are two behind' '2 2' \
+  "$(git -C "$tie" rev-list --count aaa..HEAD 2>/dev/null) $(git -C "$tie" rev-list --count zzz..HEAD 2>/dev/null)"
+assert_eq 'an equal distance is broken by name' 'aaa..HEAD' \
+  "$(cd "$tie" && "$review" --range)"
+assert_eq 'and it answers the same way twice' 'aaa..HEAD' \
+  "$(cd "$tie" && "$review" --range)"
+
+# No trunk under any of the names git-review knows, but a published branch the
+# work was cut from. The search is the only thing left to answer with.
+notrunk=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"' EXIT
+(
+  cd "$notrunk" || exit 1
+  git init -q -b dev .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  echo d > d && git add d && git commit -qm d
+  git update-ref refs/remotes/origin/dev HEAD
+  git checkout -q -b work && echo w > w && git add w && git commit -qm w
+) >/dev/null 2>&1
+
+assert_eq 'the repository has no main, master or origin/HEAD' '' \
+  "$(git -C "$notrunk" for-each-ref --format='%(refname:short)' \
+     refs/heads/main refs/heads/master refs/remotes/origin/main refs/remotes/origin/master 2>/dev/null)"
+assert_eq 'a published base stands in for a trunk there is none of' 'dev..HEAD' \
+  "$(cd "$notrunk" && "$review" --range)"
+
 section 'git-review: the header'
 with=$(cd "$tmp" && "$review" 1 2>&1 | head -1)
 assert_match 'the range line is printed by default' 'HEAD~1\.\.HEAD' "$(strip <<<"$with")"
@@ -3430,7 +3599,7 @@ section 'opening a review window: all three panes survive it'
 socket=review-test-$$
 # kill-server does not always take the socket file with it, and a suite that
 # has been run a few hundred times leaves a few hundred of them behind.
-trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
 # -f /dev/null: a server that reads the real config spends half a minute
 # letting TPM load every plugin, and none of them matter here.
 if ! want_live; then
@@ -3651,7 +3820,7 @@ assert_ok "$([[ -n ${in_review:-} && -n ${routes_left:-} && -n ${zoomed_review:-
   "${in_review:-} / ${routes_left:-} / ${zoomed_review:-}"
 
 gsock=review-guard-$$
-trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the routing guard' 'live sections are out of scope'
@@ -3731,7 +3900,7 @@ assert_ok "$([[ -n ${hist_base:-} ]] && echo 0 || echo 1)" \
 was='#{?@review_hist_base,#{@review_hist_base},#{history_size}}'
 
 hsock=review-basis-$$
-trap 'rm -rf "$tmp" "$tmp_counts"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the header pane answers its own keys' 'live sections are out of scope'

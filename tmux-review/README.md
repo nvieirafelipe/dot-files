@@ -172,6 +172,29 @@ Or clone it and run the entry point yourself, again after any other plugin:
 `PATH` as a subcommand, so linking it there gives you `git review` in a terminal
 with no tmux involved.
 
+## What gets reviewed
+
+With no range given, the base is the published branch sitting closest behind
+`HEAD`. For a branch cut from trunk that is `origin/main`, the same as it has
+always been. For a branch stacked on a long-lived one it is the branch beneath,
+so a review shows the five commits the branch owns rather than those five under
+the eight hundred the branch beneath it carries.
+
+Published means a remote-tracking ref, or a local branch that has one. It is
+what separates a base from a scratch branch left pointing a couple of commits
+back on the same line: a base is something the work was branched from and goes
+back into, and that is a branch someone else can fetch. A branch's own remote
+twin is never its base, and neither is a local `main` that has run ahead of
+`origin/main` — that is an alias for trunk, not a base of its own.
+
+Where the shape of the history cannot say it, name the base once:
+
+    git config branch.<name>.reviewBase elixir-rewrite
+
+`prefix + k` onto the header pane, `k` to the range row and `enter` retargets a
+review that is already open, and `git review <base>` takes one for a single
+run.
+
 ## Options
 
     set -g @review-key 'g'        # opens a review
