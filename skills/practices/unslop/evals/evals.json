@@ -1,0 +1,91 @@
+{
+  "skill_name": "unslop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Revise this PR description in evals/files/sloppy-pr.md so it is ready to open.",
+      "expected_output": "A short PR body with the same facts, no slop patterns, within the 30-line budget, returned without an editing report.",
+      "files": ["evals/files/sloppy-pr.md"],
+      "expectations": [
+        "The output contains no em dash",
+        "The output contains none of: powerful, robust, seamless, landscape, streamlines, notification artifact",
+        "Routine PR action narration contains no first-person pronoun; it is not treated as a protected quotation",
+        "The output keeps the fact that retries back off exponentially",
+        "The out-of-scope list is reduced to at most one bullet or removed",
+        "The generic conclusion and 'Let me know' closer are removed",
+        "The AI-attribution footer is removed",
+        "'significantly improves reliability' is replaced by a measured fact or removed, not by an invented number",
+        "The output is written in whole sentences, not fragments or arrow shorthand",
+        "The response does not append a list of changes made"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Clean up the prose in evals/files/quoted-feedback.md.",
+      "expected_output": "The customer quote is untouched, including its first person and em dash; the team's sentences are cleaned without losing their qualifiers.",
+      "files": ["evals/files/quoted-feedback.md"],
+      "expectations": [
+        "The quoted customer sentence is reproduced exactly, including 'I' and the em dash",
+        "'leveraged' and 'delve' are removed from the team's sentences",
+        "'It is worth noting that' is removed",
+        "The qualifiers 'may', 'up to two times', and 'only if the first call times out' are all preserved"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review evals/files/sloppy-pr.md for slop. Do not edit it.",
+      "expected_output": "One-line findings citing U pattern IDs, most important first, and no changes to the file.",
+      "files": ["evals/files/sloppy-pr.md"],
+      "expectations": [
+        "The file is not modified",
+        "Each finding follows '<location> · <ID> <name> · \"<quoted text>\" · Fix: <rewrite>'",
+        "Findings cite U IDs from references/patterns.md, including U1, U5, U17, and U28",
+        "Repeated instances of one pattern are grouped into a single finding"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Caveman mode is on. Write the commit message body explaining why the retry cap moved from 5 to 3 attempts: the upstream rate limit is 3 requests per minute.",
+      "expected_output": "A commit body in whole sentences, because terse chat modes do not apply to commits.",
+      "files": [],
+      "expectations": [
+        "The commit body uses whole sentences with articles",
+        "The commit body states the rate-limit reason",
+        "The commit body contains no first-person pronoun"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Tighten this text using only the information here: 'The job runs hourly, ensuring data freshness. This could potentially possibly cause issues.'",
+      "expected_output": "A concise rewrite retains the schedule and uncertainty without inventing guarantees or failure modes.",
+      "files": [],
+      "expectations": [
+        "Preserves the hourly schedule",
+        "Does not infer a maximum data age or freshness guarantee",
+        "Preserves the possibility of issues without inventing dropped messages or another specific failure"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Review this instruction for ambiguity using only this text: 'The client calls the proxy. If it times out, retry.' Do not edit it.",
+      "expected_output": "A U27 finding requests clarification without choosing the timeout actor.",
+      "files": [],
+      "expectations": [
+        "Identifies the ambiguous timeout actor under U27",
+        "Does not assume the client or proxy is the intended actor",
+        "Recommends clarifying the actor rather than supplying an unsupported rewrite"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Rewrite this progress update without first person: 'Let me take a look at the logs.' The log inspection is about to start and has not completed.",
+      "expected_output": "A brief update preserves the pending or starting action status.",
+      "files": [],
+      "expectations": [
+        "Contains no first-person pronoun",
+        "Does not say the logs were checked or report findings",
+        "Describes the inspection as planned or starting"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "skill_name": "technical-writing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review evals/files/runbook-draft.md. No repository or logs are available. Do not edit the file.",
+      "expected_output": "One-line findings with T and U IDs; every unsourced threshold is flagged; the file is unchanged.",
+      "files": ["evals/files/runbook-draft.md"],
+      "expectations": [
+        "The file is not modified",
+        "Each finding follows '<location> · <ID> <name> · <problem> · Fix: <fix>'",
+        "The '5 attempts', '24 hours', and '1 MB' claims are each flagged under T4 receipts",
+        "The secret-rotation prerequisite being stated after `make replay` is flagged under T2 order",
+        "The root-cause claim without evidence is flagged under T4 or T5"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Revise evals/files/runbook-draft.md into a finished runbook. No repository or logs are available to verify the numbers.",
+      "expected_output": "A reordered runbook where unverifiable claims carry UNVERIFIED: labels instead of being stated as fact or silently deleted.",
+      "files": ["evals/files/runbook-draft.md"],
+      "expectations": [
+        "The '5 attempts', '24 hours', and '1 MB' claims are each kept and marked UNVERIFIED:",
+        "The secret-rotation step comes before the `make replay` step",
+        "The steps are a numbered list",
+        "The runbook does not claim that any command was run",
+        "Unverified command behavior and the root cause are not presented as established facts"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Write an investigation summary: 3 orders were double-charged. The query `SELECT order_id FROM charges GROUP BY order_id HAVING count(*) > 1` returned 3 rows. The retry setting is `max_retries: 2` in config/payments.yml:18.",
+      "expected_output": "A concise result-first summary attributes supplied evidence and separates duplicate charge records from confirmed double charging.",
+      "files": [],
+      "expectations": [
+        "The summary leads with the result and places supporting evidence nearby",
+        "The summary cites the supplied SQL query and its reported 3-row result",
+        "The summary cites config/payments.yml:18 as supplied evidence",
+        "It does not claim to have run the query or inspected the config",
+        "It does not infer that retries caused double charging or that multiple charge records alone prove multiple successful payments"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review this statement using only the supplied excerpt: 'Requests stop after three retries (config/client.yml:18).' The entire excerpt at config/client.yml:18 is `connect_timeout_ms: 3000`. Do not edit the statement.",
+      "expected_output": "A finding explains that the cited timeout does not establish a retry limit.",
+      "files": [],
+      "expectations": [
+        "Flags the retry claim under T4 despite the presence of a citation",
+        "Explains that a connection timeout does not establish the retry count",
+        "Does not invent a correct retry limit"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Write a two-sentence explanation for a teammate from these facts supplied by the incident owner: the importer runs hourly; a failed run is retried manually. There is no URL and no repository access.",
+      "expected_output": "A brief explanation uses attributed supplied facts without demanding external evidence or claiming verification.",
+      "files": [],
+      "expectations": [
+        "Preserves the hourly schedule and manual retry behavior",
+        "Attributes the facts to the incident owner without requesting a URL",
+        "Does not label the supplied facts UNVERIFIED merely because they lack a URL",
+        "Does not claim an hourly freshness guarantee or independent verification",
+        "Uses two sentences without an evidence table"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Write only a short docstring for this supplied Python function: `def is_even(n: int) -> bool: return n % 2 == 0`. No other files are available.",
+      "expected_output": "A short accurate docstring without citation scaffolding.",
+      "files": [],
+      "expectations": [
+        "Describes returning whether n is even",
+        "Does not invent input validation or exceptions",
+        "Contains no evidence table, invented file path, or UNVERIFIED label"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Use technical-writing and unslop to revise this incident note into at most two sentences. Subagents are unavailable; verify directly against the supplied facts only. Draft: 'The job runs hourly, ensuring fresh data. Failed runs may require manual replay. Replay is safe for all orders.' Supplied facts: the job is scheduled hourly; failed runs may require manual replay; replay safety has not been established.",
+      "expected_output": "A concise note preserves operational uncertainty and completes direct verification without delegation.",
+      "files": [],
+      "expectations": [
+        "Keeps the hourly schedule and the qualifier may for manual replay",
+        "Preserves replay safety as an explicit UNVERIFIED claim instead of deleting it",
+        "Does not guarantee freshness from the schedule",
+        "Completes the revision without spawning a subagent or requiring delegation",
+        "Uses at most two sentences"
+      ]
+    }
+  ]
+}
