@@ -8,9 +8,15 @@ STARTER_CHARACTER = 🌳
 ## What Deciduous is
 
 A living decision graph for codebases. It captures *why* code
-looks the way it does — not just *what* changed. The graph
+looks the way it does, not just *what* changed. The graph
 connects Goals → Options → Decisions → Actions → Outcomes →
-Observations → Revisits into a queryable DAG backed by SQLite.
+Observations → Revisits into a queryable DAG. The local
+database is SQLite; the shared copy is either
+`.deciduous/graph.json` in git or a graph server.
+
+Written against deciduous 1.0.8. Check the installed version
+with `deciduous --version`; `deciduous check-update` lists what
+changed since the project's integration files were written.
 
 ## Prerequisites
 
@@ -23,57 +29,97 @@ which deciduous 2>/dev/null
 If not found, install it:
 
 ```bash
-brew install deciduous
+brew install notactuallytreyanastasio/tap/deciduous
+# or
+cargo install deciduous --locked
 ```
 
-If not available, tell the user to install from
-https://deciduous.dev/ and do not proceed.
+If neither works, point the user at
+https://github.com/notactuallytreyanastasio/deciduous and do
+not proceed.
 
-Once available, initialize in the project if not already:
+### Graph server: required by `init` and `update` since 1.0.5
+
+`deciduous init` and `deciduous update` stop with exit 1 until
+the project points at a shared graph server (PostgreSQL behind
+an MCP endpoint), or they are told to skip that step. With a
+terminal they ask; without one (an agent's shell) they stop and
+name the flags. Ask the user which of these to use. Never pick
+one silently, because two of them start or register services:
+
+| Choice | Command |
+|--------|---------|
+| No server: graph lives in git as `.deciduous/graph.json` | `DECIDUOUS_NO_SERVER=1 deciduous update` |
+| Server on this machine (PostgreSQL 17 + server in Docker) | `deciduous remote setup --local` |
+| Server someone else runs | `deciduous remote setup --url <url>` |
+
+`remote setup` is interactive (the token is typed hidden), so
+have the user run it with `! deciduous remote setup ...`. It
+stores the token in `~/.config/deciduous/credentials` (mode
+0600), writes `[remote]` to `.deciduous/config.toml`, and
+registers the server with Claude Code. Never put a literal
+token in `.mcp.json`; use `${DECIDUOUS_MCP_TOKEN}`.
+
+Initialize a project only when `.deciduous/` is missing, with
+the same server choice:
 
 ```bash
-[ -d .deciduous ] || deciduous init
+[ -d .deciduous ] || DECIDUOUS_NO_SERVER=1 deciduous init
 ```
 
 ## Node vocabulary
 
-- **Goal** — what needs accomplishing
-- **Option** — an approach considered
-- **Decision** — the choice made and its rationale
-- **Action** — implementation work performed
-- **Outcome** — observable result
-- **Observation** — insight that attaches anywhere in the graph
-- **Revisit** — pivot point where a prior approach was superseded
+- **Goal**: what needs accomplishing
+- **Option**: an approach considered
+- **Decision**: the choice made and its rationale
+- **Action**: implementation work performed
+- **Outcome**: observable result
+- **Observation**: insight that attaches anywhere. Needs a
+  title *and* `-d "<description>"`; the CLI warns without one
+- **Revisit**: pivot point where a prior approach was
+  superseded
+
+Statuses accepted by `deciduous status`: `pending`, `active`,
+`completed`, `rejected`. There is no `cancelled`, `superseded`
+or `abandoned` status; mark a replaced approach with
+`deciduous archaeology supersede <id>`.
+
+Edge types for `deciduous link -t`: `leads_to` (default),
+`requires`, `chosen`, `rejected`, `blocks`, `enables`,
+`took_from`. `took_from` records a borrow: from the node taken
+from to the node that used it, usually across branches.
+
+Node references accept a local id, a `change_id` prefix (the
+CHANGE column in `deciduous nodes`), or a server id.
 
 ## Commands
 
-### `/decision-graph` — bootstrap from git history
+### `/decision-graph`: bootstrap from git history
 
 Analyzes commit history and builds a retroactive decision
 graph. Nodes are backdated to commit timestamps and grounded
-in real SHAs.
+in real SHAs. Layer 4 mines PR descriptions and review threads
+with `gh`, so it only helps on GitHub-hosted repositories.
 
 Use **once per repo** to bootstrap, or when onboarding to an
 unfamiliar codebase.
 
-### `/work` — start a work transaction
+### `/work`: start a work transaction
 
 Creates a Goal node before implementation begins. Subsequent
-Actions and Outcomes are linked automatically through to
-commit.
+Actions and Outcomes are linked through to commit.
 
-Use **every time you start a unit of work**. This is the
-"begin transaction" for decision tracking.
+Use **every time you start a unit of work**.
 
-### `/decision` — log a choice
+### `/decision`: log a choice
 
 Records Options considered, the Decision made, and the
 rationale. Also manages edges, attachments, and exports.
 
-Use **at architectural inflection points** — choosing between
+Use **at architectural inflection points**: choosing between
 approaches, making trade-offs, picking libraries or patterns.
 
-### `/recover` — restore session context
+### `/recover`: restore session context
 
 Rebuilds active goals, attached documents, branch state, and
 recent commits. Audits for disconnected nodes.
@@ -81,61 +127,68 @@ recent commits. Audits for disconnected nodes.
 Use **at the start of every new session**, especially after
 context compaction.
 
-### `/document` — generate docs from the graph
+### `/document`: generate docs from the graph
 
 Traces callers, tests, and dependencies for a file or
 directory and generates documentation.
 
-Use **before refactoring or onboarding** to understand what
-you are about to touch.
+Use **before refactoring or onboarding**.
 
-### `/sync` — team synchronization
+### `/sync`: team synchronization
 
-Append-only, git-mergeable event sync across team members.
+Runs `deciduous sync`, which reconciles `.deciduous/graph.json`
+with the local database in both directions. Run it after
+`git pull` and before `git push`. `deciduous sync --check`
+exits 1 when anything is pending, so it works as a pre-push
+check. With a `[remote]` configured, use `deciduous remote
+pull`, `push` and `status` instead.
 
-Use **on team projects** when multiple people need shared
-decision context.
+### `/serve-ui`: local graph viewer
 
-### `/serve-ui` — local graph viewer
-
-Launches localhost:3000 with DAG, timeline, chains,
-archaeology, and Q&A views. Auto-refreshes.
+Runs `deciduous serve` (localhost:3000) with DAG, timeline,
+chains, archaeology, and Q&A views.
 
 Use **when you need to visually navigate** the decision
-history or present it to others.
+history.
 
-### `/sync-graph` — export for GitHub Pages
-
-Exports graph data to JSON for static deployment.
-
-Use **for sharing the graph externally** — stakeholders, new
-hires, async reviews.
+`/sync-graph` and the `docs/` GitHub Pages export were removed
+in 1.0.5; `deciduous update` deletes what it wrote there.
 
 ## Skills (contextual guides)
 
 ### `pulse`
 
 Reads code within a scope and maps it to decisions. Shows
-active goals and completion status.
-
-Use for **quick health checks** — "where are we on this
-subsystem?"
+active goals and completion status. Use for **quick health
+checks**.
 
 ### `narratives`
 
-Maintains `.deciduous/narratives.md` — a living doc of how
-subsystems evolved, with pivot tracking.
-
-Runs **continuously** as the system evolves. It is the prose
+Maintains `.deciduous/narratives.md`, a living doc of how
+subsystems evolved, with pivot tracking. It is the prose
 companion to the graph.
 
 ### `archaeology`
 
-Turns narratives into graph structure. Creates Revisit nodes
-and marks old approaches as superseded.
+Turns narratives into graph structure. `deciduous archaeology
+pivot` builds a pivot chain in one call; `archaeology
+supersede` marks an old approach superseded. Use **when
+approaches change**.
 
-Use **when approaches change** — the pivot happened, now
-record it properly.
+## MCP server
+
+`deciduous mcp` serves this project's local database over
+stdio. Register it with:
+
+```bash
+claude mcp add deciduous -- deciduous mcp
+```
+
+Prefer the MCP tools over shelling out when the server is
+registered. With a graph server configured, `remote setup`
+registers that endpoint instead, and its tools
+(`check_activity`, `took_from` on `log_observation`) are the
+ones several agents share.
 
 ## Integration with plan files
 
@@ -146,14 +199,14 @@ decisions to the Deciduous graph:
 1. After finalizing the `## Decisions` table in the plan,
    run `/decision` for each row to create Decision nodes
    linked to the current Goal
-2. Include the Options you considered — not just the choice
-   made — so the graph captures the full decision space
+2. Include the Options you considered, not just the choice
+   made, so the graph captures the full decision space
 3. When deviating from a plan during implementation, create
    a Revisit node linking the original Decision to the new
    approach
 
-This keeps the plan as the readable artifact and the graph
-as the queryable, cross-project knowledge base.
+The plan stays the readable artifact; the graph is the
+queryable one.
 
 ## Typical workflows
 
@@ -172,113 +225,98 @@ commit → repeat
 `archaeology` → creates Revisit chain → `narratives`
 updates the evolution doc
 
+**After upgrading the binary:**
+`deciduous check-update` → ask the server question above →
+`deciduous update` → `deciduous sync` → stage the changes by
+path and commit
+
 ## Versioning strategy
 
-The SQLite database (`.deciduous/deciduous.db`) should NOT be
-versioned — it's a binary file that git can't diff or merge.
-Instead, version the JSON export:
+| Path | Versioned | Why |
+|------|-----------|-----|
+| `.deciduous/graph.json` | Yes | The shared graph: every node, edge, theme and tag |
+| `.deciduous/config.toml`, `.deciduous/.version` | Yes | Project config and integration version |
+| `.deciduous/narratives.md` | Yes | Prose companion |
+| `.deciduous/deciduous.db` | No | Local cache, rebuilt by `sync` |
+| `.deciduous/update-backups/` | No | Copies `update` makes before changing files |
+| `.deciduous/remote-log.jsonl` | No | Writes queued for a graph server |
 
-1. Run `deciduous sync` before committing to export the graph
-2. Commit `docs/graph-data.json` and `docs/git-history.json`
-3. The `.deciduous/config.toml` and `.version` are versioned
-4. The database is local — rebuilt from events or fresh
+Concurrent edits to `graph.json` always conflict in git; the
+`deciduous merge-record` merge driver, registered by `init`,
+`update` and `sync`, merges them record by record. A
+`graph.json` that does not parse stops a sync instead of being
+read as an empty graph.
 
-This keeps the decision history human-readable, git-diffable,
-and merge-friendly. The JSON export is what powers the web
-viewer and GitHub Pages deployment.
+### Migrating from 0.16 or older
 
-## Responding to hooks
+Pre-0.17 projects keep the graph in
+`.deciduous/sync/events/*.jsonl` plus `checkpoint.json`. The
+first `deciduous sync` imports them into `graph.json` and
+deletes them. After it:
 
-Deciduous installs two Claude Code hooks. Follow these rules
-when they fire:
+```bash
+git rm -r --cached .deciduous/sync
+git add .deciduous/graph.json .gitignore .gitattributes
+```
 
-### Post-commit reminder (after `git commit`)
+Drop any `.gitattributes` lines for `.deciduous/sync/`, and
+retire `deciduous events ...` commands in Makefiles and docs:
+`events` is a deprecated alias for `sync`, and `events
+checkpoint` has no replacement because there is no log to
+compact.
 
-The hook outputs the commit hash, message, pending action/outcome
-count, and (when applicable) sweep + checkpoint hints. You MUST:
+## Hooks
 
-1. Derive a suggested outcome description from the commit message
-2. Find the most recent action node to link to:
-   ```bash
-   deciduous nodes | grep '\[action\]' | tail -1
-   ```
-3. Present the user with pre-filled commands and ask for
-   confirmation before running them:
-   ```
-   Deciduous: link this commit to the decision graph?
+Upstream removed its logging hooks in 1.0.3: they denied tool
+calls until the agent wrote to the graph and could leave a
+session unable to do anything. `deciduous update` deletes the
+hook scripts it wrote and takes `deciduous log-loop` out of
+`.claude/settings.json`; the only hook left is a once-a-day
+version check that never blocks. Logging is driven by the
+`CLAUDE.md` section and, for MCP clients, the server's
+`instructions`.
 
-   deciduous add outcome "<derived description>" -c 95 --commit HEAD
-   deciduous link <outcome_id> <action_id> -r "<derived reason>"
-   deciduous status <action_id> completed
-   deciduous status <outcome_id> completed
+Do not install pre-edit or post-commit logging hooks. If a
+project still has them (`require-action-node.sh`,
+`post-commit-reminder.sh` wired in `.claude/settings.json`),
+offer to remove both the scripts and their settings entries.
 
-   Want me to run these, or adjust anything?
-   ```
-4. Only run the commands after the user confirms or adjusts.
-5. Do NOT silently skip this step or treat it as optional.
-6. If the hook surfaces a **sweep hint** (pending count > 10), offer
-   a status sweep alongside the commit link. Group the pending IDs
-   by shipped vs. not-shipped, then propose:
-   ```bash
-   deciduous status <id> completed   # for shipped action/outcome
-   deciduous status <id> rejected    # for options not chosen
-   deciduous status <id> cancelled   # for abandoned work
-   ```
-7. If the hook surfaces a **checkpoint hint** (event log > 256KB),
-   propose `deciduous events checkpoint --clear-events` after the
-   commit link is in.
+## Graph health maintenance
 
-### Pre-edit guard (before `Edit`/`Write`)
-
-The hook blocks edits when no recent action/goal node exists.
-When blocked:
-
-1. Derive a suggested action description from the task context
-2. Find the most recent goal node to link to:
-   ```bash
-   deciduous nodes | grep '\[goal\]' | tail -1
-   ```
-3. Present the user with pre-filled commands and ask:
-   ```
-   Deciduous: no recent action node. Create one before editing?
-
-   deciduous add action "<derived description>" -c 85
-   deciduous link <goal_id> <action_id> -r "<derived reason>"
-
-   Want me to run these, or adjust anything?
-   ```
-4. Only run after user confirms. Then retry the edit.
-
-## Graph health maintenance — MANDATORY
-
-Status drift is the #1 health problem: commits land but nodes
-stay `pending`, pulse fills with stale entries, and rationale
-becomes hard to query. Apply these rules every session.
+Status drift is the main health problem: commits land but
+nodes stay `pending`, pulse fills with stale entries, and
+rationale becomes hard to query. With no hook to prompt it,
+link commits as part of the commit step itself.
 
 ### After every commit that implements an action
+
+Propose these and run them once the user confirms:
 
 ```bash
 # 1. New outcome node, linked to the commit
 deciduous add outcome "Brief result description" -c 90 --commit HEAD
 
-# 2. Link outcome -> action that produced it
-deciduous link <outcome_id> <action_id> -r "Result of <action>"
+# 2. Link action -> outcome
+deciduous link <action_id> <outcome_id> -r "Result of <action>"
 
 # 3. Flip both nodes to completed once verified
 deciduous status <action_id> completed
 deciduous status <outcome_id> completed
 ```
 
+Then commit `.deciduous/graph.json` by path.
+
 ### When a decision lands
 
 ```bash
-deciduous status <chosen_option_id>  completed
+deciduous status <chosen_option_id>   completed
 deciduous status <rejected_option_id> rejected   # NOT pending
-deciduous status <decision_id>       completed
+deciduous status <decision_id>        completed
 ```
 
-`rejected` is the correct terminal state for unchosen options —
-keeps the alternatives signal while clearing the pending bucket.
+`rejected` is the terminal state for unchosen options and for
+abandoned work: it keeps the alternatives signal while
+clearing the pending bucket.
 
 ### Periodic sweeps (weekly, or when pulse looks noisy)
 
@@ -286,19 +324,16 @@ keeps the alternatives signal while clearing the pending bucket.
 # 1. List pending action/outcome nodes
 deciduous nodes | awk '$3=="pending" && ($2=="action"||$2=="outcome")'
 
-# 2. Flip shipped -> completed, unshipped -> rejected/cancelled
+# 2. Flip shipped -> completed, unshipped -> rejected
 deciduous status <id> completed
 deciduous status <id> rejected
 
-# 3. Checkpoint events when log >256KB
-deciduous events checkpoint --clear-events
-
-# 4. Auto-associate commits to recent action/outcome nodes
+# 3. Auto-associate commits to recent action/outcome nodes
 deciduous audit --associate-commits --dry-run
 deciduous audit --associate-commits --yes
 
-# 5. Re-run pulse to confirm
-make deciduous-pulse   # or: deciduous pulse
+# 4. Re-run pulse to confirm
+deciduous pulse
 ```
 
 ### Health targets
@@ -306,30 +341,32 @@ make deciduous-pulse   # or: deciduous pulse
 | Metric | Target |
 |--------|--------|
 | Coverage gaps | 0 (every action has ≥1 outcome) |
-| Pending action/outcome | <10 (hook nags above this) |
-| Event log per author | <256KB (hook nags above this) |
+| Pending action/outcome | <10 |
 | Options ÷ decisions | ≥1.5 (alternatives logged) |
 | Confidence unset | 0 (always pass `-c <0-100>`) |
+| Observations without `-d` | 0 |
 
 ## Anti-patterns
 
 - Logging every small implementation detail as a Decision
   node. Reserve Decision nodes for choices with alternatives.
+- Logging the assistant's own process (reading files, running
+  a tool) as nodes. The graph records project decisions.
 - Skipping Options. The graph is most valuable when it shows
   what you *didn't* pick and why.
 - Forgetting `/recover` on session start. Context compaction
-  silently drops decision rationale — the graph is your
-  insurance.
+  drops decision rationale; the graph keeps it.
 - Leaving action/outcome nodes `pending` after the commit
   lands. Flip status at the same time as the commit-link.
-- Leaving unchosen options `pending`. Use `rejected` so the
-  pending bucket only contains genuinely open work.
-- Letting the event log grow past 256KB without checkpointing.
-  Rebuild gets slow and merges get noisy.
+- Leaving unchosen options `pending`. Use `rejected`.
+- Running `init` or `update` with a server choice the user did
+  not make.
+- `git add -A` after `update`: it writes backups and may touch
+  `.gitignore`, `.gitattributes` and `CLAUDE.md`. Stage by path.
 
 ## References
 
-- [commands.md](references/commands.md) — detailed command
+- [commands.md](references/commands.md): detailed command
   reference with flags and examples
-- [views.md](references/views.md) — description of each
+- [views.md](references/views.md): description of each
   graph view and when to use it

@@ -66,10 +66,15 @@ the codebase.
 
 ## /sync
 
-Multi-user synchronization:
-- Event-based, append-only architecture
-- Changes are git-mergeable
-- No conflict resolution needed for concurrent edits
+Multi-user synchronization through `deciduous sync`:
+- Reconciles `.deciduous/graph.json` with the local database,
+  in both directions
+- `graph.json` is one git-tracked file; concurrent edits
+  conflict in git and the `deciduous merge-record` driver
+  merges them record by record
+- `deciduous sync --check` exits 1 when anything is pending
+- With a `[remote]` graph server, `deciduous remote pull`,
+  `push` and `status` replace it
 
 ## /serve-ui
 
@@ -77,11 +82,6 @@ Launches web viewer at localhost:3000:
 - Auto-refresh on graph changes
 - Supports DAG, timeline, chains, archaeology, and Q&A views
 - Keyboard navigation (j/k/g/G/Space in archaeology view)
-
-## /sync-graph
-
-Exports graph data to JSON for GitHub Pages deployment.
-Enables sharing the decision graph as a static site.
 
 ## /build-test
 
@@ -111,6 +111,7 @@ Transforms narratives into graph structure:
 - `archaeology pivot` creates pivot chains atomically
 - Generates Revisit nodes
 - Marks old approaches as superseded
+  (`deciduous archaeology supersede <id>`)
 - Connects the complete timeline
 - Enables archaeology view navigation
 
@@ -120,28 +121,34 @@ Flips a node between lifecycle states.
 
 ```bash
 deciduous status <id> completed   # shipped / chosen / observed
-deciduous status <id> rejected    # option not taken
-deciduous status <id> cancelled   # work abandoned
-deciduous status <id> pending     # rare — only to reopen
+deciduous status <id> rejected    # option not taken, or work abandoned
+deciduous status <id> active      # current truth, still in use
+deciduous status <id> pending     # rare: only to reopen
 ```
+
+These four are the only values 1.0.8 accepts.
 
 Run after every commit to flip the corresponding action +
 outcome to `completed`. Run when a decision lands to flip
 chosen options to `completed` and unchosen options to
 `rejected`. Never leave shipped work `pending`.
 
-## deciduous events checkpoint
+## deciduous update
 
-Snapshots the graph and (optionally) clears the event log.
+Refreshes the integration files after a binary upgrade.
 
 ```bash
-deciduous events checkpoint               # snapshot only
-deciduous events checkpoint --clear-events # snapshot + truncate
+deciduous check-update                 # what changed since the files were written
+DECIDUOUS_NO_SERVER=1 deciduous update # no graph server
+deciduous update --all ~/code          # every project under a directory
 ```
 
-Run when `deciduous events status` shows an event file
-larger than ~256KB per author. The post-commit hook surfaces
-a hint when this threshold is crossed.
+Files deciduous wrote are replaced; a user's Markdown keeps its
+text with the new text appended in a marked block; a user's
+script or TOML is left alone. Everything it changes is copied
+to `.deciduous/update-backups/<time>/` first. Since 1.0.5 it
+stops with exit 1 unless the project has a graph server or
+`DECIDUOUS_NO_SERVER=1` is set.
 
 ## deciduous audit
 
@@ -163,10 +170,9 @@ Combine the maintenance commands into a single periodic
 routine:
 
 ```bash
-make deciduous-pulse                                       # diagnose
+deciduous pulse                                            # diagnose
 deciduous nodes | awk '$3=="pending"&&($2~/action|outcome/)' # list stale
 deciduous status <id> completed                            # sweep
-deciduous events checkpoint --clear-events                 # compact
 deciduous audit --associate-commits --yes                  # backlink
-make deciduous-pulse                                       # verify
+deciduous pulse                                            # verify
 ```
