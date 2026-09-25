@@ -23,9 +23,11 @@ usage: git review [--wip | --staged | --stash <ref> | --range | <n> | <base> | <
   (no args)  commits this branch has that its base does not. The base is the
              published branch closest behind HEAD -- the trunk for a branch cut
              from it, the branch beneath for a branch stacked on another. On the
-             base branch itself, that is everything unpushed. Override for one
-             branch with `git config branch.<name>.reviewBase <ref>`.
-  <n>        the last n commits.
+             base branch itself, that is everything unpushed. With no remote
+             and no trunk, it is every commit. Override for one branch with
+             `git config branch.<name>.reviewBase <ref>`.
+  <n>        the last n commits, or every commit when there are fewer than n.
+  HEAD       every commit, the root included.
   <base>     commits since <base> -- any rev: main, origin/main, a tag, a sha.
   <range>    an explicit rev range, e.g. abc1234..def5678.
   --wip      uncommitted changes.
@@ -178,19 +180,40 @@ gr_distance() {
 # Answers in REPLY rather than on stdout. Read through $(...) it cost a fork,
 # and on a machine whose endpoint agent inspects every exec that is a quarter
 # of a second on the path a reader is waiting on.
+#
+# A range with no .. in it is HEAD on its own: every commit HEAD has, the root
+# included. No a..b reaches the root, because the root has no parent to stand
+# on the left of it -- and in a repository that was never pushed anywhere the
+# root is as much a part of the work as the tip.
 gr_resolve_range() {
   if [[ -n ${1-} ]]; then
     if [[ $1 == *..* ]]; then
       REPLY=$1
+    elif [[ $1 == HEAD ]]; then
+      # Since HEAD would be nothing at all, so HEAD names the whole history
+      # instead. It is also how a review of the whole history is asked for
+      # again: the picker's range prompt is filled in with the range on screen.
+      REPLY=HEAD
     elif [[ $1 =~ ^[0-9]+$ ]]; then
-      REPLY="HEAD~$1..HEAD"
+      if ((10#$1 == 0)); then
+        echo 'git review: the last 0 commits are nothing to review' >&2
+        return 1
+      fi
+      # HEAD~n stops existing once n reaches the root, and a range from a rev
+      # that does not exist is fatal. Past the root, the last n commits are all
+      # of them.
+      if git rev-parse --verify --quiet "HEAD~$1^{commit}" >/dev/null 2>&1; then
+        REPLY="HEAD~$1..HEAD"
+      else
+        REPLY=HEAD
+      fi
     else
       REPLY="$1..HEAD"
     fi
     return
   fi
 
-  local base range branch configured base_dist
+  local base range branch configured base_dist unpushed=0
 
   # Set once per branch and the search is skipped: `git config
   # branch.<name>.reviewBase <ref>` is the way to say a base the shape of the
@@ -206,7 +229,10 @@ gr_resolve_range() {
   fi
 
   if base=$(gr_base_branch); then
-    # gr_base_branch only ever answers origin/<trunk> or a bare trunk name.
+    # gr_base_branch only ever answers origin/<trunk> or a bare trunk name, and
+    # the bare name only where origin has no trunk at all -- so nothing on it
+    # has been pushed there.
+    [[ $base == origin/* ]] || unpushed=1
     gr_nearest_base "${base#origin/}"
     # The trunk keeps the range whenever nothing published sits closer, so a
     # branch cut from trunk resolves exactly as it always did -- and the range
@@ -214,21 +240,35 @@ gr_resolve_range() {
     base_dist=$(gr_distance "$base")
     if [[ -n $REPLY && -n $base_dist ]] && ((REPLY_DIST < base_dist)); then
       base=$REPLY
+      unpushed=0
     fi
   else
     gr_nearest_base
     if [[ -n $REPLY ]]; then
       base=$REPLY
+    elif git rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+      # No trunk under any name and no published branch behind HEAD: the work
+      # was never branched from anything, so there is no base to leave out of
+      # it and every commit is the review.
+      REPLY=HEAD
+      return 0
     else
-      echo 'git review: no base branch found, pass one explicitly' >&2
+      echo 'git review: no commits to review yet' >&2
       return 1
     fi
   fi
 
   range="$base..HEAD"
-  # Up to date with the base: nothing is outstanding, so review the tip commit.
   if [[ -z $(git rev-list -1 "$range") ]]; then
-    range=$(git rev-parse --verify --quiet HEAD~1 >/dev/null && echo 'HEAD~1..HEAD' || echo HEAD)
+    if ((unpushed)); then
+      # Level with a trunk nobody has pushed: every commit on it is still
+      # outstanding, and that is the review.
+      range=HEAD
+    else
+      # Up to date with a pushed base: nothing is outstanding, so review the
+      # tip commit.
+      range=$(git rev-parse --verify --quiet HEAD~1 >/dev/null && echo 'HEAD~1..HEAD' || echo HEAD)
+    fi
   fi
   REPLY=$range
 }

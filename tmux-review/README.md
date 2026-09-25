@@ -187,6 +187,13 @@ back into, and that is a branch someone else can fetch. A branch's own remote
 twin is never its base, and neither is a local `main` that has run ahead of
 `origin/main` — that is an alias for trunk, not a base of its own.
 
+A repository that was never pushed anywhere has no base to find: no remote, no
+trunk under any of the usual names, or only the branch being read. There the
+review is every commit, root included, and the range line says `HEAD`: the one
+spelling of the whole history, since no `a..b` reaches past the root. `git
+review HEAD` asks for the same thing anywhere, and so does `git review <n>` once
+n is as many commits as HEAD has, or more.
+
 Where the shape of the history cannot say it, name the base once:
 
     git config branch.<name>.reviewBase elixir-rewrite
@@ -194,6 +201,13 @@ Where the shape of the history cannot say it, name the base once:
 `prefix + k` onto the header pane, `k` to the range row and `enter` retargets a
 review that is already open, and `git review <base>` takes one for a single
 run.
+
+The picker behind that row offers only what has commits or changes in it. A
+branch at or ahead of HEAD is left out, the working tree and the index only
+appear when something is in them, and the count prompt says how many commits
+there are to go back through. A range typed at either prompt that turns
+out to hold nothing is refused with a message, and the review already open
+stays where it is.
 
 ## Options
 

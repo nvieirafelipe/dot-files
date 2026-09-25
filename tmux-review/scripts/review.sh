@@ -74,6 +74,9 @@ self=$scripts_dir/${BASH_SOURCE[0]##*/}
 # key was pressed in even when several clients are attached.
 open() {
   local target=$1 cwd session came_from win_w win_h range diff_pane info
+  # The diff pane, once there is one. retarget reads it to tell a review that
+  # opened from one that was refused, which it must not close the old one for.
+  opened=''
   # One call for all five: each round trip costs tens of milliseconds, and this
   # is the path the reader waits on before anything appears.
   # \x1f between the fields rather than a tab. Tab is one of the characters
@@ -98,6 +101,14 @@ open() {
     return 0
   }
   range=$REPLY
+  # A range that was asked for, rather than resolved, is only text until git has
+  # read it: a typed rev that does not exist, or a base that is already level
+  # with HEAD, would otherwise open a window round a diff that never arrives.
+  # The resolution checks the range it answers itself, so only these pay.
+  if [[ -n ${2-} && -z $(git rev-list -1 "$range" 2>/dev/null) ]]; then
+    tmux display-message -t "$target" "review: no commits to review in $2"
+    return 0
+  fi
 
   # Both panes are told the layout rather than negotiating it. The list used to
   # measure its commits, publish the width, and the diff pane poll for it
@@ -118,6 +129,7 @@ open() {
 
   diff_pane=$(tmux new-window -t "$session:" -P -F '#{pane_id}' -c "$cwd" \
     -n "$range review" "$self diff $(printf '%q' "$range") $delta_w")
+  opened=$diff_pane
 
   # The left column is two panes: what is being reviewed on top, the commits
   # under it. The header is split off first, so that it is the earlier of the
@@ -400,8 +412,18 @@ load_stats() {
 # The diffstat the placeholder shows, in both a plain and a coloured form. Sets
 # the caller's change_plain and change_col.
 load_change_summary() {
-  local line files='' ins='' del=''
-  line=$(git diff --shortstat "$1") || return 0
+  local line files='' ins='' del='' empty
+  if [[ $1 == *..* ]]; then
+    line=$(git diff --shortstat "$1") || return 0
+  else
+    # A range with no .. is every commit up to that rev, and git diff given a
+    # rev alone compares it with the working tree instead. The root was made
+    # against the empty tree, so the whole history is that tree to the rev.
+    # Hashed rather than written out, because it is a different id in a
+    # sha256 repository.
+    empty=$(git hash-object -t tree /dev/null) || return 0
+    line=$(git diff --shortstat "$empty" "$1") || return 0
+  fi
   # Three independent matches rather than one pattern spelling all of them in
   # order. A range that only deletes has no insertions at all, and the ordered
   # form left that field empty -- which `read` then dropped, because a run of
@@ -757,12 +779,11 @@ settle_view() {
 # still a whole commit -- and the tail is everything after it. Fills the
 # caller's chunks.
 #
-# A range with no "..", which is what --wip and a single-commit repository
-# resolve to, has nothing to split and is rendered in one go.
+# A range with no ".." is the whole history, and splits the same way: the root
+# is the first commit, and git log of a root is that commit alone.
 plan_chunks() {
   local range=$1 all head_sha
   chunks=("$range")
-  [[ $range == *..* ]] || return 0
   # Asked for here rather than handed over by the list. It costs a git, but it
   # is spent in the time this pane used to spend blocked on the list for its
   # width -- and the list no longer has to be reached at all.
@@ -776,7 +797,11 @@ plan_chunks() {
   [[ $all == *$'\n'* ]] || return 0
   head_sha=${all%%$'\n'*}
   [[ -n $head_sha ]] || return 0
-  chunks=("${range%%..*}..$head_sha" "$head_sha..${range##*..}")
+  if [[ $range == *..* ]]; then
+    chunks=("${range%%..*}..$head_sha" "$head_sha..${range##*..}")
+  else
+    chunks=("$head_sha" "$head_sha..$range")
+  fi
   return 0
 }
 
@@ -3208,9 +3233,15 @@ claim_width() {
 # without the renderer having to know where the groups are.
 #
 # Built on demand rather than at startup: branches and stashes change under a
-# long-lived review, and this costs two git calls only when it is asked for.
+# long-lived review, and this costs four git calls only when it is asked for.
+#
+# Nothing is offered that would open onto nothing. A branch HEAD is level with
+# or behind has no commits since it, a clean working tree has nothing
+# uncommitted, and a count past the root has no HEAD~n to stand on -- each
+# either opens an empty review or refuses to open at all, and the reader finds
+# out only after choosing it.
 load_pick_items() {
-  local range=$1 name subject
+  local range=$1 name subject status count
   pick_kind=()
   pick_label=()
   pick_extra=()
@@ -3224,17 +3255,34 @@ load_pick_items() {
   }
 
   pick_add range 'outstanding' "$range" ''
-  pick_add prompt-count 'last n commits' 'asks' ''
-  pick_add prompt-range 'a range' 'asks' ''
-  pick_add sep '' '' ''
-  pick_add wip 'uncommitted' 'working tree' ''
-  pick_add staged 'staged' 'index' ''
+  # First parent, because that is the line HEAD~n walks. At n the count reaches
+  # the root and the last n commits are every commit, so 1 to n is every answer
+  # that means something.
+  count=$(git rev-list --count --first-parent HEAD 2>/dev/null) || count=''
+  [[ -n $count ]] && pick_add prompt-count 'last n commits' "1-$count" "$count"
+  # Seeded with the range on screen, which is the one range known to resolve.
+  pick_add prompt-range 'a range' 'asks' "$range"
 
+  # Tracked changes only, because those are all the working tree review shows.
+  # The index column is the first of the two, so a staged change is any line
+  # that does not open on a space.
+  status=$(git status --porcelain --untracked-files=no 2>/dev/null) || status=''
+  if [[ -n $status ]]; then
+    pick_add sep '' '' ''
+    pick_add wip 'uncommitted' 'working tree' ''
+    [[ $'\n'$status == *$'\n'[![:space:]]* ]] && pick_add staged 'staged' 'index' ''
+  fi
+
+  # --no-contains HEAD is exactly the refs with something since them: one that
+  # contains HEAD is level with it or ahead, and a range from it to HEAD is
+  # empty. Which takes the branch being reviewed out, and its remote twin while
+  # nothing is unpushed.
   local -a branches=()
   while IFS= read -r name; do
     [[ -n $name ]] && branches+=("$name")
-  done < <(git for-each-ref --sort=-committerdate --format='%(refname:short)' \
-    refs/heads refs/remotes 2>/dev/null | grep -v '^origin$' | head -12)
+  done < <(git for-each-ref --no-contains=HEAD --sort=-committerdate \
+    --format='%(refname:short)' refs/heads refs/remotes 2>/dev/null |
+    grep -v '^origin$' | head -12)
   if ((${#branches[@]})); then
     pick_add sep '' '' ''
     for name in "${branches[@]}"; do
@@ -3374,12 +3422,16 @@ apply_pick() {
       tmux display-popup -E -w 90% -h 90% -d "$cwd" \
         "$git_review --stash $(printf '%q' "$payload")"
       ;;
+    # The prompts are seeded from the item: the count carries how far back
+    # there is to go, and the range the one on screen. A typed answer is still
+    # checked by open, which refuses a range with nothing in it and leaves this
+    # review where it is.
     prompt-count)
-      tmux command-prompt -p 'review the last n commits:' -I '1' \
+      tmux command-prompt -p "review the last n commits (1-$payload):" -I '1' \
         "run-shell \"$self retarget $win %%\""
       ;;
     prompt-range)
-      tmux command-prompt -p 'review:' -I 'origin/HEAD' \
+      tmux command-prompt -p 'review:' -I "$payload" \
         "run-shell \"$self retarget $win %%\""
       ;;
   esac
@@ -3393,6 +3445,9 @@ retarget() {
   [[ -n $origin ]] || return 0
   back=$(tmux show-options -w -t "$win" -qv @review_return 2>/dev/null) || back=''
   open "$origin" "$target" "$back" || return 0
+  # open has already said why it opened nothing, and the review the reader is
+  # in is still the right one to be left in.
+  [[ -n ${opened-} ]] || return 0
   tmux kill-window -t "$win"
 }
 

@@ -601,23 +601,75 @@ restore_review
 
 section 'the picker: what it offers and how it moves'
 declare -a pick_kind pick_label pick_extra pick_payload
-load_pick_items 'base..HEAD'
-assert_eq 'the range being reviewed is the first item' range "${pick_kind[0]}"
-assert_eq 'and it is labelled as the outstanding one' outstanding "${pick_label[0]}"
-assert_eq 'it carries the range in the second column' 'base..HEAD' "${pick_extra[0]}"
-assert_match 'the working tree is offered' 'wip' "${pick_kind[*]}"
-assert_match 'the index is offered' 'staged' "${pick_kind[*]}"
-assert_match 'a range can be typed' 'prompt-range' "${pick_kind[*]}"
-assert_match 'a commit count can be typed' 'prompt-count' "${pick_kind[*]}"
-assert_match 'branches are offered' 'since' "${pick_extra[*]}"
-branch_payloads=0
-for i in "${!pick_kind[@]}"; do
-  [[ ${pick_extra[i]} == since && -n ${pick_payload[i]} ]] && branch_payloads=1
-done
-assert_eq 'every branch carries the ref to review against' 1 "$branch_payloads"
+pick_cwd=$PWD
+pick_repo=$(mktemp -d)
+(
+  cd "$pick_repo" || exit 1
+  git init -q -b docs .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  for n in 1 2 3; do echo "$n" > "doc$n"; git add "doc$n"; git commit -qm "doc $n"; done
+) >/dev/null 2>&1
+# Every column of every item, an item a line, so a whole picker is compared at
+# once rather than the parts of it a test remembered to look at.
+picked() {
+  local i
+  for i in "${!pick_kind[@]}"; do
+    printf '%s|%s|%s|%s\n' "${pick_kind[i]}" "${pick_label[i]}" "${pick_extra[i]}" \
+      "${pick_payload[i]}"
+  done
+}
+pick_in_repo() { cd "$pick_repo" || return; load_pick_items "$1"; cd "$pick_cwd" || :; }
+
+# Clean, one branch, no remote: the repository this was written for. The only
+# branch is the one being reviewed and the tree has nothing in it, so there is
+# nothing to offer beyond the range itself and the two ways to type another.
+pick_in_repo 'HEAD'
+assert_eq 'a clean repository with one branch offers only what resolves' \
+  'range|outstanding|HEAD|
+prompt-count|last n commits|1-3|3
+prompt-range|a range|asks|HEAD' "$(picked)"
+
+# A branch behind HEAD has commits since it and one ahead has none. A change to
+# a tracked file is uncommitted, and a staged one is in the index as well.
+(
+  cd "$pick_repo" || exit 1
+  git branch older HEAD~1
+  git checkout -q -b ahead && echo 4 > doc4 && git add doc4 && git commit -qm 'doc 4'
+  git checkout -q docs
+  echo changed > doc1
+  echo staged > doc2 && git add doc2
+  echo untracked > loose
+) >/dev/null 2>&1
+pick_in_repo 'HEAD'
+assert_eq 'what has something in it is offered, and only that' \
+  'range|outstanding|HEAD|
+prompt-count|last n commits|1-3|3
+prompt-range|a range|asks|HEAD
+sep|||
+wip|uncommitted|working tree|
+staged|staged|index|
+sep|||
+range|older|since|older' "$(picked)"
 assert_eq 'the arrays stay the same length' \
   "${#pick_kind[@]} ${#pick_kind[@]} ${#pick_kind[@]}" \
   "${#pick_label[@]} ${#pick_extra[@]} ${#pick_payload[@]}"
+
+# Unstaged alone is the working tree and not the index. An untracked file is
+# neither, because the working tree review is git diff HEAD and never shows one.
+git -C "$pick_repo" reset -q doc2 >/dev/null 2>&1
+pick_in_repo 'HEAD'
+assert_eq 'a change that is not staged offers no index' \
+  'range prompt-count prompt-range sep wip sep range' "${pick_kind[*]}"
+git -C "$pick_repo" checkout -q -- doc1 doc2 >/dev/null 2>&1
+pick_in_repo 'HEAD'
+assert_eq 'an untracked file offers no working tree' \
+  'range prompt-count prompt-range sep range' "${pick_kind[*]}"
+rm -rf "$pick_repo"
+unset -f picked pick_in_repo
+unset pick_cwd pick_repo
 
 # Separators are items, so that the list can be grouped without the renderer
 # knowing where the groups are -- which means seeking has to step over them.
@@ -1915,8 +1967,15 @@ git() { [[ $* == 'rev-list --reverse base..HEAD' ]] && printf 'c1\n'; }
 chunks=(); plan_chunks 'base..HEAD'
 assert_eq 'one commit has nothing to split' 1 "${#chunks[@]}"
 assert_eq 'so the whole range goes in one' 'base..HEAD' "${chunks[0]}"
+git() { [[ $* == 'rev-list --reverse HEAD' ]] && printf 'r1\n'; }
 chunks=(); plan_chunks 'HEAD'
-assert_eq 'and neither has a range without ..' 'HEAD' "${chunks[0]}"
+assert_eq 'and neither does a history of one commit' 'HEAD' "${chunks[*]}"
+# The whole history splits at the root, and git log of a root is that commit
+# alone -- there is no parent for it to walk on to.
+git() { [[ $* == 'rev-list --reverse HEAD' ]] && printf 'r1\nc2\nc3\n'; }
+chunks=(); plan_chunks 'HEAD'
+assert_eq 'the whole history is the root, then everything since it' 'r1 r1..HEAD' \
+  "${chunks[*]}"
 git() { return 1; }
 chunks=(); plan_chunks 'base..HEAD'
 assert_eq 'a git that fails falls back to the whole range' 'base..HEAD' "${chunks[0]}"
@@ -2249,6 +2308,19 @@ change_plain='untouched'; change_col='untouched'
 git() { printf '\n'; }
 load_change_summary 'base..HEAD'
 assert_eq 'nothing changed leaves the caller what it had' 'untouched' "$change_plain"
+# The whole history is measured from the empty tree. git diff given the rev
+# alone would measure the working tree against it, which on a clean checkout
+# is nothing at all.
+change_plain=''; change_col=''
+git() {
+  case $* in
+    'hash-object -t tree /dev/null') printf 'e0\n' ;;
+    'diff --shortstat e0 HEAD') printf ' 3 files changed, 9 insertions(+)\n' ;;
+    *) printf ' 1 file changed, 1 insertion(+)\n' ;;
+  esac
+}
+load_change_summary 'HEAD'
+assert_eq 'every commit is the empty tree to HEAD' '3 files  +9' "$change_plain"
 unset -f git
 
 section 'review.sh: every verb reaches its handler'
@@ -2311,10 +2383,13 @@ tmux() {
 }
 calls() { open_calls=$(cat "$open_log"); : >"$open_log"; }
 gr_resolve_range() { REPLY='base..HEAD'; return 0; }
+# A range that was asked for is read by git before anything is built round it.
+git() { [[ $1 == rev-list ]] && printf 'c1\n'; return 0; }
 self='/plugin/review.sh'
 open '%0'
 cd "$open_cwd" || :
 calls
+assert_eq 'a review that opens hands retarget its diff pane' '%7' "$opened"
 assert_match 'the diff pane is a new window named for the range' \
   'new-window .*-n base\.\.HEAD review' "$open_calls"
 # 220 less the 77 the list takes and its border is 142 for the diff pane, and
@@ -2358,7 +2433,17 @@ open '%0'; cd "$open_cwd" || :; calls
 assert_eq 'a range that will not resolve opens nothing either' 0 \
   "$(grep -c 'new-window' <<<"$open_calls")"
 assert_match 'and says why' 'no commits to review' "$open_calls"
-unset -f tmux open_info calls
+assert_eq 'and retarget is told nothing opened' '' "$opened"
+# A range that was asked for and resolves to text git has nothing for -- a rev
+# that was never there, a base level with HEAD -- is refused the same way.
+gr_resolve_range() { REPLY='gone..HEAD'; return 0; }
+git() { return 128; }
+open '%0' 'gone'; cd "$open_cwd" || :; calls
+assert_eq 'a range with no commits in it opens nothing' 0 \
+  "$(grep -c 'new-window' <<<"$open_calls")"
+assert_match 'and says which range it was' 'no commits to review in gone' "$open_calls"
+assert_eq 'and retarget is told so' '' "$opened"
+unset -f tmux open_info calls git
 restore_review
 rmdir "$open_dir" 2>/dev/null || :; rm -f "$open_log"
 unset open_calls open_cwd open_dir open_log
@@ -2373,12 +2458,17 @@ tmux() {
   esac
   return 0
 }
-open() { retarget_calls+="[open $*]"; }
+open() { retarget_calls+="[open $*]"; opened='%12'; }
 retarget_pane='%7'; retarget_calls=''; retarget '@9' 'HEAD~5..HEAD'
 assert_match 'the new review is opened over the old pane' \
   'open %7 HEAD~5\.\.HEAD @4' "$retarget_calls"
 assert_match 'and the window it replaces is closed afterwards' \
   'kill-window -t @9' "$retarget_calls"
+# A typed range that open refuses leaves the reader in the review they had,
+# not in whatever window was next to it.
+open() { retarget_calls+="[open $*]"; opened=''; }
+retarget_pane='%7'; retarget_calls=''; retarget '@9' 'gone'
+assert_eq 'a range open refuses closes nothing' '[open %7 gone @4]' "$retarget_calls"
 retarget_pane=''; retarget_calls=''; retarget '@9' 'HEAD~5..HEAD'
 assert_eq 'a window that is not a review is left alone' '' "$retarget_calls"
 unset -f tmux; restore_review; unset retarget_calls retarget_pane
@@ -2611,7 +2701,7 @@ tmux() {
 }
 git_review='/plugin/bin/git-review'; self='/plugin/review.sh'
 pick_kind=(range wip staged stash prompt-count prompt-range none)
-pick_payload=('HEAD~4..HEAD' '' '' 'stash@{2}' '' '' '')
+pick_payload=('HEAD~4..HEAD' '' '' 'stash@{2}' '32' 'HEAD' '')
 pick_args=''; apply_pick '%7' '@9' 0
 assert_eq 'a range is opened over this window' '[retarget @9 HEAD~4..HEAD]' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 1
@@ -2623,13 +2713,13 @@ pick_args=''; apply_pick '%7' '@9' 3
 assert_match 'a stash is quoted, braces and all' \
   'git-review --stash stash@.\{2.\}' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 4
-assert_match 'a count is asked for at the prompt' \
-  "command-prompt -p review the last n commits: -I 1" "$pick_args"
+assert_match 'a count is asked for, with how far back there is to go' \
+  'command-prompt -p review the last n commits \(1-32\): -I 1' "$pick_args"
 assert_match 'and answered by retargeting this window' \
   'run-shell "/plugin/review.sh retarget @9 %%"' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 5
-assert_match 'a range is asked for with a sensible default' \
-  "command-prompt -p review: -I origin/HEAD" "$pick_args"
+assert_match 'a range is asked for, seeded with the one on screen' \
+  'command-prompt -p review: -I HEAD run-shell' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 6
 assert_eq 'the row that says no agent is running does nothing' '' "$pick_args"
 unset -f tmux; restore_review; unset pick_args
@@ -3379,16 +3469,33 @@ assert_eq 'a count becomes a relative range' 'HEAD~3..HEAD' \
 assert_eq 'a ref becomes a range to HEAD' 'main..HEAD' \
   "$(cd "$tmp" && "$review" --range main)"
 
-# No remote at all: nothing is outstanding, so the tip commit is the review.
-assert_eq 'no base and nothing outstanding falls back to the tip' 'HEAD~1..HEAD' \
+# No remote at all, and HEAD on main: nothing on it was ever pushed, so every
+# commit is outstanding and all of them are the review, the root included.
+assert_eq 'a trunk nobody has pushed is reviewed whole' 'HEAD' \
   "$(cd "$tmp" && "$review" --range)"
 
-# With origin/HEAD recorded, the base is the remote branch.
+# HEAD~n stops existing at the root. Four commits are HEAD~3..HEAD and the root.
+assert_eq 'a count that reaches the root is every commit' 'HEAD' \
+  "$(cd "$tmp" && "$review" --range 4)"
+assert_eq 'and so is one that goes past it' 'HEAD' \
+  "$(cd "$tmp" && "$review" --range 40)"
+assert_eq 'HEAD on its own is every commit, not the none since it' 'HEAD' \
+  "$(cd "$tmp" && "$review" --range HEAD)"
+(cd "$tmp" && "$review" --range 0) >/dev/null 2>&1
+assert_eq 'the last 0 commits are refused' 1 "$?"
+assert_eq 'the whole history is every commit git log shows' 4 \
+  "$(cd "$tmp" && "$review" --no-header | grep -c '^commit ')"
+
+# With origin/HEAD recorded, the base is the remote branch -- and up to date
+# with it, what was pushed is not outstanding, so the tip is the review.
 (
   cd "$tmp" || exit 1
-  git update-ref refs/remotes/origin/main "$(git rev-parse HEAD~2)"
+  git update-ref refs/remotes/origin/main HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 ) >/dev/null 2>&1
+assert_eq 'level with a pushed base falls back to the tip' 'HEAD~1..HEAD' \
+  "$(cd "$tmp" && "$review" --range)"
+(cd "$tmp" && git update-ref refs/remotes/origin/main HEAD~2) >/dev/null 2>&1
 assert_eq 'origin/HEAD is the base' 'origin/main..HEAD' \
   "$(cd "$tmp" && "$review" --range)"
 
@@ -3572,6 +3679,41 @@ assert_eq 'the repository has no main, master or origin/HEAD' '' \
 assert_eq 'a published base stands in for a trunk there is none of' 'dev..HEAD' \
   "$(cd "$notrunk" && "$review" --range)"
 
+# Nothing to stand in for it either: no remote, no trunk under any name, one
+# branch -- the notes repository this was written for. The branch sits on HEAD,
+# so it is not a base, and there is nothing else. The work was never branched
+# from anything, so all of it is the review.
+unbased=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased"' EXIT
+(
+  cd "$unbased" || exit 1
+  git init -q -b docs .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  for n in 1 2 3; do echo "$n" > "doc$n"; git add "doc$n"; git commit -qm "doc $n"; done
+) >/dev/null 2>&1
+assert_eq 'the repository has no remote and one branch' 'docs' \
+  "$(git -C "$unbased" for-each-ref --format='%(refname:short)' 2>/dev/null)"
+assert_eq 'with no base at all, every commit is the review' 'HEAD' \
+  "$(cd "$unbased" && "$review" --range)"
+assert_eq 'the root among them' 3 \
+  "$(cd "$unbased" && "$review" --no-header | grep -c '^commit ')"
+assert_eq 'and a count short of the root is still a range' 'HEAD~2..HEAD' \
+  "$(cd "$unbased" && "$review" --range 2)"
+
+# Detached there, the branch name is gone but nothing else has changed.
+assert_eq 'detached, it is still every commit' 'HEAD' \
+  "$(cd "$unbased" && git checkout -q --detach && "$review" --range)"
+
+# And a repository with no commits has nothing to review at all.
+unborn=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"' EXIT
+git -C "$unborn" init -q -b docs . >/dev/null 2>&1
+(cd "$unborn" && "$review" --range) >/dev/null 2>&1
+assert_eq 'an unborn HEAD is refused' 1 "$?"
+
 section 'git-review: the header'
 with=$(cd "$tmp" && "$review" 1 2>&1 | head -1)
 assert_match 'the range line is printed by default' 'HEAD~1\.\.HEAD' "$(strip <<<"$with")"
@@ -3599,7 +3741,7 @@ section 'opening a review window: all three panes survive it'
 socket=review-test-$$
 # kill-server does not always take the socket file with it, and a suite that
 # has been run a few hundred times leaves a few hundred of them behind.
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 # -f /dev/null: a server that reads the real config spends half a minute
 # letting TPM load every plugin, and none of them matter here.
 if ! want_live; then
@@ -3820,7 +3962,7 @@ assert_ok "$([[ -n ${in_review:-} && -n ${routes_left:-} && -n ${zoomed_review:-
   "${in_review:-} / ${routes_left:-} / ${zoomed_review:-}"
 
 gsock=review-guard-$$
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the routing guard' 'live sections are out of scope'
@@ -3900,7 +4042,7 @@ assert_ok "$([[ -n ${hist_base:-} ]] && echo 0 || echo 1)" \
 was='#{?@review_hist_base,#{@review_hist_base},#{history_size}}'
 
 hsock=review-basis-$$
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the header pane answers its own keys' 'live sections are out of scope'
