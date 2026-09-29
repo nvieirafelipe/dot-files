@@ -24,8 +24,10 @@
 
 ## Flowchart / Graph
 
-Best for: component relationships, data flows, decision
-trees, process flows.
+Best for: component relationships, data flows, process
+flows. A decision tree that answers a reader's question
+("given X, what do I do?") uses the format in
+[decision-diagrams.md](decision-diagrams.md) instead.
 
 ```mermaid
 graph LR
@@ -54,7 +56,8 @@ graph LR
 - `-.->` dotted arrow
 - `==>` thick arrow
 - `-- text -->` labeled edge
-- `~~~` invisible link (layout control)
+- `~~~` invisible link (layout control; never in decision
+  diagrams)
 
 **Subgraphs** for grouping:
 ```mermaid

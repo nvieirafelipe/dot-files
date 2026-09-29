@@ -27,7 +27,8 @@ These 20 rules prevent the vast majority of syntax errors.
 8. **Subgraph IDs with display names** — always use
    `subgraph id["Display Name"]` format
 9. **No emoji in node text** — renderers handle emoji
-   inconsistently. Use text labels
+   inconsistently. Use text labels (decision diagrams
+   keep the `✓` and `⚠` text glyphs)
 10. **No bare `N. ` in labels** — patterns like `1. ` or
     `2. ` conflict with markdown list parsing. Use
     circled numbers ①②③ or remove the period

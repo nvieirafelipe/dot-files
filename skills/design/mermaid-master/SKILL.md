@@ -1,6 +1,6 @@
 ---
 name: mermaid-master
-description: Generates Mermaid diagrams with automatic type selection, syntax validation, and live preview. Use when creating diagrams, visualizing architecture, documenting flows, generating design docs, converting code to diagrams, or when any task benefits from a visual representation.
+description: Generates Mermaid diagrams with automatic type selection, syntax validation, and live preview. Use when creating diagrams, drawing a decision diagram or decision tree for a guideline, runbook or policy (given X, what do I do?), visualizing architecture, documenting flows, generating design docs, converting code to diagrams, or when any task benefits from a visual representation.
 ---
 
 STARTER_CHARACTER = 🧜📊
@@ -10,6 +10,11 @@ STARTER_CHARACTER = 🧜📊
 Before writing any diagram, determine the best type for the
 situation. Match the **intent** to the type:
 
+- Answer one question a reader asks while reading a
+  guideline, runbook or policy ("given X, what do I do?")
+  → decision diagram, see the section below. Everything
+  else in this list shows structure, which answers no
+  question.
 - Show how components connect → `flowchart` or `graph`
 - Show request/response between actors → `sequenceDiagram`
 - Show lifecycle or modes → `stateDiagram-v2`
@@ -40,7 +45,39 @@ if the user didn't ask for one.
 
 **Multi-zoom principle:** complex systems need multiple
 diagrams at different abstraction levels. Offer a summary
-flow first, then detail subgraphs on request.
+flow first, then detail subgraphs on request. Decision
+diagrams never use subgraphs: one question per diagram.
+
+## Decision diagrams
+
+When the diagram answers a question the reader asks while
+reading a guideline, runbook or policy, use the format in
+[references/decision-diagrams.md](references/decision-diagrams.md).
+It is the default for every decision tree. Where it
+conflicts with a general rule in this file, the format
+wins. Essentials:
+
+- One diagram, one question; the start node states it.
+- Every diamond is a condition the text states, in the
+  text's words; every result box is an action the text
+  states. Where the text is silent, the diagram is
+  silent: no invented fall-through, no default leaf.
+- Order the questions as the text orders them.
+- `flowchart TB`, a plain tree: no subgraphs, no `~~~`,
+  no shared end node.
+- No labels ("Q1:", "RESULT", "Start:"), no numbering,
+  no MUST or SHOULD inside nodes. `✓` opens a result
+  box, `⚠` a no-match box; no other glyphs.
+- Node IDs: `start`, `q1`..`qN`, a short noun per result.
+- `<br/>` line breaks, three to five short lines per box.
+- `style` lines with the light palette (green start,
+  indigo result, orange hand-off, red no-match), not
+  `classDef`.
+- A `click` link only on nodes that carry a
+  `See: <Section>` line, at most one each; never the
+  section the diagram sits in.
+- The preview validates syntax; judge width in the
+  destination renderer, not in the CLI.
 
 ## Mandatory preview
 
@@ -105,6 +142,7 @@ are the #1 cause of rendering failures.
 - Subgraph IDs need quoted display names:
   `subgraph auth["Authentication"]`
 - No emoji in node text — use text labels or color coding
+  (decision diagrams keep the `✓` and `⚠` text glyphs)
 - No bare `number.space` patterns in labels (conflicts
   with list syntax). Use circled numbers: ①②③
 - `%%` for comments, never single `%`
@@ -131,6 +169,9 @@ classDef external fill:#7C3AED,stroke:#6D28D9,color:#fff
 
 **Every `classDef` MUST include `color:` property** for
 text readability. Missing `color:` is a common anti-pattern.
+Decision diagrams are the exception: they use `style`
+lines with light fills, so the default text colour stays
+readable.
 
 ## Code-to-diagram
 
@@ -155,7 +196,8 @@ React, Node, Python ETL), see
 ## Complexity management
 
 - Max 15 nodes per diagram — split into subgraphs or
-  multiple diagrams if exceeded
+  multiple diagrams if exceeded. Decision diagrams split
+  into multiple diagrams only, never subgraphs
 - Max 3 nesting levels for subgraphs
 - Declaration order affects layout — reorder nodes to
   reduce line crossings
@@ -217,6 +259,9 @@ If rendering fails:
 
 Load these only when the task requires deeper guidance:
 
+- [references/decision-diagrams.md](references/decision-diagrams.md)
+  — the decision diagram format: content rules, shape,
+  palette, renderer notes, overrides of this file
 - [references/diagram-types.md](references/diagram-types.md)
   — syntax and examples for all diagram types
 - [references/syntax-rules.md](references/syntax-rules.md)
