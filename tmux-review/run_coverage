@@ -63,7 +63,11 @@ env SHELLOPTS=xtrace BASH_XTRACEFD=9 REVIEW_TEST_SCOPE="$scope" \
   bash -c 'source "$1/tests/review_test.sh"' _ "$here" >/dev/null 2>&1
 exec 9>&-
 
-awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope" '
+# LC_ALL=C because the scan below walks lines a character at a time, and the
+# awk macOS ships gives up on the first byte it cannot decode -- which a glyph
+# written out as raw bytes is. Quotes and parentheses are all ASCII, so reading
+# bytes loses nothing.
+LC_ALL=C awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope" '
   # A line xtrace can emit for: not blank, not a comment, and not one of the
   # bare keywords that close or continue a compound command -- bash traces the
   # commands inside those, never the keyword itself.
@@ -77,30 +81,95 @@ awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope"
     return 1
   }
   function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+  function base(p) { sub(/.*\//, "", p); return p }
+
+  # Whether the command a line is part of carries on past it: a quote or a
+  # $( ) still open, or a backslash at the end. The states are the quoting a
+  # line of shell can be in -- single, double, $'...', and the parentheses of
+  # $( ), <( ) and >( ) with whatever nests inside them -- kept on a stack
+  # across the lines of one command. A # that starts a word ends the line.
+  function scan(line,   i, n, c, top, prev, tail) {
+    if (!open) { sp = 1; st[1] = "code" }
+    n = length(line); tail = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(line, i, 1); top = st[sp]
+      if (top == "single") { if (c == q) sp--; continue }
+      if (c == "\\") { if (i == n) tail = 1; i++; continue }
+      if (top == "ansi") { if (c == q) sp--; continue }
+      if (top == "double") {
+        if (c == "\"") sp--
+        else if (c == "$" && substr(line, i + 1, 1) == "(") { st[++sp] = "paren"; i++ }
+        continue
+      }
+      if (c == "#") {
+        prev = i == 1 ? " " : substr(line, i - 1, 1)
+        if (prev ~ /[ \t;&|(]/) break
+        continue
+      }
+      if (c == q) st[++sp] = "single"
+      else if (c == "\"") st[++sp] = "double"
+      else if (c == "$" && substr(line, i + 1, 1) == q) { st[++sp] = "ansi"; i++ }
+      else if (c ~ /[$<>]/ && substr(line, i + 1, 1) == "(") { st[++sp] = "paren"; i++ }
+      else if (top == "paren" && c == "(") st[++sp] = "paren"
+      else if (top == "paren" && c == ")") sp--
+    }
+    return sp > 1 || tail
+  }
+
+  # A script run through a symlink is traced under the path of the link, and
+  # the link is usually gone by the time this reads the trace -- tests make
+  # them in temporary directories. Such a path is credited to the measured
+  # file of the same name, when exactly one has that name and the path is not
+  # a real file of its own.
+  function credit(p,   b) {
+    if (p in measured) return p
+    if (p in resolved) return resolved[p]
+    b = base(p)
+    resolved[p] = p
+    if (named[b] != "" &&
+        system("[ ! -f \"" p "\" ] || [ -L \"" p "\" ]") == 0) resolved[p] = named[b]
+    return resolved[p]
+  }
+
+  BEGIN {
+    q = "\047"
+    for (i = 2; i < ARGC; i++) {
+      measured[ARGV[i]] = 1
+      b = base(ARGV[i])
+      named[b] = (b in named) ? "" : ARGV[i]
+    }
+  }
 
   FILENAME == trace {
     n = split($0, part, "@@")
     for (i = 2; i + 1 <= n; i += 2)
-      if (part[i] ~ /^\//) hit[part[i] ":" part[i+1]] = 1
+      if (part[i] ~ /^\//) hit[credit(part[i]) ":" part[i+1]] = 1
     next
   }
 
-  FNR == 1 { file = FILENAME; depth = 0; fn = ""; cont = 0; heredoc = ""; array = 0 }
+  FNR == 1 { file = FILENAME; depth = 0; fn = ""; heredoc = ""; array = 0; open = 0; head = ""; incase = 0 }
   {
     s = trim($0)
-
-    # xtrace names the line a command starts on, never the lines it continues
-    # onto, so only the first line of one is reachable. Counting the rest would
-    # put a floor under the miss column that no test could ever lift.
-    was_cont = cont
-    cont = ($0 ~ /\\$/)
 
     # A heredoc body is data, not commands.
     if (heredoc != "") {
       if (s == heredoc) heredoc = ""
       next
     }
-    if (!was_cont && match(s, /<<-?[ \t]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+
+    # A command over several lines is one candidate, at its first line, and
+    # reached if xtrace named any of them. Which one it names is not fixed:
+    # the first line for a quoted program handed to awk or jq, the last for a
+    # $( ) continued with a backslash, the line a <( opens on for everything
+    # inside it. Counting each line on its own put a floor under the miss
+    # column that no test could ever lift.
+    if (open) {
+      if (head != "" && (file ":" FNR) in hit) reached[head] = 1
+      open = scan($0)
+      next
+    }
+
+    if (match(s, /<<-?[ \t]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
       tag = substr(s, RSTART, RLENGTH)
       sub(/^<<-?[ \t]*['"'"'"]?/, "", tag)
       heredoc = tag
@@ -108,9 +177,8 @@ awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope"
 
     # Elements of a multi-line array assignment are words of one command.
     if (array) { if (s ~ /^\)/) array = 0; next }
-    if (!was_cont && s ~ /^[A-Za-z_][A-Za-z0-9_]*(\+)?=\([^)]*$/) { array = 1; next }
+    if (s ~ /^[A-Za-z_][A-Za-z0-9_]*(\+)?=\([^)]*$/) { array = 1; next }
 
-    if (was_cont) next
     # Function spans, by brace depth, so a miss can be named rather than
     # numbered. Only top-level definitions: nothing here nests them.
     if (fn == "" && s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\([ \t]*\)[ \t]*\{$/) {
@@ -121,19 +189,39 @@ awk -v trace="$trace" -v missing="$show_missing" -v min="$min" -v scope="$scope"
       depth += d
       if (depth <= 0) { fn = "" }
     }
-    if (!executable(s)) next
-    cand[file]++
-    owner[file ":" FNR] = fn
-    if ((file ":" FNR) in hit) { ok[file]++; if (fn != "") fok[file "\x1f" fn]++ }
-    else {
-      gap[file] = gap[file] " " FNR
-      if (fn != "") fgap[file "\x1f" fn] = fgap[file "\x1f" fn] " " FNR
+
+    # A case arm whose pattern has a line to itself: bash traces the commands
+    # under it, never the pattern.
+    if (s ~ /^esac([ \t;]|$)/) incase--
+    if (incase > 0 && s ~ /^[^$=()#]*\)[ \t]*(#.*)?$/) { head = ""; open = scan($0); next }
+
+    head = ""
+    if (executable(s)) {
+      head = file ":" FNR
+      order[file, ++count[file]] = FNR
+      owner[head] = fn
+      if (head in hit) reached[head] = 1
+      if (s ~ /(^|[ \t;&|])case[ \t].*[ \t]in([ \t]*#.*)?$/) incase++
     }
-    if (fn != "") fcand[file "\x1f" fn]++
+    open = scan($0)
   }
 
   END {
     total = 0; covered = 0
+    for (f in count) {
+      for (k = 1; k <= count[f]; k++) {
+        l = order[f, k]; key = f ":" l; fn = owner[key]
+        cand[f]++
+        if (fn != "") fcand[f "\x1f" fn]++
+        if (key in reached) {
+          ok[f]++
+          if (fn != "") fok[f "\x1f" fn]++
+        } else {
+          gap[f] = gap[f] " " l
+          if (fn != "") fgap[f "\x1f" fn] = fgap[f "\x1f" fn] " " l
+        }
+      }
+    }
     for (f in cand) {
       total += cand[f]; covered += ok[f]
       name = f; sub(/.*\//, "", name)

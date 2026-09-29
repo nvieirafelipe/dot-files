@@ -69,4 +69,12 @@ step 'tests'
 tmux-review/run_tests || status=1
 tmux-agent-status/run_tests || status=1
 
+# The agent-status plugin is covered line for line, and a new line with no test
+# should fail here rather than wait for someone to run the report.
+step 'coverage'
+tmux-agent-status/run_coverage --min 100 >/dev/null || {
+  tmux-agent-status/run_coverage --missing
+  status=1
+}
+
 exit "$status"

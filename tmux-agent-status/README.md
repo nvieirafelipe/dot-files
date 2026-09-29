@@ -130,6 +130,8 @@ the script is sourced, and as executables on `PATH` where it has to be run for
 real — and source the three scripts, each of which dispatches only when run and
 not when sourced. The turn snapshot is the exception: it runs against real
 throwaway repositories, because the thing it must never do is write to one.
-What is left uncovered is the inside of the two embedded programs, the `awk`
-that shortens a diffstat and the `jq` that reads a transcript: `run_coverage`
-counts their lines as candidates but bash traces each as a single command.
+
+Coverage is every line, and `tmux/check.sh` fails below it. `run_coverage`
+counts a command that runs over several lines once, as reached when bash names
+any of its lines, because xtrace names only one: the first for the `awk` and
+`jq` programs, the last for a `$( )` continued with a backslash.

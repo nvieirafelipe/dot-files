@@ -119,7 +119,9 @@ assert_eq 'and no space is left before it' 'abc…' "$(printf 'abc def' | onelin
 assert_eq 'nothing in is nothing out' '' "$(printf '' | oneline 20)"
 # The reason for ${#text} over the byte length: a multi-byte character cut in
 # half is not a character at all.
-assert_eq 'characters are counted, not bytes' 5 "${#$(printf 'héllo wörld' | oneline 5)}"
+clipped=$(printf 'héllo wörld' | oneline 5)
+assert_eq 'characters are counted, not bytes' 5 "${#clipped}"
+unset clipped
 assert_eq 'and an emoji survives the cut whole' '😀😀…' \
   "$(printf '😀😀😀😀' | oneline 3)"
 
@@ -1028,6 +1030,9 @@ assert_match 'while a newer one writes, and leaves its own stamp' '@agent_seq 2'
 STUB_FACTS=$'#c0caf5\x1f/r/x\x1f' STUB_NOTIFY_FACTS=$'\x1f\x1f0\x1fwin\x1fsess'
 run_status --agent claude 'done' '%1'
 assert_match 'a finished turn raises a banner' 'notified' "$(cat "$STUB_LOG")"
+run_status --agent claude waiting '%1'
+assert_match 'and so does one waiting on an answer, saying that is what it wants' \
+  'notified .*-message 💬 waiting for your input' "$(cat "$STUB_LOG")"
 STUB_NOTIFY_FACTS=$'\x1foff\x1f0\x1fwin\x1fsess'
 run_status --agent claude 'done' '%1'
 assert_eq 'unless notifications are off' 0 "$(grep -c notified "$STUB_LOG")"
@@ -1149,6 +1154,17 @@ ln -s "$plugin/bin/agent-status" "$link_dir/agent-status"
 out=$(env -u TMUX AGENT_STATUS_DETACHED=1 "$link_dir/agent-status" </dev/null 2>&1)
 assert_eq 'called through a symlink it still finds its own scripts' 1 "$?"
 assert_match 'and answers with the usage rather than a missing file' 'working.*waiting' "$out"
+rm -rf "$link_dir"
+
+# A link can name its target relative to where the link is, and can name another
+# link. Both are followed: the relative hop from the link's own directory, not
+# from wherever the caller happens to be.
+link_dir=$(mktemp -d)
+ln -s "$plugin/bin/agent-status" "$link_dir/absolute"
+ln -s absolute "$link_dir/agent-status"
+out=$(cd / && env -u TMUX AGENT_STATUS_DETACHED=1 "$link_dir/agent-status" </dev/null 2>&1)
+assert_eq 'a chain of links, the first of them relative, is followed to the end' 1 "$?"
+assert_match 'and still ends at the usage' 'working.*waiting' "$out"
 rm -rf "$link_dir"
 
 # The entry point tmux loads. It must set the plugin's hooks and nothing else,
