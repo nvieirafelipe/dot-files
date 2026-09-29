@@ -80,6 +80,64 @@ format_shortstat() {
     }'
 }
 
+# What a turn changed is measured from the working tree as the turn found it, not
+# from HEAD. Against HEAD, anything already uncommitted when the prompt went in
+# was reported as the turn's own work, turn after turn, including by turns that
+# changed nothing at all.
+#
+# The snapshot is git's own staging, pointed somewhere else: a copy of the index
+# and an object store of its own, in a directory beside the window's lock. The
+# repository is never written. Two things would write to it all the same, and
+# both are switched off for every call: a split index keeps a shared file next to
+# the index it was written for, and the file-system monitor starts a daemon that
+# keeps its socket in .git.
+snapshot_git() {
+  local snap=$1 top=$2
+  shift 2
+  GIT_INDEX_FILE=$snap/index GIT_OBJECT_DIRECTORY=$snap/objects \
+    git -C "$top" -c core.splitIndex=false -c core.fsmonitor=false "$@"
+}
+
+# Where a window's snapshot lives: beside its lock, named the same way.
+turn_dir() { printf '%s' "${TMPDIR:-/tmp}/agent-status${1//[^A-Za-z0-9]/_}.turn"; }
+
+# Taken as a turn begins. The real index is copied for its stat cache, so only
+# the files that differ from it are read and stored -- which is whatever was
+# already dirty or untracked, not the whole tree. A repository with no commits
+# has no index yet, and starts from none.
+snapshot_turn() {
+  local dir=$1 snap=$2 paths top index objects
+  rm -rf "$snap"
+  paths=$(git -C "$dir" rev-parse --show-toplevel --path-format=absolute \
+    --git-path index --git-path objects 2>/dev/null) || return 0
+  { read -r top; read -r index; read -r objects; } <<<"$paths"
+  mkdir -p "$snap/objects"
+  [[ ! -e $index ]] || cp "$index" "$snap/index"
+  snapshot_git "$snap" "$top" add -A 2>/dev/null || return 0
+  # Last, because it is what makes this a snapshot: one killed or refused part
+  # way has none, and is read as no snapshot rather than as half of one.
+  printf '%s\n' "$top" "$objects" >"$snap/repo"
+}
+
+# The raw shortstat of everything between the snapshot and the working tree now,
+# committed or not; nothing, and a failure, when there is no snapshot to read.
+turn_shortstat() {
+  local snap=$1 top objects
+  [[ -r $snap/repo ]] || return 1
+  { read -r top; read -r objects; } <"$snap/repo"
+  # Files the turn created, entered without their content so the diff counts all
+  # of it. --ignore-removal because add otherwise also drops what the turn
+  # deleted, and a deletion taken out of the index is no longer in the diff.
+  snapshot_git "$snap" "$top" add -N --ignore-removal . 2>/dev/null || return 1
+  # The repository's objects are visible to this call and to no other. A git
+  # about to store an object it can already see does not store it; it refreshes
+  # the time on the copy it found, so the repository's own objects in view of
+  # either add above would be touched -- a loose object by one, a pack by the
+  # other.
+  GIT_ALTERNATE_OBJECT_DIRECTORIES=$objects snapshot_git "$snap" "$top" \
+    diff --shortstat 2>/dev/null || return 1
+}
+
 usage() {
   printf 'usage: %s [--agent <name>] <working|waiting|done|idle|clear|clear-transient|reconcile> [pane]\n' \
     "${0##*/}" >&2
@@ -297,18 +355,20 @@ notify() {
     head=$(tmux show-option -w -t "$window" -qv @agent_head)
     cwd=$(tmux show-option -w -t "$window" -qv @agent_cwd)
     [[ -n $cwd ]] || cwd=$(tmux display-message -p -t "$pane" '#{pane_current_path}' 2>/dev/null || true)
+    local commits="" stat
     if [[ -n $cwd ]] && git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
-      local commits stat
-      commits=""
       if [[ -n $head ]] && git -C "$cwd" cat-file -e "$head" 2>/dev/null; then
         commits=$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || true)
       fi
-      # Uncommitted work counts too -- most turns end dirty rather than committed.
-      stat=$(git -C "$cwd" diff --shortstat HEAD 2>/dev/null | format_shortstat)
-      delta=""
-      [[ -n ${commits:-} && ${commits:-0} -gt 0 ]] && delta="${commits} commit$([[ $commits -eq 1 ]] || printf s)"
-      [[ -n $stat ]] && delta="${delta:+$delta · }$stat"
     fi
+    # Everything the turn changed, committed or not, measured from the snapshot
+    # it began with. The snapshot knows its own repository, so this needs no
+    # directory from the pane. Without one there is no line at all: HEAD would
+    # answer, and HEAD is what counted work from before the turn as the turn's.
+    stat=$(turn_shortstat "$(turn_dir "$window")" | format_shortstat) || stat=''
+    delta=""
+    [[ -n ${commits:-} && ${commits:-0} -gt 0 ]] && delta="${commits} commit$([[ $commits -eq 1 ]] || printf s)"
+    [[ -n $stat ]] && delta="${delta:+$delta · }$stat"
 
     # Reply on its own line, delta on the next, both left-aligned. The banner
     # shows four lines -- title, subtitle and two body lines -- so this is the
@@ -461,6 +521,10 @@ main() {
     clear)
       ((seq_now > 0)) && take_lock "$window"
       clear_status
+      # Only here, when a session starts, and not in clear_status: that also runs
+      # when a waiting window is looked at, part way through the turn the
+      # snapshot belongs to.
+      rm -rf "$(turn_dir "$window")"
       tmux refresh-client -S
       exit 0
       ;;
@@ -550,6 +614,11 @@ main() {
   add_opt @agent_status "$label"
   add_opt @agent_status_active "$label"
   tmux "${set_cmd[@]}" ';' refresh-client -S
+
+  # After the tab is drawn rather than before, so the reader is not kept waiting
+  # on it. The lock is still held, so the done that ends this turn cannot read
+  # the snapshot before it is whole.
+  [[ $state == working ]] && snapshot_turn "$cwd" "$(turn_dir "$window")"
 
   # One read for everything the notification path needs: the two global settings
   # and the three window facts. Separately these were five processes on a path

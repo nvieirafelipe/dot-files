@@ -110,6 +110,16 @@ option: a process costs tens of milliseconds here, and there were forty-two of
 them. The spinner pushes frames with `refresh-client -S` rather than being
 polled, because `#()` jobs only re-run once per `status-interval`.
 
+What a finished turn changed is measured from the working tree as the turn found
+it, not from `HEAD`. Against `HEAD`, whatever was already uncommitted when the
+prompt went in was reported as the turn's own work, including by turns that
+changed nothing. So `working` takes a snapshot, and `done` diffs the working
+tree against it: everything the turn did, committed or not, including files it
+created, and nothing from before. The snapshot is git's own staging pointed at
+`$TMPDIR`: a copy of the index and an object store of its own. The repository
+is never written. It costs about 60ms when a turn starts, off the agent's path,
+and about 45ms before the banner.
+
 ## Tests
 
     ./run_tests
@@ -118,7 +128,8 @@ polled, because `#()` jobs only re-run once per `status-interval`.
 They stub `tmux`, `git`, `ps` and `terminal-notifier` — as shell functions where
 the script is sourced, and as executables on `PATH` where it has to be run for
 real — and source the three scripts, each of which dispatches only when run and
-not when sourced. What is left uncovered is the inside of the two embedded
-programs, the `awk` that shortens a diffstat and the `jq` that reads a
-transcript: `run_coverage` counts their lines as candidates but bash traces each
-as a single command.
+not when sourced. The turn snapshot is the exception: it runs against real
+throwaway repositories, because the thing it must never do is write to one.
+What is left uncovered is the inside of the two embedded programs, the `awk`
+that shortens a diffstat and the `jq` that reads a transcript: `run_coverage`
+counts their lines as candidates but bash traces each as a single command.

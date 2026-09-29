@@ -74,6 +74,23 @@ assert_ok() {
 
 section() { printf '\n\e[1m%s\e[0m\n' "$1"; }
 
+# A repository under $1 with two committed files, a and b, and an identity to
+# commit as.
+turn_repo() {
+  local repo
+  repo=$(mktemp -d "$1/repo.XXXXXX")
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.email t@example.com
+  git -C "$repo" config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git -C "$repo" config commit.gpgsign false
+  printf 'one\ntwo\n' >"$repo/a"
+  printf 'x\n' >"$repo/b"
+  git -C "$repo" add a b
+  git -C "$repo" commit -qm init
+  printf '%s' "$repo"
+}
+
 # The codepoint of a string's first character, so a glyph assertion says which
 # glyph it means rather than pasting a private-use character no one can read in
 # a diff.
@@ -126,6 +143,259 @@ assert_eq 'deletions alone' '🔴-4 · 1 file' \
   "$(stat_of ' 1 file changed, 4 deletions(-)')"
 assert_eq 'a clean tree says nothing at all' '' "$(stat_of '')"
 unset -f stat_of
+
+section 'turn snapshot: what this turn changed, and nothing before it'
+snap_home=$(mktemp -d)
+snap=$snap_home/turn
+
+out=$(turn_shortstat "$snap")
+status=$?
+
+assert_eq 'with no snapshot there is nothing to say' '' "$out"
+assert_eq 'and it says so by failing' 1 "$status"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+
+out=$(turn_shortstat "$snap")
+status=$?
+
+assert_eq 'a turn that changed nothing in a clean tree says nothing' '' "$out"
+assert_eq 'and that is an answer, not a failure' 0 "$status"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+
+printf 'three\n' >>"$repo/a"
+
+assert_eq 'an edit the turn made to a clean file is counted' \
+  ' 1 file changed, 1 insertion(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+printf 'before the turn\n' >>"$repo/a"
+snapshot_turn "$repo" "$snap"
+
+out=$(turn_shortstat "$snap")
+
+assert_eq 'what was uncommitted before the turn is not the turn'"'"'s' '' "$out"
+
+repo=$(turn_repo "$snap_home")
+printf 'before the turn\n' >>"$repo/a"
+snapshot_turn "$repo" "$snap"
+
+printf 'during it\nand again\n' >>"$repo/a"
+
+assert_eq 'an already dirty file the turn edits counts only the turn'"'"'s lines' \
+  ' 1 file changed, 2 insertions(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+printf 'staged before the turn\n' >>"$repo/b"
+git -C "$repo" add b
+snapshot_turn "$repo" "$snap"
+
+out=$(turn_shortstat "$snap")
+
+assert_eq 'nor is what was staged before it' '' "$out"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+
+printf 'new\nfile\n' >"$repo/c"
+
+assert_eq 'a file the turn creates is counted' \
+  ' 1 file changed, 2 insertions(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+printf 'left lying around\n' >"$repo/scratch"
+snapshot_turn "$repo" "$snap"
+
+out=$(turn_shortstat "$snap")
+
+assert_eq 'an untracked file that was already there is not' '' "$out"
+
+repo=$(turn_repo "$snap_home")
+printf 'build/\n' >"$repo/.gitignore"
+git -C "$repo" add .gitignore
+git -C "$repo" commit -qm ignore
+snapshot_turn "$repo" "$snap"
+
+mkdir "$repo/build"
+printf 'artefact\n' >"$repo/build/out"
+
+assert_eq 'nor is anything the turn writes where git is told to look away' '' \
+  "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+
+rm "$repo/a"
+
+assert_eq 'a file the turn deletes is counted as its lines going' \
+  ' 1 file changed, 2 deletions(-)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+printf 'before the turn\n' >>"$repo/b"
+snapshot_turn "$repo" "$snap"
+
+printf 'three\n' >>"$repo/a"
+git -C "$repo" commit -qam 'the turn commits'
+
+assert_eq 'what the turn committed is still what the turn did' \
+  ' 1 file changed, 1 insertion(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+printf 'the last turn\n' >>"$repo/a"
+snapshot_turn "$repo" "$snap"
+
+out=$(turn_shortstat "$snap")
+
+assert_eq 'the next turn starts from where the last one left off' '' "$out"
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+plain=$(mktemp -d "$snap_home/plain.XXXXXX")
+snapshot_turn "$plain" "$snap"
+
+out=$(turn_shortstat "$snap")
+status=$?
+
+assert_eq 'a turn outside any repository has nothing to say' '' "$out"
+assert_eq 'and is no snapshot at all, not the last one'"'"'s left over' 1 "$status"
+
+repo=$(mktemp -d "$snap_home/unborn.XXXXXX")
+git -C "$repo" init -q -b main
+out=$(snapshot_turn "$repo" "$snap" 2>&1)
+status=$?
+
+printf 'first\n' >"$repo/a"
+
+assert_eq 'a repository with nothing committed yet is snapshotted quietly' '0:' \
+  "$status:$out"
+assert_eq 'and the first file the turn writes is counted' \
+  ' 1 file changed, 1 insertion(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+mkdir "$repo/app"
+printf 'app\n' >"$repo/app/main"
+git -C "$repo" add app
+git -C "$repo" commit -qm app
+snapshot_turn "$repo/app" "$snap"
+
+printf 'at the root\n' >"$repo/root"
+
+assert_eq 'an agent started in a subdirectory still answers for the whole repository' \
+  ' 1 file changed, 1 insertion(+)' "$(turn_shortstat "$snap")"
+
+repo=$(turn_repo "$snap_home")
+worktree=$snap_home/worktree
+git -C "$repo" worktree add -q -b story "$worktree"
+printf 'before the turn\n' >>"$worktree/b"
+snapshot_turn "$worktree" "$snap"
+
+printf 'three\n' >>"$worktree/a"
+
+assert_eq 'a linked worktree, whose .git is a file, answers the same way' \
+  ' 1 file changed, 1 insertion(+)' "$(turn_shortstat "$snap" 2>&1)"
+
+repo=$(turn_repo "$snap_home")
+printf 'secret\n' >"$repo/locked"
+chmod 000 "$repo/locked"
+out=$(snapshot_turn "$repo" "$snap" 2>&1)
+status=$?
+chmod 600 "$repo/locked"
+
+turn=$(turn_shortstat "$snap")
+turn_status=$?
+
+assert_eq 'a snapshot git cannot finish is given up quietly' '0:' "$status:$out"
+assert_eq 'and leaves no snapshot to be read half taken' ':1' "$turn:$turn_status"
+unset turn turn_status
+
+repo=$(turn_repo "$snap_home")
+snapshot_turn "$repo" "$snap"
+rm -rf "$repo"
+
+out=$(turn_shortstat "$snap" 2>&1)
+status=$?
+
+assert_eq 'a repository gone since the turn began is answered quietly' '1:' "$status:$out"
+
+# macOS sweeps its temporary directory of files left untouched for days, one file
+# at a time and leaving the directories, so a window idle over a long weekend can
+# come back to a snapshot with its stored content gone from under it.
+repo=$(turn_repo "$snap_home")
+printf 'before the turn\n' >>"$repo/a"
+snapshot_turn "$repo" "$snap"
+find "$snap/objects" -type f -delete
+printf 'during it\n' >>"$repo/a"
+
+out=$(turn_shortstat "$snap" 2>&1)
+status=$?
+
+assert_eq 'and so is a snapshot the system has swept' '1:' "$status:$out"
+
+# Every path under .git with its modification time to the nanosecond and its
+# size, so a file written, created or merely touched shows up as a difference.
+git_state() { find "$1/.git" -exec stat -f '%N %Fm %z' {} + | sort; }
+
+# Staged content is already stored in the repository, so git writing it again
+# would find it there -- which is the case where it refreshes the stored copy's
+# time rather than writing its own.
+repo=$(turn_repo "$snap_home")
+printf 'staged\n' >>"$repo/a"
+git -C "$repo" add a
+printf 'dirty\n' >>"$repo/b"
+printf 'loose\n' >"$repo/scratch"
+before=$(git_state "$repo")
+
+snapshot_turn "$repo" "$snap"
+printf 'turn\n' >>"$repo/a"
+printf 'new\n' >"$repo/c"
+turn_shortstat "$snap" >/dev/null
+
+assert_eq 'nothing in the repository is written, created or touched' "$before" \
+  "$(git_state "$repo")"
+
+# A split index keeps most of its entries in a shared file beside it, and git
+# writes a new one of those wherever it writes the index -- which, for the copy,
+# would be in the repository. Reading the copy still refreshes the shared file's
+# time, so only what exists is compared here, not when it was touched.
+repo=$(turn_repo "$snap_home")
+git -C "$repo" config core.splitIndex true
+git -C "$repo" update-index --split-index
+printf 'dirty\n' >>"$repo/a"
+# Enough of the index changing that git would rather write a new shared file
+# than carry the changes beside the old one.
+printf 'loose\n' >"$repo/scratch"
+before=$(find "$repo/.git" | sort)
+
+snapshot_turn "$repo" "$snap"
+printf 'turn\n' >>"$repo/b"
+turn_shortstat "$snap" >/dev/null
+
+assert_eq 'a repository that splits its index gains no file from the snapshot' \
+  "$before" "$(find "$repo/.git" | sort)"
+
+# With the built-in file-system monitor on, the first git to read the index
+# starts a daemon, and the daemon keeps its socket and cookies in the repository.
+repo=$(turn_repo "$snap_home")
+git -C "$repo" config core.fsmonitor true
+printf 'dirty\n' >>"$repo/a"
+before=$(find "$repo/.git" | sort)
+
+snapshot_turn "$repo" "$snap"
+printf 'turn\n' >>"$repo/b"
+turn_shortstat "$snap" >/dev/null
+after=$(find "$repo/.git" | sort)
+git -C "$repo" fsmonitor--daemon stop >/dev/null 2>&1
+
+assert_eq 'nor does one that watches its files with a daemon' "$before" "$after"
+unset after
+
+rm -rf "$snap_home"
+unset -f git_state
+unset before snap_home snap repo out status plain worktree
 
 section 'state_style: a glyph and a colour per state'
 state_style working
@@ -304,10 +574,12 @@ assert_eq 'and a machine without lsappinfo says the same' '' "$(frontmost_app)"
 unset -f lsappinfo
 
 section 'notify: who gets told, and what the banner says'
-# The whole notification path, with the four commands it reaches for stubbed:
-# tmux for the window options, git for the delta, date so an elapsed time is
-# reproducible, and terminal-notifier for the banner itself. command -v finds a
-# shell function, so the real binary is never consulted.
+# The whole notification path, with what it reaches for stubbed: tmux for the
+# window options, git for the commits, the turn's snapshot for what changed,
+# date so an elapsed time is reproducible, and terminal-notifier for the banner
+# itself. command -v finds a shell function, so the real binary is never
+# consulted. The snapshot has sections of its own above, against real
+# repositories; here it only has to answer.
 declare -A wopt=() gopt=()
 notified=''
 tmux() {
@@ -326,9 +598,9 @@ git() {
     *'rev-parse --git-dir'*) return "${git_is_repo:-0}" ;;
     *'cat-file -e'*)         return "${git_knows_head:-0}" ;;
     *'rev-list --count'*)    printf '%s\n' "${git_commits-}" ;;
-    *'diff --shortstat'*)    printf '%s\n' "${git_shortstat-}" ;;
   esac
 }
+turn_shortstat() { printf '%s\n' "${turn_stat-}"; }
 date() { printf '%s\n' "${fake_now:-1000}"; }
 terminal-notifier() { notified=$(printf '%s\n' "$@"); }
 osascript() { notified=osascript; }
@@ -341,7 +613,7 @@ notified_field() {
 
 state='done' agent=claude pane='%1' window='@1'
 notify_off='' win_viewers=0 terminal_apps='' win_name_f=win session_f=sess
-payload='' dm_reply='' git_is_repo=0 git_knows_head=0 git_commits='' git_shortstat=''
+payload='' dm_reply='' git_is_repo=0 git_knows_head=0 git_commits='' turn_stat=''
 wopt=() gopt=()
 
 notify_off=off
@@ -374,7 +646,7 @@ unset -f lsappinfo
 section 'notify: a finished turn reports what it did'
 state='done' fake_now=1300
 wopt=([@agent_started]=1000 [@agent_prompt]='rewrite the parser' [@agent_head]=abc123 [@agent_cwd]=/r/x)
-git_commits=2 git_shortstat=' 3 files changed, 12 insertions(+), 4 deletions(-)'
+git_commits=2 turn_stat=' 3 files changed, 12 insertions(+), 4 deletions(-)'
 payload='{"last_assistant_message":"done, all green"}'
 notified=''
 notify finished
@@ -394,7 +666,7 @@ git_commits=1
 notified=''
 notify finished
 assert_match 'one commit is singular' '^1 commit ·' "$(notified_field -message | tail -1)"
-git_commits=0 git_shortstat=''
+git_commits=0 turn_stat=''
 notified=''
 notify finished
 assert_eq 'a turn that changed nothing says only what it said' '🤖 done, all green' \
@@ -452,7 +724,7 @@ osascript() { printf 'osascript' >"$osa_flag"; }
 (PATH='' notify 'needs you')
 assert_eq 'osascript is the fallback' osascript "$(<"$osa_flag")"
 rm -f "$osa_flag"
-unset -f tmux git date osascript notified_field
+unset -f tmux git date osascript notified_field turn_shortstat
 unset wopt gopt notified
 state='' payload=''
 
@@ -675,7 +947,7 @@ esac
 STUB
 cat >"$stub_dir/terminal-notifier" <<'STUB'
 #!/usr/bin/env bash
-printf 'notified\n' >>"$STUB_LOG"
+printf 'notified %s\n' "$*" >>"$STUB_LOG"
 STUB
 chmod +x "$stub_dir/tmux" "$stub_dir/terminal-notifier"
 
@@ -759,6 +1031,54 @@ assert_match 'a finished turn raises a banner' 'notified' "$(cat "$STUB_LOG")"
 STUB_NOTIFY_FACTS=$'\x1foff\x1f0\x1fwin\x1fsess'
 run_status --agent claude 'done' '%1'
 assert_eq 'unless notifications are off' 0 "$(grep -c notified "$STUB_LOG")"
+
+# End to end, against a real repository: what the banner says a turn changed is
+# what the turn changed, not whatever was lying uncommitted when it began.
+turn_home=$(mktemp -d)
+export TMPDIR=$turn_home
+repo=$(turn_repo "$turn_home")
+printf 'before the turn\n' >>"$repo/a"
+STUB_FACTS=$'#c0caf5\x1f'"$repo"$'\x1f' STUB_NOTIFY_FACTS=$'\x1f\x1f0\x1fwin\x1fsess'
+# One hook event, with the payload naming the repository the way the harness does.
+turn_event() {
+  : >"$STUB_LOG"
+  printf '{"cwd":"%s"}' "$repo" | env PATH="$stub_dir:$PATH" AGENT_STATUS_DETACHED=1 \
+    TMUX=/tmp/fake,1,0 "$plugin/scripts/agent-status.sh" --agent claude "$1" '%1' \
+    >/dev/null 2>&1
+}
+
+turn_event working
+printf 'three\n' >>"$repo/b"
+turn_event 'done'
+
+assert_match 'the banner counts the edit the turn made' '🟢\+1 · 1 file' "$(cat "$STUB_LOG")"
+
+turn_event working
+turn_event 'done'
+
+assert_match 'a turn that changes nothing in a dirty tree still says it finished' \
+  'notified .*-message 🤖 finished' "$(cat "$STUB_LOG")"
+assert_eq 'and claims none of what it found uncommitted' 0 "$(grep -c '🟢\|🔴' "$STUB_LOG")"
+
+# Looking at a window that is waiting on an answer clears its tab part way
+# through the turn. The turn goes on, and so does what it is measured from.
+turn_event working
+printf 'four\n' >>"$repo/b"
+STUB_STATE=waiting STUB_PANES='zsh claude' turn_event clear-transient
+turn_event 'done'
+
+assert_match 'looking at a waiting window mid-turn keeps what the turn is measured from' \
+  '🟢\+1 · 1 file' "$(cat "$STUB_LOG")"
+
+turn_event working
+turn_event clear
+
+assert_ok "$([[ ! -e $(turn_dir '@1') ]]; echo $?)" \
+  'a new session starts with no snapshot left over from the last one'
+
+unset -f turn_event
+unset TMPDIR repo
+rm -rf "$turn_home"
 
 section 'agent-status.sh: the hook is not made to wait'
 # The harnesses allow a hook five seconds and this has more than that to do, so
