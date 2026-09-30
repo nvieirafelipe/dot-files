@@ -1196,6 +1196,11 @@ else
     "$(tmux -L "$hsock" show-hooks -g | grep -c 'after-select-window\[50\]')"
   tmux -L "$hsock" kill-server 2>/dev/null
 fi
+# kill-server does not always take the socket file with it, so it is taken here.
+/bin/rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$hsock"
+# One socket file a run: 157 of them had built up beside the real server's.
+assert_ok "$([[ ! -e ${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$hsock ]]; echo $?)" \
+  'the throwaway server leaves no socket behind'
 
 printf '\n\e[1m%s\e[0m  \e[32m%d passed\e[0m' 'total' "$passed"
 if ((failed)); then

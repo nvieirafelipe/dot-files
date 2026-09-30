@@ -3842,9 +3842,44 @@ assert_eq 'an unknown flag exits 64' 64 "$?"
 # all of them -- including the servers whose variable has since been reassigned
 # to the next section's, which is how review-guard outlived a trap that named
 # $gsock after $gsock had become review-gutter.
+#
+# Each server is told to go before its socket is taken: the socket is the only
+# way to reach it, and a server whose section never got to kill it -- a run
+# stopped part way still runs this -- would otherwise be left up for good.
 clean_sockets() {
-  /bin/rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/"review-*-$$ 2>/dev/null || :
+  local sock
+  for sock in "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/"review-*-"$$"; do
+    [[ -S $sock ]] || continue
+    tmux -S "$sock" kill-server 2>/dev/null || :
+    /bin/rm -f "$sock" 2>/dev/null || :
+  done
 }
+
+section 'clean_sockets: a server goes with its socket'
+# The trap that calls this runs however a run ends, and a run stopped part way
+# -- interrupted, or given up on by whatever started it -- ends with servers
+# still up that their own sections never got to kill. Taking only the socket
+# away left each of those running with no way back to it: one was found eight
+# days on, still holding a review window and four of its processes.
+csock=review-cleanprobe-$$
+if ! tmux -L "$csock" -f /dev/null new-session -d 'sleep 60' 2>/dev/null; then
+  skip 'a server going with its socket' 'no tmux server could be started'
+else
+  cpid=$(tmux -L "$csock" display-message -p '#{pid}')
+
+  clean_sockets
+
+  calive=0
+  for _ in $(seq 1 20); do
+    kill -0 "$cpid" 2>/dev/null || break
+    sleep 0.05
+  done
+  kill -0 "$cpid" 2>/dev/null && calive=1
+  assert_eq 'cleaning up takes the server down, not only its socket' 0 "$calive"
+  kill "$cpid" 2>/dev/null
+fi
+/bin/rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$csock"
+unset csock cpid calive
 
 section 'opening a review window: all three panes survive it'
 socket=review-test-$$
