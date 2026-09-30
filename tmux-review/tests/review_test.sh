@@ -2982,6 +2982,21 @@ assert_eq 'and nothing was asked for' 0 "$state_asked"
 tick='held'; read_state '%7'
 assert_eq 'a turn with nothing waiting leaves the last one standing' held "$tick"
 exec {state_fd}<&-
+# tmux can write a line in more than one piece, and a turn only waits a
+# fiftieth of a second for the rest. Caught in a live run: the turn read the %
+# of a push and gave up, the next read the rest as a line of its own, and
+# without its % it matched nothing -- so the push was dropped. tmux pushes a
+# value only when it changes, so it never came again, and the list went on
+# drawing for a border that had moved a minute before.
+exec {state_fd}< <(printf '%%'; sleep 0.3; printf '%s\n' 'subscription-changed rv %7 - - 0 : 1 100 82 5')
+sub_out=$state_fd; tick=''; state_asked=0
+
+read_state '%7'
+sleep 0.5
+read_state '%7'
+
+assert_eq 'a push that arrives in pieces is still a push' '1 100 82 5' "$tick"
+exec {state_fd}<&-
 # A control client that exits falls back to asking rather than going blind.
 printf '%s\n' '%exit' >"$state_file"
 exec {state_fd}<"$state_file"
@@ -3034,6 +3049,29 @@ assert_eq 'a client that has exited answers false' 1 "$ask_status"
 assert_eq 'and says so, so the caller stops asking' -1 "$sub_out"
 exec {ask_rfd}<&-
 exec {ask_wfd}>&-
+# The ask reads the descriptor the turns read, so it can be handed the rest of
+# a push a turn read only the start of. It has to take that start with it, or
+# the next turn puts it in front of a push of its own and loses that one too.
+{
+  printf '%s\n' 'subscription-changed rv %1 0 0 0 : HALF-PUSH'
+  printf '%%begin 1 1 1\n'
+  printf 'THE-REPLY\n'
+  printf '%%end 1 1 1\n'
+  printf '%s\n' '%subscription-changed rv %1 0 0 0 : NEXT-PUSH'
+} >"$ask_r"
+exec {ask_rfd}<"$ask_r"
+exec {ask_wfd}>"$ask_w"
+sub_out=$ask_rfd; sub_in=$ask_wfd; sub_partial='%'; tick=''
+
+ask_state %1
+ask_tick=$tick
+read_state %1
+
+assert_eq 'an ask takes up the half a push a turn left' 'THE-REPLY NEXT-PUSH' "$ask_tick $tick"
+exec {ask_rfd}<&-
+exec {ask_wfd}>&-
+sub_partial=''
+unset ask_tick
 /bin/rm -f "$ask_r" "$ask_w"
 state_format=$ask_save_format
 sub_out=-1
@@ -3861,16 +3899,23 @@ else
     # subjects are cut with an ellipsis, which are three bytes a glyph, so awk's
     # length() and wc -c both read an 80-column row as 235. ${#var} counts
     # characters under a UTF-8 locale, which is what dwidth relies on too.
+    #
+    # -J, because a pane that narrows rewraps what it already holds: rows drawn
+    # for 80 come back from a 60-column pane as 60-column lines and the rest of
+    # each on the next, and without joining them again the list reads as having
+    # redrawn for 60 when it has not drawn anything. The drag to 60 passed that
+    # way for as long as it had existed, and the sidebar losing the push that
+    # should have told it about the drag hid behind it.
     rcols() {
       local line max=0
       while IFS= read -r line; do ((${#line} > max)) && max=${#line}; done \
-        < <(tmux -L "$rsock" capture-pane -p -t "$rlist")
+        < <(tmux -L "$rsock" capture-pane -p -J -t "$rlist")
       printf '%s' "$max"
     }
     rover() {
       local line n=0
       while IFS= read -r line; do ((${#line} > $1)) && n=$((n + 1)); done \
-        < <(tmux -L "$rsock" capture-pane -p -t "$rlist")
+        < <(tmux -L "$rsock" capture-pane -p -J -t "$rlist")
       printf '%s' "$n"
     }
     # Waited for, not slept on. tmux moves the border at once, but the rows are
@@ -3925,8 +3970,21 @@ else
     # Dragged wider than the diff can afford. The border is taken back to the
     # last width that leaves the diff the 202 it rendered at.
     tmux -L "$rsock" resize-pane -x 100 -t "$rlist"
+    # Watched, not only waited for. The list builds its rows for 100 in the turn
+    # that sees the drag, takes the border back to 82 and goes on from the state
+    # tmux last pushed -- which still says 100, and goes on saying it until the
+    # next push a second later. Every row of that second was drawn for 100 in an
+    # 82-column pane and wrapped. A wait for 82 and 82 passes over it, because
+    # the rows it drew before the drag are still 82 wide when the border comes
+    # back, so the second is only seen by looking during it.
+    rwide=0
+    for _ in $(seq 1 30); do
+      [[ $(rwidth "$rlist") == 82 ]] && (($(rcols) > 82)) && rwide=$((rwide + 1))
+      sleep 0.1
+    done
     rsettle 82 82
     assert_eq 'dragged too wide, the border is taken back' 82 "$(rwidth "$rlist")"
+    assert_eq 'and the rows are never drawn wider than it was given back' 0 "$rwide"
     assert_eq 'to exactly what the diff rendered at' 202 "$(rwidth "$rdiff")"
     assert_eq 'and the rows follow it there too' 82 "$(rcols)"
     tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" >"$tmp/rs_after.txt"
@@ -3936,6 +3994,7 @@ else
     assert_ok "$(cmp -s "$tmp/rs_base.txt" "$tmp/rs_after.txt" && echo 0 || echo 1)" \
       'and not one row of the diff folded on the way' 'the same scrollback' 'rows folded'
     unset -f rwidth rcols rover rsettle
+    unset rwide
   fi
   tmux -L "$rsock" kill-server 2>/dev/null
 fi

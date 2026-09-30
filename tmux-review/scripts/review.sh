@@ -916,6 +916,8 @@ read_state() {
     return 0
   fi
   while IFS= read -r -t 0.02 -u "$sub_out" line; do
+    line=${sub_partial-}$line
+    sub_partial=''
     case $line in
       '%subscription-changed rv '*)
         tick=${line#*" : "}
@@ -929,6 +931,12 @@ read_state() {
         ;;
     esac
   done
+  # tmux can write a line in more than one piece, and a read that gives up part
+  # way through one keeps what it had. The rest arrives on a later turn, where
+  # it is only a line with this in front of it; read on its own it matches
+  # nothing, and a push dropped is never sent again -- tmux pushes a value only
+  # when it changes.
+  sub_partial=${sub_partial-}$line
   # Nothing new means nothing changed, so the values from last turn still hold.
   ((got)) || return 0
   return 0
@@ -954,6 +962,10 @@ ask_state() {
   ((sub_out >= 0)) || return 1
   printf 'display-message -p -t %s "%s"\n' "$pane" "$state_format" 1>&"$sub_in" || return 1
   while IFS= read -r -t 1 -u "$sub_out" line; do
+    # The same descriptor the turns read, so it can hold the rest of a line one
+    # of them read only the start of -- see read_state.
+    line=${sub_partial-}$line
+    sub_partial=''
     case $line in
       '%begin'*) continue ;;
       '%end'*) return 0 ;;
@@ -1080,6 +1092,10 @@ sidebar() {
   # The drag that provoked it stays provoking it until they drag back, and one
   # message per tick is not a message, it is a stuck status line.
   local clamp_said=0
+  # Set when this loop has just restated the layout itself, so the next turn
+  # asks for the state rather than waiting on a push that is up to a second
+  # away -- see where it is set.
+  local ask_next=0
   # Set by gutter_sync when it has just changed the layout, and the view the
   # diff was showing before it did. tmux repositions a pane's copy-mode when
   # the pane is resized -- the cursor is put on the top row and the view is
@@ -1132,7 +1148,7 @@ sidebar() {
   local loaded_seen=0
   # The subscription, and where the state read out of it lands. -1 until one is
   # up, which is also what read_state falls back to asking on.
-  local tick='' sub_out=-1 sub_in=-1 sub_pid=''
+  local tick='' sub_out=-1 sub_in=-1 sub_pid='' sub_partial=''
   local pub_commits='' pub_files='' pub_stops='' i
 
   # Paint before touching tmux. While delta is writing its thousands of lines
@@ -1188,7 +1204,8 @@ sidebar() {
     # Asked for, not waited for, while the comments pane is up -- see ask_state.
     # Everywhere else the push is what this loop has always run on, and costs
     # nothing at all.
-    if [[ -n $gutter_pane ]] && ((sub_out >= 0)); then
+    if { [[ -n $gutter_pane ]] || ((ask_next)); } && ((sub_out >= 0)); then
+      ask_next=0
       ask_state "$pane" || read_state "$pane" || return 0
     else
       read_state "$pane" || return 0
@@ -1422,6 +1439,12 @@ sidebar() {
         ((clamp_said)) || tmux display-message \
           'review: the diff needs the rest of the window -- the list stops here'
         clamp_said=1
+        # The state in hand is the one the drag produced, and the next push is
+        # up to a second off. Waiting on it drew that second's rows for the
+        # width that was just refused, into the pane it was refused for, and
+        # every one of them wrapped. The layout set is known now, so it is asked
+        # for rather than waited on.
+        ask_next=1
         continue
       else
         # The border could not be taken back: relayout only moves a window it
