@@ -3117,6 +3117,39 @@ sub_in=-1
 tick=''
 unset ask_r ask_w ask_save_format ask_status
 
+section 'sidebar_exit: the control client goes first, and nothing waits on the pane'
+# The sidebar was caught once gone quiet for good in the middle of its exit: the
+# trap wrote the cursor back to its own pane before anything else, the pane was
+# not being read, and the write held the process -- with the control client it
+# was about to kill still attached to the session behind it. Here the pane is a
+# pipe whose reader never reads, filled before the exit starts.
+sleep 30 &
+sub_pid=$!
+exit_sub=$sub_pid
+exec {exit_fd}> >(sleep 3)
+head -c 200000 /dev/zero 1>&"$exit_fd" 2>/dev/null &
+exit_filler=$!
+sleep 0.3
+# In a subshell of its own, so an exit that does block is a failed assertion
+# rather than the test run itself stuck on the pipe.
+
+( sidebar_exit 1>&"$exit_fd" 2>/dev/null ) &
+exit_job=$!
+for _ in $(seq 1 10); do
+  kill -0 "$exit_job" 2>/dev/null || break
+  sleep 0.05
+done
+
+exit_stuck=0
+kill -0 "$exit_job" 2>/dev/null && { exit_stuck=1; kill "$exit_job" 2>/dev/null; }
+exit_alive=0; kill -0 "$exit_sub" 2>/dev/null && exit_alive=1
+assert_eq 'the exit does not wait on a pane nobody reads' 0 "$exit_stuck"
+assert_eq 'and the control client is gone with it' 0 "$exit_alive"
+kill "$exit_filler" "$exit_sub" 2>/dev/null
+exec {exit_fd}>&-
+sub_pid=''
+unset exit_sub exit_fd exit_filler exit_job exit_stuck exit_alive
+
 section 'start_subscription: a control client, subscribed to the one format'
 sub_dir=$(mktemp -d)
 cat >"$sub_dir/tmux" <<'FAKE'

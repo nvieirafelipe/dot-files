@@ -999,6 +999,19 @@ ask_state() {
   return 1
 }
 
+# What the sidebar puts right as it goes. The control client first: it is
+# attached to the session and would stay attached for good. The terminal last,
+# and in the background -- the cursor is written back to this pane, a pane tmux
+# is not reading holds that write for as long as it likes, and the exit was
+# caught once held there, the control client still attached behind it. Nothing
+# is left waiting: when this process goes, the pane goes, and a write still
+# pending on it fails with it.
+sidebar_exit() {
+  [[ -z ${sub_pid:-} ]] || kill "$sub_pid" 2>/dev/null || true
+  { stty echo; printf '\e[?25h'; } 2>/dev/null &
+  return 0
+}
+
 start_subscription() {
   local pane=$1 session=$2
   coproc SUB { exec tmux -C attach-session -f no-output -t "$session" 2>/dev/null; } || return 1
@@ -1037,7 +1050,7 @@ sidebar() {
   printf '\e[?25l'
   # The control client is a process of ours and has to go with us; left behind
   # it would sit attached to the session for good.
-  trap 'stty echo 2>/dev/null; printf "\e[?25h"; [[ -n ${sub_pid:-} ]] && kill "$sub_pid" 2>/dev/null; true' EXIT INT TERM
+  trap sidebar_exit EXIT INT TERM
 
   # Filled in below, after the first frame is up, so the shortstat's 170ms is
   # never on the path to something appearing.
