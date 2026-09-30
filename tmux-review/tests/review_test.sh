@@ -3858,7 +3858,7 @@ else
     # depend on how large the repository's last commit happened to be.
     dpane=$(tmux -L "$socket" show-options -w -t "$win" -qv @review_diff_pane)
     for _ in $(seq 1 160); do
-      [[ $(tmux -L "$socket" show-options -p -t "$dpane" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+      [[ $(tmux -L "$socket" show-options -w -t "$dpane" -qv @review_loaded 2>/dev/null) == 1 ]] &&
         break
       sleep 0.25
     done
@@ -3942,7 +3942,7 @@ else
     rdiff=$(tmux -L "$rsock" show-options -w -t "$rwin" -qv @review_diff_pane)
     rlist=$(tmux -L "$rsock" show-options -w -t "$rwin" -qv @review_list_pane)
     for _ in $(seq 1 200); do
-      [[ $(tmux -L "$rsock" show-options -p -t "$rdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+      [[ $(tmux -L "$rsock" show-options -w -t "$rdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
         break
       sleep 0.25
     done
@@ -4383,7 +4383,7 @@ else
   if [[ -n $gwin ]]; then
     gdiff=$(tmux -L "$gsock" show-options -w -t "$gwin" -qv @review_diff_pane)
     for _ in $(seq 1 200); do
-      [[ $(tmux -L "$gsock" show-options -p -t "$gdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+      [[ $(tmux -L "$gsock" show-options -w -t "$gdiff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
         break
       sleep 0.25
     done
@@ -4815,7 +4815,7 @@ else
     # width the comments pane needs is taken out of the diff, and C says there
     # is no room until it has been.
     for _ in $(seq 1 200); do
-      [[ $(tmux -L "$e2e_sock" show-options -p -t "$e2e_diff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+      [[ $(tmux -L "$e2e_sock" show-options -w -t "$e2e_diff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
         break
       sleep 0.25
     done
