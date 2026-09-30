@@ -2272,7 +2272,7 @@ section 'holding: the list and the placeholder while the diff loads'
 hold_calls=''
 render() { hold_calls+="[render $1]"; }
 render_loading() { hold_calls+="[loading $3]"; }
-width=80; height=40; on_range=0; searching=0; on_session=0; spin=5
+width=80; hdr_w=80; height=40; on_range=0; searching=0; on_session=0; spin=5
 shown=3; hold_calls=''; hold_list </dev/null
 assert_eq 'a list showing a later commit is redrawn against the first' \
   '[render 0]' "$hold_calls"
@@ -2287,7 +2287,18 @@ assert_eq 'and moves to the next' 6 "$spin"
 assert_eq 'the list is marked for a redraw from scratch' -2 "$shown"
 spin=5; hold_placeholder <<<'z'
 assert_eq 'a key resets the placeholder spinner too' 0 "$spin"
-restore_review; unset hold_calls
+# While the diff renders, the list is zoomed over the whole window and draws at
+# its width -- but the header is a pane of its own, still the width of the
+# column, and painted at the list's width it wrapped every row it had.
+paint_header() { hold_calls+="[header $1]"; }
+width=120; hdr_w=34; hold_calls=''
+
+hold_placeholder </dev/null
+hold_list </dev/null
+
+assert_eq 'the header is painted at its column, not at the zoomed list' \
+  '[header 34][header 34]' "$(grep -o '\[header [0-9]*\]' <<<"$hold_calls" | tr -d '\n')"
+restore_review; unset hold_calls hdr_w
 
 section 'load_change_summary: the diffstat the placeholder shows'
 change_plain=''; change_col=''
@@ -3070,6 +3081,33 @@ read_state %1
 assert_eq 'an ask takes up the half a push a turn left' 'THE-REPLY NEXT-PUSH' "$ask_tick $tick"
 exec {ask_rfd}<&-
 exec {ask_wfd}>&-
+# What an ask sees first on a client that has only just subscribed: the empty
+# answer to the subscription itself, and notices tmux sends every client
+# whenever something happens -- neither of them this ask's reply. Taking the
+# first answer as its own and a notice as the state, the sidebar was handed
+# '%session-changed $0 0', worked out a list one column wide from it, and drew
+# the header at that until a push put it right.
+{
+  printf '%%begin 1 1 1\n'
+  printf '%%end 1 1 1\n'
+  # The $0 is tmux's session id, written as tmux writes it.
+  # shellcheck disable=SC2016
+  printf '%s\n' '%session-changed $0 0'
+  printf '%s\n' '%layout-change @1 1714,285x78,0,0{80x78,0,0,1,204x78,81,0,2}'
+  printf '%%begin 1 2 1\n'
+  printf 'THE-REPLY\n'
+  printf '%%end 1 2 1\n'
+} >"$ask_r"
+exec {ask_rfd}<"$ask_r"
+exec {ask_wfd}>"$ask_w"
+sub_out=$ask_rfd; sub_in=$ask_wfd; sub_partial=''; tick=''
+
+ask_state %1
+
+assert_eq 'the reply is the answer to the ask, not to the subscription or a notice' \
+  'THE-REPLY' "$tick"
+exec {ask_rfd}<&-
+exec {ask_wfd}>&-
 sub_partial=''
 unset ask_tick
 /bin/rm -f "$ask_r" "$ask_w"
@@ -3824,7 +3862,21 @@ else
         break
       sleep 0.25
     done
-    sleep 1
+    # Watched for two seconds rather than looked at once after one. The header
+    # is painted before the sidebar has heard from tmux at all, and the push
+    # that first tells it anything is up to a second behind the subscription:
+    # every frame in between was worked out from an empty state, which came to
+    # a list one column wide, and the header was drawn at that -- its figures
+    # at the foot and the range and the agent cut to nothing above them. A
+    # single look a second in lands on either side of that.
+    hdr=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_id} #{pane_start_command}' |
+      grep 'review.sh header' | cut -d' ' -f1)
+    hdr_cut=0
+    for _ in $(seq 1 40); do
+      hdr_text=$(tmux -L "$socket" capture-pane -p -t "$hdr" 2>/dev/null)
+      [[ $hdr_text == *commit* && $hdr_text != *'HEAD~1..HEAD'* ]] && hdr_cut=$((hdr_cut + 1))
+      sleep 0.05
+    done
     live=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_dead}' | grep -c '^0$')
     assert_eq 'all three panes are alive' 3 "$live"
 
@@ -3851,6 +3903,7 @@ else
       assert_match 'it names the range being reviewed' 'HEAD~1\.\.HEAD' "$hdr_text"
       assert_match 'says where a comment would go' 'no agent selected' "$hdr_text"
       assert_match 'and counts what the range comes to' '\+[0-9]+.*1 commit' "$hdr_text"
+      assert_eq 'and never draws the count without the range above it' 0 "$hdr_cut"
     fi
   fi
   tmux -L "$socket" kill-server 2>/dev/null

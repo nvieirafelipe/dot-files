@@ -957,8 +957,15 @@ read_state() {
 # against 5ms for a tmux client of our own, and far worse than that on a machine
 # whose endpoint agent inspects every exec, which is the cost this plugin is
 # built around not paying.
+#
+# The reply is the one line between a %begin and its %end. Not the first such
+# pair: a client that has only just subscribed still has the answer to the
+# subscription waiting, and that answer is empty. And not a line outside one:
+# tmux sends every client a notice whenever a session, a layout or a pane
+# changes, and each of those is a line starting with % too. Taken as the state,
+# '%session-changed $0 0' came to a list one column wide.
 ask_state() {
-  local pane=$1 line
+  local pane=$1 line reply='' inside=0
   ((sub_out >= 0)) || return 1
   printf 'display-message -p -t %s "%s"\n' "$pane" "$state_format" 1>&"$sub_in" || return 1
   while IFS= read -r -t 1 -u "$sub_out" line; do
@@ -967,8 +974,17 @@ ask_state() {
     line=${sub_partial-}$line
     sub_partial=''
     case $line in
-      '%begin'*) continue ;;
-      '%end'*) return 0 ;;
+      '%begin'*)
+        inside=1
+        reply=''
+        ;;
+      '%end'*)
+        inside=0
+        if [[ -n $reply ]]; then
+          tick=$reply
+          return 0
+        fi
+        ;;
       '%error'*) return 1 ;;
       # A push that landed while the reply was in flight. It is the same state,
       # so it is taken rather than dropped, and the reply still follows.
@@ -977,7 +993,7 @@ ask_state() {
         sub_out=-1
         return 1
         ;;
-      *) [[ -n $line ]] && tick=$line ;;
+      *) ((inside)) && [[ -n $line ]] && reply=$line ;;
     esac
   done
   return 1
@@ -1031,6 +1047,10 @@ sidebar() {
   # say which file a comment is against.
   local -a file_rows=() file_names=()
   local mapped=0 width=0 height=0 diff_width=0 shown=-2
+  # The width of the column the header shares with the list. The two are one
+  # number except while the list is zoomed over the window, when the list is
+  # the window's width and the header, hidden, is still the column's.
+  local hdr_w=0
   # Bumped every time the row map is rebuilt, which is the only thing that can
   # move an anchor. The comments pane keys its own work off this rather than off
   # the diff's width: widening the pane changes that width without moving a
@@ -1204,7 +1224,11 @@ sidebar() {
     # Asked for, not waited for, while the comments pane is up -- see ask_state.
     # Everywhere else the push is what this loop has always run on, and costs
     # nothing at all.
-    if { [[ -n $gutter_pane ]] || ((ask_next)); } && ((sub_out >= 0)); then
+    # And while nothing has been heard at all. The first push is up to a second
+    # behind the subscription, and a turn worked out from an empty state comes
+    # to a list one column wide: the header was drawn at that, its range and
+    # its agent cut to nothing above the figures, for the whole of that second.
+    if { [[ -n $gutter_pane || -z $tick ]] || ((ask_next)); } && ((sub_out >= 0)); then
       ask_next=0
       ask_state "$pane" || read_state "$pane" || return 0
     else
@@ -1212,6 +1236,13 @@ sidebar() {
     fi
     IFS=$'\x1f' read -r in_mode hist scroll cy dw ww dh zoomed diff_active searching \
       loaded live hdr_sel hdr_open active_pane win_active wh <<<"$tick"
+    # Still nothing from tmux, even asked. Everything below is worked out from
+    # these figures, and worked out from none it comes to a list one column
+    # wide -- so the turn keeps the frames open drew instead, and asks again.
+    if [[ -z $ww ]]; then
+      hold_unmeasured
+      continue
+    fi
 
     # Which of the two header rows the cursor up there is on, and whether the
     # reader is actually up there. Both, because the highlight is the header
@@ -1370,6 +1401,11 @@ sidebar() {
       list_for_gutter "$ww" "$gutter_w" "$gutter_target" "$list_now"
       w=$REPLY
     fi
+    # Before the zoom is let in: the header is painted at this, and a header
+    # painted at the zoomed list's width padded every row to the window and
+    # wrapped each into lines enough to scroll the range off the top of it. It
+    # stayed like that after the zoom came off, until a push said so.
+    hdr_w=$w
     ((zoomed)) && w=$ww
     # dh is the diff pane's height, which is the window's. This pane sits under
     # the header and is that much shorter -- except while it is zoomed over the
@@ -1584,7 +1620,7 @@ sidebar() {
       continue
     fi
 
-    paint_header "$width" "$cur"
+    paint_header "$hdr_w" "$cur"
 
     # The comments pane, if it is up. Closed on its own once the queue is empty
     # -- after s, or the last comment dropped -- because a gutter with nothing
@@ -3482,7 +3518,7 @@ retarget() {
 # where the diff pane parks itself. This replaces several seconds of spinner
 # held over a list that was complete the whole time.
 hold_list() {
-  paint_header "$width"
+  paint_header "$hdr_w"
   if ((shown != 0)); then
     render 0 "$width" "$height" diff "$on_range" "$searching" "$on_session"
     ((shown == -2)) && trace list-drawn
@@ -3494,8 +3530,24 @@ hold_list() {
   return 0
 }
 
+# The turns before the first state has been read. The header is kept at the
+# share it was first painted at, which is the width its pane was split at, so
+# the change summary still goes up on it the moment it lands; the list keeps the
+# frame open drew, because whether it is zoomed over the window is one of the
+# figures not yet known.
+hold_unmeasured() {
+  if ((win_w > 0)); then
+    columns_for "$win_w"
+    paint_header "$REPLY"
+  fi
+  if IFS= read -rsn1 -t 0.25 _; then
+    spin=0
+  fi
+  return 0
+}
+
 hold_placeholder() {
-  paint_header "$width"
+  paint_header "$hdr_w"
   render_loading "$width" "$height" "$spin"
   spin=$((spin + 1))
   shown=-2
