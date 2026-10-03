@@ -1,63 +1,56 @@
 # Deciduous Graph Views
 
-Served via `/serve-ui` at localhost:3000 with auto-refresh.
+`deciduous serve` (or `/serve-ui`) starts the viewer on
+localhost:3000; `-p <port>` changes the port. It refreshes as
+the graph changes. The README for 1.0.12 lists five views,
+summarized below.
 
-## DAG View
+The viewer supports branch filtering, full-text search with
+type filters, deep links, and click-to-expand node details,
+and the detail panel shows attached documents.
 
-The raw directed acyclic graph of decisions.
+## Chains
 
-- Shows all nodes and edges
-- Color-coded by node type (Goal, Decision, Action, etc.)
-- Good for seeing the full decision topology at a glance
-- Best for: understanding the overall shape of a project's
-  decision history
+Decision chains grouped by session: the story of one feature
+from goal to outcome. Best for tracing a single decision from
+motivation to result.
 
-## Timeline View
+## Timeline
 
-Chronological navigation of decisions.
+Nodes in chronological order, merged with git commits. Nodes
+built by `/decision-graph` sit at their backdated commit
+times. Best for "what happened last month?" and "what led to
+this state?".
 
-- Nodes arranged by date (backdated for retroactive graphs)
-- Filterable by node type
-- Best for: "what happened last month?" or "what decisions
-  led to this state?"
+## Graph
 
-## Chains View
+A force-directed, interactive layout of every node and edge.
+Best for seeing clusters and how far one area reaches into
+another.
 
-Decision threads and dependencies.
+## DAG
 
-- Follows edges from Goal → Options → Decision → Action →
-  Outcome
-- Shows complete decision threads
-- Best for: tracing a single decision from motivation to
-  result
+The hierarchical goal → decision → outcome flow. Best for the
+overall shape of a project's decision history.
 
-## Archaeology View
+## Archaeology
 
-Card-stack navigation of narratives.
+Narrative-driven navigation built from
+`.deciduous/narratives.md` and the revisit chains that
+`deciduous archaeology pivot` creates, with a Q&A panel for
+questions such as "why did we switch from X to Y?". Keyboard
+navigation: `j` / `k` for next and previous, `g` / `G` for
+first and last, `Space` to expand. Best for how a subsystem
+evolved, not just its current state.
 
-- Built from `narratives` skill output
-- Navigable with keyboard shortcuts:
-  - `j` / `k` — next / previous card
-  - `g` / `G` — first / last card
-  - `Space` — expand card details
-- Shows how subsystems evolved over time
-- Highlights pivots (Revisit nodes) prominently
-- Best for: understanding the *evolution* of a subsystem,
-  not just its current state
+With a graph server, the `ask_graph` MCP tool answers the same
+kind of question over the whole server graph without the
+viewer.
 
-## Q&A Interface
+## Choosing a view
 
-Natural language queries over the decision graph.
-
-- Uses FTS5 full-text search across all stored interactions
-- Answers grounded in actual graph data with evidence
-- Best for: "why did we switch from X to Y?", "what
-  alternatives did we consider for Z?"
-
-## Choosing the right view
-
-- "Show me everything" → DAG
-- "What happened when?" → Timeline
 - "Trace this decision" → Chains
-- "How did this subsystem evolve?" → Archaeology
-- "Why did we do X?" → Q&A
+- "What happened when?" → Timeline
+- "How do these areas connect?" → Graph
+- "Show me the overall shape" → DAG
+- "How did this subsystem evolve, and why?" → Archaeology
