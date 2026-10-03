@@ -1,7 +1,10 @@
 {
   "includeCoAuthoredBy": false,
   "permissions": {
-    "allow": [],
+    "allow": [
+      "mcp__deciduous",
+      "mcp__tidewave"
+    ],
     "ask": [
       "Bash(gh pr comment:*)",
       "Bash(gh pr review:*)",
