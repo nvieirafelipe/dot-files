@@ -87,7 +87,10 @@ name — and copy `sounds/*.aiff` into `~/Library/Sounds` if you want the bell.
 `@agent-notify-terminals` is what counts as "you can see the terminal": a banner
 is suppressed only when a client is showing that window *and* one of these apps
 is in front. `@agent-notify-app` names the app a click should raise, when
-walking up from the tmux client to find it gets the wrong answer.
+finding it gets the wrong answer. Without it, the click walks up from the tmux
+client to the first `.app` bundle and, failing that, raises the bundle id the
+client inherited in `__CFBundleIdentifier` — iTerm2 runs its shells under a
+daemon outside its bundle, so the walk alone never finds it.
 
 The glyphs, colours and limits are in `scripts/variables.sh` rather than being
 options. Every option read is a round trip to the server, and this runs on a

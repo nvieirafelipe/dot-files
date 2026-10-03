@@ -872,11 +872,35 @@ tmux() {
   esac
 }
 open() { printf '%s\n' "$*" >>"$open_log"; }
+# 400 is an iTerm2 client: its shell hangs off iTermServer, which launchd
+# parents, so no bundle is on the way up and the app is named only in the
+# environment the client inherited. The decoy ahead of the real variable is
+# there to be ignored. 300 names its bundle in both places, so the Ghostty case
+# shows the walk still wins when it has an answer.
 ps() {
   local want=${*: -1}
   case "$*" in
-    *comm=*) [[ $want == 300 ]] && printf '/Applications/Ghostty.app/Contents/MacOS/ghostty\n' ;;
-    *ppid=*) [[ $want == 300 ]] && printf '  1\n' ;;
+    *command=*)
+      case $want in
+        300) printf 'tmux attach __CFBundleIdentifier=com.example.not-the-walk\n' ;;
+        400) printf '%s %s %s\n' 'tmux new-session -s work' \
+          'X__CFBundleIdentifier=com.example.decoy TERM_PROGRAM=iTerm.app' \
+          '__CFBundleIdentifier=com.googlecode.iterm2 SHELL=/bin/zsh' ;;
+        *) return 1 ;;
+      esac ;;
+    *comm=*)
+      case $want in
+        300) printf '/Applications/Ghostty.app/Contents/MacOS/ghostty\n' ;;
+        400) printf 'tmux\n' ;;
+        500) printf '/Users/x/Library/Application Support/iTerm2/iTermServer-3.7.2\n' ;;
+        *) return 1 ;;
+      esac ;;
+    *ppid=*)
+      case $want in
+        300 | 500) printf '  1\n' ;;
+        400) printf '  500\n' ;;
+        *) return 1 ;;
+      esac ;;
   esac
 }
 focus_session=work
@@ -892,6 +916,22 @@ assert_match 'the window is selected by the target it was given' 'select-window 
 assert_match 'and so is the pane, which switch-client would not have done' \
   'select-pane -t %7' "$focus_calls"
 assert_eq 'the terminal hosting that client is raised' '-a Ghostty' "$(<"$open_log")"
+assert_match 'and the log says which' 'raising Ghostty' "$(tail -1 "$log")"
+
+focus_reset
+focus_client_pids=$'/dev/ttys001 400'
+(main '%7') >/dev/null 2>&1
+assert_eq 'a client with no bundle above it raises the one its environment names' \
+  '-b com.googlecode.iterm2' "$(<"$open_log")"
+assert_match 'and the log says which' 'raising com.googlecode.iterm2' "$(tail -1 "$log")"
+
+focus_reset
+focus_client_pids=$'/dev/ttys001 600'
+(main '%7') >/dev/null 2>&1
+assert_eq 'a client with no app found either way raises nothing' '' "$(<"$open_log")"
+assert_match 'but says so in the log' \
+  'no terminal app found for client /dev/ttys001 \(pid 600\)' "$(tail -1 "$log")"
+focus_client_pids=$'/dev/ttys001 300\n/dev/ttys002 400'
 
 focus_reset
 focus_app_option=iTerm2

@@ -42,10 +42,20 @@ app_from_pid() {
   return 0
 }
 
+# The bundle id LaunchServices gave the terminal, read off the client's
+# environment, which everything the terminal starts inherits. The fallback for
+# terminals whose shells do not descend from the app: iTerm2 hosts them in
+# iTermServer, a daemon launchd parents, so the walk above reaches pid 1 without
+# passing a bundle.
+bundle_from_pid() {
+  ps -E -ww -o command= -p "$1" 2>/dev/null \
+    | tr ' ' '\n' | sed -n 's/^__CFBundleIdentifier=//p' | head -1 || true
+}
+
 main() {
   [[ $# -ge 1 ]] || usage
 
-  local target=$1 session client app pid
+  local target=$1 session client app pid bundle
 
   # Fail into the log rather than silently: this runs with no terminal attached,
   # so a bare `exit 0` on a broken environment is invisible.
@@ -86,10 +96,19 @@ main() {
     pid=$(tmux list-clients -F '#{client_tty} #{client_pid}' 2>/dev/null \
       | awk -v t="$client" '$1 == t { print $2; exit }')
     app=$(app_from_pid "$pid")
+    [[ -n $app ]] || bundle=$(bundle_from_pid "$pid")
   fi
 
+  # Logged either way: a click that raises nothing looks, from outside, exactly
+  # like a click that was never delivered.
   if [[ -n ${app:-} ]]; then
+    note "raising $app"
     open -a "$app" 2>/dev/null || true
+  elif [[ -n ${bundle:-} ]]; then
+    note "raising $bundle"
+    open -b "$bundle" 2>/dev/null || true
+  else
+    note "no terminal app found for client ${client:-none} (pid ${pid:-none})"
   fi
   exit 0
 }
