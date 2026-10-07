@@ -111,6 +111,16 @@ items:
           - name: Last commit
             key: 'G'
             command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh nav #{window_id} last commit"'
+          - separator: true
+          - name: Collapse or open what the cursor is in
+            key: '='
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} ="'
+          - name: Collapse it, or the one around it
+            key: '<'
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} ''<''"'
+          - name: Open it
+            key: '>'
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} ''>''"'
   - separator: true
   - name: +Windows
     key: w

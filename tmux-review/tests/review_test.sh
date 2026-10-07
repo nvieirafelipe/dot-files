@@ -231,7 +231,7 @@ assert_eq 'and truncated by column, not by character' 5 "$REPLY"
 section 'render_legend: takes the widest form that fits'
 render_legend 101 diff legend_diff_tiers
 assert_eq 'widest diff form at 101' \
-  'diff  jk line  n/N any  ][ file  }{ commit  c comment  s send' "$(strip <<<"$REPLY")"
+  'diff  jk line  n/N any  ][ file  }{ commit  =<> fold  c comment  s send' "$(strip <<<"$REPLY")"
 render_legend 30 diff legend_diff_tiers
 assert_eq 'narrowest diff form at 30' 'diff  n/N any  c comment' "$(strip <<<"$REPLY")"
 render_legend 101 agent legend_session_tiers
@@ -244,6 +244,21 @@ assert_eq 'and not the comment keys, which are not up there' 0 \
   "$(strip <<<"$REPLY" | grep -c 'c comment')"
 render_legend 101 list legend_list_tiers
 assert_match 'list form names the page and end keys' 'PgUp/PgDn page.*gg/G first/last' "$(strip <<<"$REPLY")"
+# A group is split on its last = rather than its first: the fold keys are = < >,
+# and split on the first the key came out empty and the label kept the rest.
+eq_tiers=('==toggle|=<>=fold|c=comment')
+render_legend 80 x eq_tiers
+assert_eq 'a key that is itself an equals sign keeps its name' \
+  'x  = toggle  =<> fold  c comment' "$REPLY_PLAIN"
+unset eq_tiers
+render_legend 120 list legend_list_tiers
+assert_match 'the list offers the fold keys when there is room' '=<> fold' "$REPLY_PLAIN"
+render_legend 120 list legend_list_c_tiers
+assert_match 'and so it does with something queued' '=<> fold' "$REPLY_PLAIN"
+render_legend 120 diff legend_diff_c_tiers
+assert_match 'and so does the diff' '=<> fold' "$REPLY_PLAIN"
+render_legend 120 diff legend_diff_search_tiers
+assert_match 'searching or not' '=<> fold' "$REPLY_PLAIN"
 render_legend 200 diff legend_diff_tiers
 # A substring test, not a pattern: the escapes are full of regex metacharacters.
 coloured=0; [[ $REPLY == *"$c_subject"jk"$reset"* ]] || coloured=1
@@ -792,6 +807,13 @@ sent=''; gutter_key %9 C
 assert_eq 'C goes over too, which closes this very pane' '[send-keys -t %9 C]' "$sent"
 sent=''; gutter_key %9 R
 assert_eq 'and so does the key that empties the queue' '[send-keys -t %9 R]' "$sent"
+sent=''; gutter_key %9 '='
+assert_eq 'the fold keys go over, since the diff they act on is beside it' \
+  '[send-keys -t %9 =]' "$sent"
+sent=''; gutter_key %9 '<'
+assert_eq 'all three of them' '[send-keys -t %9 <]' "$sent"
+sent=''; gutter_key %9 '>'
+assert_eq 'all three, not two' '[send-keys -t %9 >]' "$sent"
 sent=''; gutter_key %9 cancel
 assert_eq 'a bare escape is not a key the list knows' '' "$sent"
 sent=''; gutter_key %9 z
@@ -1429,7 +1451,7 @@ section 'read_key: the keys that reach the loop at all'
 # nothing. y was missing, so the question d asks in the comments pane could not
 # be answered from the pane the reader was standing in -- it timed out and kept
 # the comment every time.
-for rk_key in e d c s a C R j k q y Y; do
+for rk_key in e d c s a C R j k q y Y '=' '<' '>'; do
   printf '%s' "$rk_key" | { read_key 0.05; printf '%s' "$REPLY"; } > "$tmp_counts"
   assert_eq "read_key passes $rk_key through" "$rk_key" "$(/bin/cat "$tmp_counts")"
 done
@@ -1786,6 +1808,673 @@ shas=("${saved_shas[@]}")
 unset file_re mod add saved_shas
 unset -v row_of
 
+# The two commits the fold sections share, as delta writes them into the pane.
+# The escapes are left where delta puts them -- between a line number and its
+# gutter, between a box's rule and its corner -- because the renderer has to see
+# through them to find anything, and a fixture without them would not ask it to.
+# The labels come from a stub, as in the map_rows section above.
+fx_mod=$''; fx_add=$'\U000f0752'
+git() { printf 'delta.file-modified-label %s\ndelta.file-added-label %s\n' "$fx_mod" "$fx_add"; }
+fx_re=$(file_row_regex)
+unset -f git
+fx_rule=$'\e[34m────────────────────\e[0m'
+fx=(
+  $'\e[33mcommit 21db538\e[m\e[33m (\e[m\e[1;36mHEAD -> \e[m\e[1;32mtopic\e[m\e[33m)\e[m'
+  'Author: A <a@example.com>'
+  'Date:   1 hour ago'
+  ''
+  '    Fold the diff'
+  '    '
+  '    Body line.'
+  '---'
+  $' bin/a | 3 \e[32m++\e[m\e[31m-\e[m'
+  ' bin/b | Bin 0 -> 2 bytes'
+  ' 2 files changed, 2 insertions(+), 1 deletion(-)'
+  ''
+  ''
+  $'\e[34m'"$fx_mod"$' bin/a\e[0m'
+  "$fx_rule"
+  ''
+  $'\e[34m─────\e[0m\e[34m┐\e[0m'
+  $'\e[34m•\e[0m \e[34m1\e[0m: \e[34m│\e[0m'
+  $'\e[34m─────\e[0m\e[34m┘\e[0m'
+  $'\e[34m\e[38;2;145;76;84m   1\e[34m┊\e[0mone   \e[34m\e[38;2;68;157;171m   1\e[34m│\e[0mone'
+  $'\e[34m\e[38;2;145;76;84m   2\e[34m┊\e[0mtwo   \e[34m\e[38;2;68;157;171m   2\e[34m│\e[0mdeux'
+  $'\e[34m\e[38;2;145;76;84m    \e[34m┊\e[0m      \e[34m\e[38;2;68;157;171m   3\e[34m│\e[0mtrois'
+  ''
+  $'\e[34m─────────\e[0m\e[34m┐\e[0m'
+  $'\e[34m•\e[0m \e[34m9\e[0m: fn \e[34m│\e[0m'
+  $'\e[34m─────────\e[0m\e[34m┘\e[0m'
+  $'\e[34m\e[38;2;145;76;84m   9\e[34m┊\e[0mnine  \e[34m\e[38;2;68;157;171m   9\e[34m│\e[0mnine'
+  ''
+  $'\e[34m'"$fx_add"$' bin/b (binary file)\e[0m'
+  "$fx_rule"
+  ''
+  $'\e[33mcommit 612c33e\e[m'
+  'Author: B <b@example.com>'
+  'Date:   2 hours ago'
+  ''
+  '    Second'
+  '---'
+  $' c | 1 \e[32m+\e[m'
+  ' 1 file changed, 1 insertion(+)'
+  ''
+  ''
+  $'\e[34m'"$fx_add"$' c\e[0m'
+  "$fx_rule"
+  ''
+  $'\e[34m─────\e[0m\e[34m┐\e[0m'
+  $'\e[34m•\e[0m \e[34m1\e[0m: \e[34m│\e[0m'
+  $'\e[34m─────\e[0m\e[34m┘\e[0m'
+  $'\e[34m\e[38;2;145;76;84m    \e[34m┊\e[0m      \e[34m\e[38;2;68;157;171m   1\e[34m│\e[0mc'
+)
+fx_cache=$(mktemp)
+fx_out=$(mktemp)
+printf '%s\n' "${fx[@]}" >"$fx_cache"
+# The same rows as the pane shows them, which is what the expectations below
+# are written in. Built once: a sed per row per assertion would be most of the
+# time this section takes.
+fx_plain=()
+while IFS= read -r fx_row; do fx_plain+=("$fx_row"); done < <(strip <"$fx_cache")
+# Rows a to b of the fixture, as the pane shows them.
+fx_rows() { printf '%s\n' "${fx_plain[@]:$1:$(($2 - $1 + 1))}"; }
+fx_fold() { fold_render "$fx_cache" "$1" "${2:-160}" "$fx_re" | strip; }
+
+section 'render_file: the render a review folds from, keyed by its server and diff pane'
+# Pane ids are unique within a server and nowhere else: two servers each have a
+# %1, and a review closing on one took the render of a review open on the other
+# with it. The server's pid is the second field of TMUX, which tmux sets for
+# every process it starts.
+assert_match 'beside the header frames, named for the server and the pane' \
+  'tmux-review/render-4242-_7\.txt$' "$(TMUX=/tmp/tmux-1/default,4242,0 render_file %7)"
+assert_match 'and for the pane alone where there is no server to name' \
+  'tmux-review/render-_7\.txt$' "$(unset TMUX; render_file %7)"
+
+section 'fold_render: with nothing collapsed, the pane exactly as delta wrote it'
+fold_render "$fx_cache" '' 160 "$fx_re" >"$fx_out"
+cmp -s "$fx_cache" "$fx_out"
+assert_ok $? 'byte for byte, escapes and all'
+fold_render "$fx_cache" 'feedbac/9' 160 "$fx_re" >"$fx_out"
+cmp -s "$fx_cache" "$fx_out"
+assert_ok $? 'and an id that names nothing in the range changes nothing'
+# The clear that goes ahead of a rewrite and the token after it are written by
+# the render itself, so that it can go straight to the pane: tmux parses the
+# rows while the rest are still being rendered, rather than after all of them.
+fx_want=$(mktemp)
+fold_render "$fx_cache" '' 160 "$fx_re" AHEAD- -AFTER >"$fx_out"
+{ printf 'AHEAD-'; /bin/cat "$fx_cache"; printf -- '-AFTER'; } >"$fx_want"
+cmp -s "$fx_want" "$fx_out"
+assert_ok $? 'what goes ahead of the render and after it is written with it'
+fold_render /no/such/render '' 160 "$fx_re" AHEAD- -AFTER >"$fx_out" 2>/dev/null
+assert_eq 'and a render that cannot be read writes neither' 0 "$(wc -c <"$fx_out" | tr -d ' ')"
+/bin/rm -f "$fx_want"
+unset fx_want
+
+section 'fold_render: a collapsed commit is its row and what it came to'
+assert_eq 'the message and every file give way to the subject and the counts' \
+  "$(fx_rows 0 0; printf '%s\n' '    ▸ Fold the diff  ·  2 files  +2 -1' ''; fx_rows 31 47)" \
+  "$(fx_fold 21db538)"
+fold_render "$fx_cache" 21db538 160 "$fx_re" >"$fx_out"
+assert_eq 'the row that names it is left as delta wrote it' "${fx[0]}" "$(head -1 "$fx_out")"
+assert_eq 'the last commit has no blank under it to keep' \
+  "$(fx_rows 0 31; printf '%s\n' '    ▸ Second  ·  1 file  +1')" \
+  "$(fx_fold 612c33e)"
+fx_nostat=$(mktemp)
+grep -v '1 file changed' "$fx_cache" >"$fx_nostat"
+assert_eq 'a commit with no diffstat, as a merge has, stands in with its subject' \
+  "$(fx_rows 0 31; printf '%s\n' '    ▸ Second')" \
+  "$(fold_render "$fx_nostat" 612c33e 160 "$fx_re" | strip)"
+
+section 'fold_render: a collapsed file keeps its header and counts what it hid'
+assert_eq 'two hunks and the four lines in them' \
+  "$(fx_rows 0 13; printf '%s\n' '   ▸ 2 hunks  ·  4 lines' ''; fx_rows 28 47)" \
+  "$(fx_fold 21db538/1)"
+assert_eq 'a binary file has nothing in it to count' \
+  "$(fx_rows 0 28; printf '%s\n' '   ▸ 0 hunks  ·  0 lines' ''; fx_rows 31 47)" \
+  "$(fx_fold 21db538/2)"
+assert_eq 'files are counted from their own commit, not from the top of the range' \
+  "$(fx_rows 0 41; printf '%s\n' '   ▸ 1 hunk  ·  1 line')" \
+  "$(fx_fold 612c33e/1)"
+
+section 'fold_render: a collapsed hunk keeps its box'
+assert_eq 'the first hunk, and the three lines in it' \
+  "$(fx_rows 0 18; printf '%s\n' '   ▸ 3 lines' ''; fx_rows 23 47)" \
+  "$(fx_fold 21db538/1/1)"
+assert_eq 'the second, counted from its own file' \
+  "$(fx_rows 0 25; printf '%s\n' '   ▸ 1 line' ''; fx_rows 28 47)" \
+  "$(fx_fold 21db538/1/2)"
+
+section 'fold_render: what is collapsed inside a collapsed commit waits for it'
+assert_eq 'a file collapsed inside a collapsed commit shows only the commit' \
+  "$(fx_fold 21db538)" "$(fx_fold '21db538 21db538/1')"
+assert_eq 'and several items collapse in the one pass' \
+  "$(fx_rows 0 18; printf '%s\n' '   ▸ 3 lines' ''; fx_rows 23 31
+     printf '%s\n' '    ▸ Second  ·  1 file  +1')" \
+  "$(fx_fold '21db538/1/1 612c33e')"
+
+section 'fold_render: a placeholder never wraps'
+assert_eq 'the subject gives way to the width delta rendered at' \
+  '    ▸ Fold…  ·  2 files  +2 -1' "$(fx_fold 21db538 30 | sed -n 2p)"
+dwidth "$(fx_fold 21db538 30 | sed -n 2p)"
+assert_eq 'which leaves the row exactly that wide' 30 "$REPLY"
+fx_accent=$(mktemp)
+sed 's/Fold the diff/Réécrire le pli/' "$fx_cache" >"$fx_accent"
+assert_eq 'and a subject is cut between characters, never inside one' \
+  '    ▸ Ré…  ·  2 files  +2 -1' \
+  "$(fold_render "$fx_accent" 21db538 28 "$fx_re" | strip | sed -n 2p)"
+
+section 'fold_render: the headers it wrote, the way grep -n reads them off the pane'
+# A fold knows where every header went as it writes them, so the map can come
+# from the render rather than from a capture of the pane: 130-150ms of a
+# 40,000-row range saved after every fold. Written in the very shape map_rows
+# reads off a capture -- the row counted from one, a colon, the row's text --
+# so the one parser reads both and the two cannot disagree about what a header
+# is.
+fm_map=$(mktemp)
+fm_err=$(mktemp)
+fm_grep() { strip | grep -nE "^commit [0-9a-f]{7,}|^(─)+┐|$fx_re"; }
+for fm_ids in '' '21db538/1/1' '21db538' '21db538/1 612c33e/1/1'; do
+  fold_render "$fx_cache" "$fm_ids" 160 "$fx_re" '' '' "$fm_map" >"$fx_out" 2>/dev/null
+  assert_eq "with ${fm_ids:-nothing} collapsed, the headers are where the pane will have them" \
+    "$(fm_grep <"$fx_out")" "$(<"$fm_map")"
+done
+fold_render "$fx_cache" '21db538/1/1' 160 "$fx_re" '' '' "$fm_map" >"$fx_out" 2>"$fm_err"
+assert_eq 'and it says how many rows it wrote, which is what proves none of them wrapped' \
+  "$(grep -c '' <"$fx_out")" "$(<"$fm_err")"
+/bin/rm -f "$fm_err"
+unset -f fm_grep
+unset fm_ids fm_err
+
+section 'fold_render: a token where the view ends, so the reader need not wait for the rest'
+# On a large range most of a fold is tmux parsing rows below the reader, which
+# they cannot see. So the render can put a second token after the row the view
+# ends on, and say so on stderr the moment it has: the pane can be swapped onto
+# what has landed while the rest is still being written behind it.
+fv_err=$(mktemp)
+fv_want=$(mktemp)
+fold_render "$fx_cache" '' 160 "$fx_re" AHEAD- -AFTER "$fm_map" 10 -VIEW- >"$fx_out" 2>"$fv_err"
+{ printf 'AHEAD-'; head -10 "$fx_cache"; printf -- '-VIEW-'; tail -n +11 "$fx_cache"
+  printf -- '-AFTER'; } >"$fv_want"
+cmp -s "$fv_want" "$fx_out"
+assert_ok $? 'the token goes after the tenth row, between it and the eleventh'
+assert_eq 'and the render says it has passed the view before it says how much it wrote' \
+  $'view\n48' "$(<"$fv_err")"
+fold_render "$fx_cache" '' 160 "$fx_re" AHEAD- -AFTER "$fm_map" 48 -VIEW- >"$fx_out" 2>"$fv_err"
+assert_eq 'a render that ends at the view has nothing behind it, and no token for it' \
+  '48' "$(<"$fv_err")"
+cmp -s "$fx_out" <({ printf 'AHEAD-'; /bin/cat "$fx_cache"; printf -- '-AFTER'; })
+assert_ok $? 'and is written as it would have been without one'
+/bin/rm -f "$fv_err" "$fv_want"
+unset fv_err fv_want
+
+section 'map_rows: hunk boxes are mapped, and are not stops'
+tmux() { [[ $1 == capture-pane ]] && printf '%s\n' "${fx_plain[@]}"; return 0; }
+declare -A row_of=()
+declare -a file_rows=() file_names=() hunk_rows=()
+declare -a saved_shas=("${shas[@]}")
+shas=(21db538 612c33e)
+mapped=0; pub_commits=''; pub_files=''; pub_stops=''
+file_re=$fx_re
+map_rows '%1'
+unset -f tmux
+assert_eq 'every box top is a hunk row' '16 23 44' "${hunk_rows[*]}"
+assert_eq 'the files are where they always were' '13 28 41 ' "$pub_files"
+assert_eq 'and n and N still stop at commits and files only' '0 13 28 31 41 ' "$pub_stops"
+
+section 'comment_anchor: a comment in something collapsed goes to what is left of it'
+# Nothing about a fold tells the comments where to go: the map is built again
+# from the new grid, and the anchors are worked out again from the map. These
+# are the same fallbacks a rebase relies on -- the line, then the file, then
+# the commit -- run against a pane that has been written with a fold in it.
+ca_rows=()
+ca_tmux() {
+  [[ $1 == capture-pane ]] || return 0
+  local from=$4 to=$6
+  [[ $from == - ]] && from=0
+  [[ $to == - ]] && to=$((${#ca_rows[@]} - 1))
+  printf '%s\n' "${ca_rows[@]:from:to-from+1}"
+}
+tmux() { ca_tmux "$@"; }
+ca_load() {
+  ca_rows=()
+  while IFS= read -r fx_row; do ca_rows+=("$fx_row"); done < <(fx_fold "$1")
+  mapped=0
+  map_rows '%1'
+}
+ca_load 21db538/1/1
+comment_anchor %1 0 21db538 bin/a 2 'two'
+assert_eq 'a line folded away with its hunk goes to the header of its file' 13 "$REPLY"
+comment_anchor %1 0 21db538 bin/a 9 'nine'
+assert_eq 'while a line of the hunk still showing keeps its own row' 24 "$REPLY"
+ca_load 21db538
+comment_anchor %1 0 21db538 bin/a 2 'two'
+assert_eq 'and one folded away with its commit goes to the commit row' 0 "$REPLY"
+unset -f tmux ca_tmux ca_load
+unset ca_rows
+
+section 'map_rows: the map a fold wrote, the same as the one off the pane'
+fold_render "$fx_cache" '21db538/1/1' 160 "$fx_re" '' '' "$fm_map" >"$fx_out" 2>/dev/null
+mr_rows=()
+while IFS= read -r fx_row; do mr_rows+=("$fx_row"); done < <(strip <"$fx_out")
+mr_state() {
+  printf '%s|%s|%s|%s|%s' "$(declare -p row_of file_rows file_names hunk_rows)" \
+    "$pub_commits" "$pub_files" "$pub_stops" "$mapped"
+}
+tmux() { [[ $1 == capture-pane ]] && printf '%s\n' "${mr_rows[@]}"; return 0; }
+declare -A row_of=()
+mapped=0; pub_commits=''; pub_files=''; pub_stops=''
+map_rows %1
+mr_capture=$(mr_state)
+mr_asked=''
+tmux() { mr_asked+="[$*]"; return 0; }
+declare -A row_of=()
+mapped=0; pub_commits=''; pub_files=''; pub_stops=''
+map_rows %1 "$fm_map"
+assert_eq 'read from what a fold wrote, the map is the one the pane would give' \
+  "$mr_capture" "$(mr_state)"
+assert_eq 'and the pane is not captured to get it' 0 "$(grep -c capture-pane <<<"$mr_asked")"
+unset -f tmux mr_state
+unset mr_rows mr_capture mr_asked
+
+section 'fold_item_at: the innermost item a row is inside'
+declare -A row_of=([21db538]=0 [612c33e]=31)
+file_rows=(13 28 41)
+hunk_rows=(16 23 44)
+it() {
+  fold_item_at "$1" || { printf 'nothing'; return; }
+  printf '%s %s-%s %s@%s' "$REPLY" "$REPLY_ROW" "$REPLY_END" "${REPLY_UP:--}" "${REPLY_UP_ROW:--}"
+}
+assert_eq 'the commit row is the commit' '21db538 0-0 -@-' "$(it 0)"
+assert_eq 'and so is its message' '21db538 0-0 -@-' "$(it 6)"
+assert_eq 'a file header is the file, inside its commit' '21db538/1 13-13 21db538@0' "$(it 13)"
+assert_eq 'and so is the rule under it' '21db538/1 13-13 21db538@0' "$(it 15)"
+assert_eq 'a hunk is its three box rows, inside its file' \
+  '21db538/1/1 16-18 21db538/1@13' "$(it 17)"
+assert_eq 'the blank row after a hunk is still that hunk' \
+  '21db538/1/1 16-18 21db538/1@13' "$(it 22)"
+assert_eq 'hunks are counted from their own file' '21db538/1/2 23-25 21db538/1@13' "$(it 26)"
+assert_eq 'a hunk above a file header is the file before it, not this one' \
+  '21db538/2 28-28 21db538@0' "$(it 28)"
+assert_eq 'the next commit starts again' '612c33e 31-31 -@-' "$(it 31)"
+assert_eq 'with its files counted from one' '612c33e/1 41-41 612c33e@31' "$(it 41)"
+assert_eq 'and its hunks too' '612c33e/1/1 44-46 612c33e/1@41' "$(it 47)"
+assert_eq 'above every commit there is nothing to fold' nothing "$(it -1)"
+unset -f it
+
+section 'fold_decide: what each key changes'
+declare -A folded=()
+d() { fold_decide "$@"; printf '%s %s' "${REPLY:--}" "${REPLY_FOLD:--}"; }
+assert_eq '= collapses what is open' '21db538/1/2 1' "$(d '=' 21db538/1/2 21db538/1)"
+assert_eq '< collapses what is open' '21db538/1/2 1' "$(d '<' 21db538/1/2 21db538/1)"
+assert_eq '> leaves what is open alone' '- -' "$(d '>' 21db538/1/2 21db538/1)"
+folded=([21db538/1]=1)
+assert_eq '= opens what is collapsed' '21db538/1 0' "$(d '=' 21db538/1 21db538)"
+assert_eq '> opens what is collapsed' '21db538/1 0' "$(d '>' 21db538/1 21db538)"
+assert_eq '< on what is collapsed already collapses what is around it' \
+  '21db538 1' "$(d '<' 21db538/1 21db538)"
+folded=([21db538]=1)
+assert_eq 'and a collapsed commit has nothing around it' '- -' "$(d '<' 21db538 '')"
+folded=()
+unset -f d
+
+section 'fold_place: the header where the reader was looking, the cursor on it'
+p() { fold_place "$@"; printf '%s %s' "$REPLY" "$REPLY_DOWN"; }
+assert_eq 'a header in view keeps the view, and the cursor goes to it' '500 10' \
+  "$(p 900 400 410 50)"
+assert_eq 'a header above the view comes to the top of it' '520 0' "$(p 900 400 380 50)"
+assert_eq 'and one below it the same' '440 0' "$(p 900 400 460 50)"
+assert_eq 'the view cannot sit lower than the bottom of what is left' '0 40' \
+  "$(p 300 330 340 50)"
+assert_eq 'a diff that fits on the screen has no view to move' '0 12' "$(p 0 0 12 50)"
+unset -f p
+
+section 'fold_start: the render behind the pane, and what it says as it goes'
+fw_tty=$(mktemp)
+fw_want=$(mktemp)
+fw_map=$(mktemp)
+fold_start "$fw_tty" "$fx_cache" '' 160 "$fx_re" tok-1 "$fw_map" 10 tok-1-view
+fw_said=''
+while fold_next; do fw_said+="[$REPLY]"; done
+fold_stop
+assert_eq 'it passes the view, then says how many rows it wrote, then nothing more' \
+  '[view][48]' "$fw_said"
+{ printf '\e[H\e[2J\e[3J'; head -10 "$fx_cache"; printf '\e]2;%s\a' tok-1-view
+  tail -n +11 "$fx_cache"; printf '\e]2;%s\a' tok-1; } >"$fw_want"
+cmp -s "$fw_want" "$fw_tty"
+assert_ok $? 'the screen and the history cleared, the rows, a token at the view and one at the end'
+assert_eq 'and leaves where the headers went' 8 "$(grep -c '' <"$fw_map")"
+# The pane is cleared by the first bytes written to it, so a render that fails
+# must not get that far: what the reader would be left with is an empty diff
+# that only q and reopening can bring back.
+: >"$fw_tty"
+fold_start "$fw_tty" /no/such/render '' 160 "$fx_re" tok-1 "$fw_map" 10 tok-1-view
+fw_said=''
+while fold_next; do fw_said+="[$REPLY]"; done
+fold_stop
+assert_eq 'a render that cannot be made says neither view nor a count' 0 \
+  "$(grep -cE '\[(view|[0-9]+)\]' <<<"$fw_said")"
+assert_eq 'and leaves the pane as it was' 0 "$(wc -c <"$fw_tty" | tr -d ' ')"
+/bin/rm -f "$fw_tty" "$fw_want" "$fw_map"
+unset fw_tty fw_want fw_map fw_said
+
+section 'fold_wait: the token read back is the render parsed'
+# Counted in a file: the stub answers through $(...), and a counter in a
+# variable would go up in the subshell and be lost.
+fw_n=$(mktemp)
+printf 0 >"$fw_n"
+tmux() {
+  local n
+  n=$(<"$fw_n")
+  printf '%s' $((n + 1)) >"$fw_n"
+  if ((n >= 2)); then printf 'tok-1\x1f42\x1f6\n'; else printf 'host\x1f9\x1f0\n'; fi
+}
+fold_wait %7 tok-1
+fw_rc=$?
+# The cursor's row as well as the history: the two together are how many rows
+# the rewrite came to, which is what says whether any of them wrapped.
+assert_eq 'it asks until the title is the token, and answers the history and the cursor then' \
+  '0 42 6 3' "$fw_rc $REPLY $REPLY_CY $(<"$fw_n")"
+# Waiting on the view, the end may already be in: either token does, and which
+# it was is said.
+tmux() { printf 'tok-1\x1f42\x1f6\n'; }
+fold_wait %7 tok-1-view tok-1
+fw_rc=$?
+assert_eq 'either of two tokens ends the wait, and the one seen is said' \
+  '0 tok-1' "$fw_rc $REPLY_TITLE"
+tmux() { printf 'host\x1f9\n'; }
+fold_wait_tries=3
+fold_wait %7 tok-1
+fw_rc=$?
+assert_eq 'and gives up after its tries, with the last history it read' '1 9' "$fw_rc $REPLY"
+unset -f tmux
+/bin/rm -f "$fw_n"
+unset fw_n fw_rc fold_wait_tries
+
+section 'fold_swap: the new grid in one invocation'
+fs_args=''
+tmux() { fs_args+="[$*]"; }
+fold_swap %7 520 10 host
+assert_eq 'out of copy-mode and back, the view and the cursor placed, the title put back' \
+  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
+  "$fs_args"
+fs_args=''
+fold_swap %7 0 0 host
+assert_eq 'with the cursor wanted on the top row there is no walk' \
+  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 0 ; send-keys -X -t %7 top-line ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
+  "$fs_args"
+# select-pane -T expands formats in the title it is given, so a # in the title
+# being put back would be read as the start of one.
+fs_args=''
+fold_swap %7 0 0 'host #1'
+assert_match 'a # in the title goes back doubled, which is a # once expanded' \
+  'select-pane -t %7 -T host ##1 ;' "$fs_args"
+# Over the control client the sidebar already holds, when there is one: a
+# command written down a descriptor rather than a tmux of its own. Nothing is
+# waited for -- the turn after asks for the state down the same client, and
+# tmux answers one client's commands in the order they came.
+fs_w=$(mktemp)
+exec {fs_wfd}>"$fs_w"
+sub_out=$fs_wfd
+sub_in=$fs_wfd
+fs_args=''
+fold_swap %7 520 10 'host #1'
+exec {fs_wfd}>&-
+assert_eq 'one line down the control client, quoted where tmux would split it' \
+  'send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T "host ##1" ; set-option -p -t %7 -F @review_hist_base "#{history_size}"' \
+  "$(/bin/cat "$fs_w")"
+assert_eq 'and no tmux of its own' '' "$fs_args"
+sub_out=-1
+sub_in=-1
+/bin/rm -f "$fs_w"
+unset -f tmux
+unset fs_args fs_w fs_wfd
+
+section 'fold_swap_early: onto what has landed, while the rest is still arriving'
+# Rows are still landing when this runs, so the history copy-mode is entered on
+# is not a number anything here can know -- and not one #{history_size} gives
+# either, which goes on counting the rows that land after the entry: read that
+# way the view came out five rows off, live. Copy-mode's own scroll does not
+# move with them. history-top puts it at the whole of the history copy-mode was
+# entered on, which is the basis, and run-shell -C expands its command as a
+# format when it runs, so goto-line can work its distance from that.
+fe_args=''
+tmux() { fe_args+="[$*]"; }
+fold_swap_early %7 380 10
+assert_eq 'the view placed from the grid copy-mode was entered on, the cursor walked down it' \
+  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base #{scroll_position} ; run-shell -C -t %7 send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380} ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down]' \
+  "$fe_args"
+fe_w=$(mktemp)
+exec {fe_wfd}>"$fe_w"
+sub_out=$fe_wfd
+sub_in=$fe_wfd
+fe_args=''
+fold_swap_early %7 380 0
+exec {fe_wfd}>&-
+assert_eq 'and down the control client when there is one, with no walk for a cursor at the top' \
+  'send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base "#{scroll_position}" ; run-shell -C -t %7 "send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380}" ; send-keys -X -t %7 top-line' \
+  "$(/bin/cat "$fe_w")"
+sub_out=-1
+sub_in=-1
+/bin/rm -f "$fe_w"
+unset -f tmux
+unset fe_args fe_w fe_wfd
+
+section 'fold_settle: the whole grid, under the reader wherever they have got to'
+# The reader had the early view for as long as the rest took to land, and may
+# have scrolled it. Their row is read again here, and the grid that is now
+# whole is entered with them still on it.
+fs_args=''
+fold_swap() { fs_args+="[swap $*]"; }
+tmux() { printf '500\x1f120\x1f7\n'; }
+fold_settle %7 900 host
+assert_eq 'the top row they were on and the screen row of their cursor, on the whole grid' \
+  '[swap %7 520 7 host]' "$fs_args"
+fs_args=''
+tmux() { printf '500\x1f80\x1f3\n'; }
+fold_settle %7 300 host
+assert_eq 'and no lower than the bottom of it' '[swap %7 0 3 host]' "$fs_args"
+unset -f tmux
+restore_review
+unset fs_args
+
+section 'fold_key: the item, the decision, the rewrite, and a map to rebuild'
+fk_cache=$(mktemp)
+printf 'x\n' >"$fk_cache"
+# Where the render is, as the sidebar worked it out once when it started:
+# asking render_file again on every fold was a subshell and a mkdir apiece.
+fold_cache=$fk_cache
+render_file() { printf 'render_file was asked again'; }
+# What the render says as it goes, one line per fold_next. A render too short to
+# reach past the view says only how many rows it wrote.
+fk_lines=(48)
+# The ids sorted, because the order a set is written in is no part of what it
+# says, and an associative array keeps none. Then the width, the token, the row
+# the view ends on, and the token for it.
+fold_start() {
+  fk_calls+="[start $1 $2 $(tr ' ' '\n' <<<"$3" | sort | xargs) $4 $6 $8 $9]"
+  fk_at=0
+  return 0
+}
+fold_next() {
+  ((fk_at < ${#fk_lines[@]})) || return 1
+  REPLY=${fk_lines[fk_at]}
+  fk_at=$((fk_at + 1))
+  return 0
+}
+fold_stop() { :; }
+# 48 rows written, and a pane that came to 40 of history and a cursor on its
+# eighth row: 48 rows, so none of them wrapped. The title seen is the token
+# waited on, unless a test says the end had already landed.
+fold_wait() {
+  fk_calls+="[wait $*]"
+  REPLY=40
+  REPLY_CY=${fk_cy_after-8}
+  REPLY_TITLE=${fk_title:-$2}
+  return "${fk_wait_rc-0}"
+}
+fold_swap() { fk_calls+="[swap $*]"; }
+fold_swap_early() { fk_calls+="[early $*]"; }
+fold_settle() { fk_calls+="[settle $*]"; }
+# tty, basis, scroll, cursor row, title, render width, height, width.
+tmux() {
+  case $* in
+    *pane_tty*)
+      printf '/dev/ttys9\x1f100\x1f100\x1f%s\x1fhost\x1f%s\x1f60\x1f162\n' "$fk_cy" "${fk_rw-160}" ;;
+    *) fk_calls+="[tmux $*]" ;;
+  esac
+  return 0
+}
+file_re=$fx_re
+fk_reset() {
+  folded=()
+  fold_map=''
+  fk_calls=''
+  fk_cy=26
+  fk_lines=(48)
+  fk_title=''
+  unset fk_cy_after fk_wait_rc
+  mapped=1
+  pending_row=7
+  expect_row=7
+  fold_gen=0
+}
+
+fk_reset
+fold_key %7 = diff 0
+assert_eq '= in a hunk collapses the hunk, and the cursor goes to its box' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "$fk_calls"
+assert_eq 'the hunk is what is collapsed now' '21db538/1/2' "${!folded[*]}"
+assert_eq 'and the map is rebuilt from the new grid, with no move in flight' '0 -1 -1' \
+  "$mapped $pending_row $expect_row"
+assert_eq 'from what the render wrote, since every row it wrote is one row of the pane' \
+  "$fk_cache.map" "$fold_map"
+
+fk_reset
+fk_cy_after=9
+fold_key %7 = diff 0
+assert_eq 'a row more than were written is a row that wrapped, and the pane is captured instead' \
+  '' "$fold_map"
+
+fk_reset
+fold_key %7 = diff 0
+fk_calls=''
+fold_key %7 = diff 0
+assert_eq 'each rewrite waits on a token of its own' 'review-fold-2' \
+  "$(grep -o 'review-fold-[0-9]*' <<<"$fk_calls" | head -1)"
+assert_eq 'and the second = opens what the first collapsed' '' "${!folded[*]}"
+
+# A render longer than the view says so before it is done, and the reader is
+# put on what has landed while the rest is written behind them -- then the
+# whole grid is entered under wherever they have got to.
+fk_reset
+fk_lines=(view 48)
+fold_key %7 = diff 0
+assert_eq 'the reader is swapped onto the view first, and settled on the whole grid after' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][early %7 0 23][wait %7 review-fold-1][settle %7 40 host]" \
+  "$fk_calls"
+assert_eq 'with the map still from what was written' "$fk_cache.map" "$fold_map"
+
+fk_reset
+fk_lines=(view 48)
+fk_title='review-fold-1'
+fold_key %7 = diff 0
+assert_eq 'when the end has landed by the time the view is looked for, there is one swap' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "$fk_calls"
+
+fk_reset
+fk_cy=17
+fold_key %7 = diff 0
+assert_eq 'a cursor already on the header stays on the row it was on' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/1 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 17 host]" \
+  "$fk_calls"
+
+fk_reset
+folded=([21db538/1/2]=1)
+fold_key %7 '<' diff 0
+assert_eq '< on a collapsed hunk collapses its file, and the cursor goes to the file' \
+  "[start /dev/ttys9 $fk_cache 21db538/1 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 13 host]" \
+  "$fk_calls"
+
+fk_reset
+fk_cy=0
+fold_key %7 '<' list 1
+assert_eq 'from the list it is the selected commit, wherever the diff cursor is' \
+  "[start /dev/ttys9 $fk_cache 612c33e 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 31 host]" \
+  "$fk_calls"
+
+fk_reset
+fold_key %7 '>' diff 0
+assert_eq '> on what is open writes nothing' '' "$fk_calls"
+assert_eq 'and leaves the map alone' '1 7' "$mapped $pending_row"
+
+fk_reset
+fk_rw=''
+fold_key %7 = diff 0
+assert_eq 'a render with no width of its own is fitted to the pane' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 162 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "$fk_calls"
+unset fk_rw
+
+fk_reset
+fk_wait_rc=1
+fold_key %7 = diff 0
+assert_eq 'a token that never comes back still ends in the swap, not in a stale copy' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "$fk_calls"
+
+fk_reset
+folded=([612c33e]=1)
+fk_lines=('awk: can not open file')
+fold_key %7 = diff 0
+assert_eq 'a render that says neither view nor a count says so, and goes no further' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 612c33e 160 review-fold-1 60 review-fold-1-view][tmux display-message review: could not write the diff again]" \
+  "$fk_calls"
+assert_eq 'leaving the set describing the pane it could not change' '612c33e' "${!folded[*]}"
+
+fk_reset
+fk_lines=()
+fold_key %7 = diff 0
+assert_eq 'and so does one that says nothing at all' '' "${!folded[*]}"
+
+fk_reset
+fold_cache=/no/such/render
+fold_key %7 = diff 0
+assert_eq 'without the render to work from it says so, and writes nothing' \
+  '[tmux display-message review: nothing to fold from -- q and open the review again]' \
+  "$fk_calls"
+
+# Down the control client when the sidebar has one: the state asked for there
+# rather than by a tmux of its own.
+fk_reset
+fold_cache=$fk_cache
+ctl_ask() {
+  fk_calls+="[ask]"
+  case $2 in
+    *pane_tty*) REPLY=$'/dev/ttys9\x1f100\x1f100\x1f26\x1fhost\x1f160\x1f60\x1f162' ;;
+  esac
+  return 0
+}
+fold_key %7 = diff 0
+assert_eq 'the state is asked down the control client, and no tmux is run for it' \
+  "[ask][start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "$fk_calls"
+unset -f ctl_ask
+
+unset -f tmux fk_reset
+restore_review
+shas=("${saved_shas[@]}")
+unset -v row_of
+file_rows=(); file_names=(); hunk_rows=(); folded=()
+mapped=0; pending_row=-1; expect_row=-1
+/bin/rm -f "$fk_cache" "$fx_cache" "$fx_out" "$fx_nostat" "$fx_accent" "$fm_map"
+unset -f fx_rows fx_fold
+unset fk_cache fk_calls fk_cy fold_gen file_re saved_shas fold_cache fold_map
+unset fk_lines fk_at fk_title fk_cy_after fk_wait_rc
+unset fx fx_plain fx_row fx_mod fx_add fx_re fx_rule fx_cache fx_out fx_nostat fx_accent fm_map
+unset pub_commits pub_files pub_stops
+
 section 'anchor_rows: where the reader is, in rows from the start of history'
 # The pane is answered for by a stub reading these, so each case is just the
 # six fields display-message would have returned.
@@ -1960,7 +2649,12 @@ git() { [[ $* == 'rev-list --reverse base..HEAD' ]] && printf 'c1\nc2\nc3\n'; }
 chunks=(); plan_chunks 'base..HEAD'
 assert_eq 'it splits in two' 2 "${#chunks[@]}"
 assert_eq 'the head is the first commit on its own' 'base..c1' "${chunks[0]}"
-assert_eq 'and the tail is everything after it' 'c1..HEAD' "${chunks[1]}"
+# The base stays on the tail. c1..HEAD alone is everything HEAD reaches that c1
+# does not, and on a history with merges that is not bounded by the base at
+# all: a range of 58 commits came out as 80, the list never found all of its
+# commits in the diff, and the map was built again on every turn for good.
+assert_eq 'and the tail is everything after it, still above the base' 'c1..HEAD ^base' \
+  "${chunks[1]}"
 # A one-commit range has nothing to split, and splitting it would buy an empty
 # second chunk for a git, a delta and a settle.
 git() { [[ $* == 'rev-list --reverse base..HEAD' ]] && printf 'c1\n'; }
@@ -2575,11 +3269,21 @@ plan_chunks() { chunks=("${diff_chunks[@]}"); }
 reveal_diff() { diff_events+='[reveal]'; }
 settle_view() { diff_events+='[settle]'; }
 quit() { diff_events+="[quit $1]"; }
-git() { diff_events+="[git ${*: -1}]"; }
+git() { diff_events+="[git ${*: -1}]"; diff_pager=$GIT_PAGER; }
 tmux() { diff_events+="[tmux $*]"; }
 TMUX_PANE='%7'
+diff_cache=$(render_file %7)
+printf 'a render left by a review before\n' >"$diff_cache"
 diff_chunks=(c1 'c1..HEAD'); diff_events=''
 diff_pane_cmd 'base..HEAD' 142 </dev/null
+# What the pane shows is kept as well, so that a fold can be drawn from it
+# again without running git or delta. tee, so the bytes are the pane's own.
+assert_eq 'delta writes the pane and the render the folds are drawn from' \
+  "delta --paging=never --width=142 | tee -a $(printf '%q' "$diff_cache")" "$diff_pager"
+assert_eq 'which starts empty, rather than behind a review before it' 0 \
+  "$(wc -c <"$diff_cache" | tr -d ' ')"
+assert_match 'and the width it was drawn at is published with the rest' \
+  '@review_render_w 142' "$diff_events"
 assert_match 'the first commit is written before anything else' \
   '^\[git c1\]\[reveal\]' "$diff_events"
 assert_match 'the reader is handed the pane before the rest arrives' \
@@ -2589,6 +3293,14 @@ assert_eq 'and the view is settled once, after the last chunk' 1 \
 assert_match 'the list is told the diff has landed' '@review_loaded 1' "$diff_events"
 assert_match 'and woken, in the same invocation' 'send-keys -t {bottom-left} z' "$diff_events"
 assert_match 'the pane closes the review when it is dismissed' 'quit %7' "$diff_events"
+# The last two arguments, which for a chunk handed over whole would be the
+# stat width and the chunk.
+diff_chunks=(c1 'c1..HEAD ^base'); diff_events=''
+git() { diff_events+="[git ${*: -2}]"; }
+diff_pane_cmd 'base..HEAD' 142 </dev/null
+assert_match 'a chunk of two revs reaches git as two, so the base still bounds it' \
+  '\[git c1\.\.HEAD \^base\]' "$diff_events"
+git() { diff_events+="[git ${*: -1}]"; diff_pager=$GIT_PAGER; }
 # One chunk means one pass and nothing appended behind the reader, so there is
 # no stranded grid to re-enter.
 diff_chunks=('base..HEAD'); diff_events=''
@@ -2598,7 +3310,8 @@ assert_eq 'a review small enough not to be split does not settle' 0 \
 assert_eq 'and reveals once' 1 "$(grep -c '\[reveal\]' <<<"$diff_events")"
 unset -f git tmux
 restore_review
-unset diff_events diff_chunks
+/bin/rm -f "$diff_cache"
+unset diff_events diff_chunks diff_cache diff_pager
 
 section 'jump: steps from where the keys asked to be, not where the pane got to'
 jump_calls=''
@@ -2893,12 +3606,12 @@ assert_match 'prefix+g opens a review, in the background' \
   'bind-key g run-shell -b .*/scripts/review\.sh open #\{pane_id\}' "$bound"
 assert_match 'prefix+G is the working tree, in a popup' \
   'bind-key G display-popup .*/bin/git-review --wip' "$bound"
-assert_eq 'fourteen keys are bound in copy-mode' 14 \
+assert_eq 'seventeen keys are bound in copy-mode' 17 \
   "$(grep -o 'bind-key -T copy-mode-vi' <<<"$bound" | grep -c .)"
 # C and R are bound from the start even though the legend only offers them once
 # there is something queued: a binding that came and went would mean reloading
 # the configuration mid-review, which takes the review's own bindings with it.
-for k in ']' '\[' '}' '{' c C R s a n N q y Enter; do
+for k in ']' '\[' '}' '{' c C R s a n N q y Enter '=' '<' '>'; do
   matched=0; grep -q -- "bind-key -T copy-mode-vi $k " <<<"$bound" || matched=1
   assert_ok "$matched" "copy-mode $k is bound"
 done
@@ -2918,6 +3631,15 @@ ybound=${ybound%% ; *}
 assert_eq 'y answers a question while one is up, and yanks while none is' \
   "if-shell -F #{&&:#{&&:#{&&:#{@review},#{==:#{pane_mode},copy-mode}},#{==:#{pane_at_left},0}},#{@review_asking}} send-keys -t '{bottom-left}' y ${yank_binding#*copy-mode-vi y }" \
   "$ybound"
+# The fold keys go to the list's loop like every other key there: the set of
+# collapsed items is held in it, and so is the map that says what is under the
+# cursor. None of them means anything to tmux's own copy-mode-vi, so there is
+# no fallback to keep -- only the unzoom the other routed keys fall back to.
+for k in '=' '<' '>'; do
+  assert_match "copy-mode $k is routed to the list from a review diff" \
+    "bind-key -T copy-mode-vi $k if-shell -F [^ ]*pane_at_left[^ ]* send-keys -t '\\{bottom-left\\}' $k" \
+    "$bound"
+done
 assert_match 'every one is guarded on the window being a review' \
   '@review' "$bound"
 assert_match 'and on the pane being read rather than showing output' \
@@ -2993,6 +3715,20 @@ assert_eq 'and nothing was asked for' 0 "$state_asked"
 tick='held'; read_state '%7'
 assert_eq 'a turn with nothing waiting leaves the last one standing' held "$tick"
 exec {state_fd}<&-
+# And does not wait to find that out. Each turn used to give the client a
+# fiftieth of a second to say something, and a key pressed in that time waited
+# on it: up to 20ms on every key, a fold's included, for a client that had
+# nothing to say. Ten turns against a client that says nothing take what ten
+# turns take, not ten fiftieths of a second.
+exec {state_fd}< <(sleep 2)
+sub_out=$state_fd; tick='held'
+state_t0=$EPOCHREALTIME
+for _ in 1 2 3 4 5 6 7 8 9 10; do read_state '%7'; done
+state_ms=$(((${EPOCHREALTIME/./} - ${state_t0/./}) / 1000))
+assert_ok "$((state_ms < 100 ? 0 : 1))" 'a turn with nothing waiting does not wait for it' \
+  'under 100ms for ten turns' "${state_ms}ms"
+exec {state_fd}<&-
+unset state_t0 state_ms
 # tmux can write a line in more than one piece, and a turn only waits a
 # fiftieth of a second for the rest. Caught in a live run: the turn read the %
 # of a push and gave up, the next read the rest as a line of its own, and
@@ -3117,6 +3853,41 @@ sub_in=-1
 tick=''
 unset ask_r ask_w ask_save_format ask_status
 
+section 'ctl_ask: any one-line answer, down the control client'
+# What ask_state does for the tick, for any format: the fold asks for the diff
+# pane's state and then for its title this way, at 0.4ms an ask against 5ms for
+# a tmux of its own -- and far worse on a machine whose endpoint agent inspects
+# every exec. The empty answer ahead of it is what a command with no output
+# leaves behind, which the swap at the end of a fold is.
+ctl_w=$(mktemp)
+ctl_r=$(mktemp)
+{
+  printf '%%begin 1 1 1\n'
+  printf '%%end 1 1 1\n'
+  printf '%%begin 1 2 1\n'
+  printf 'host\x1f42\n'
+  printf '%%end 1 2 1\n'
+} >"$ctl_r"
+exec {ctl_rfd}<"$ctl_r"
+exec {ctl_wfd}>"$ctl_w"
+sub_out=$ctl_rfd; sub_in=$ctl_wfd; sub_partial=''
+ctl_ask %7 '#{pane_title}'
+ctl_status=$?
+exec {ctl_wfd}>&-
+exec {ctl_rfd}<&-
+assert_eq 'the answer, past the empty one a command with no output leaves' \
+  "0 host${US}42" "$ctl_status $REPLY"
+assert_eq 'asked as a display-message of that pane' \
+  'display-message -p -t %7 "#{pane_title}"' "$(/bin/cat "$ctl_w")"
+sub_out=-1
+sub_in=-1
+ctl_ask %7 '#{pane_title}'
+ctl_status=$?
+assert_eq 'and with no control client up it answers false, for the caller to ask itself' \
+  1 "$ctl_status"
+/bin/rm -f "$ctl_r" "$ctl_w"
+unset ctl_r ctl_w ctl_rfd ctl_wfd ctl_status
+
 section 'sidebar_exit: the control client goes first, and nothing waits on the pane'
 # The sidebar was caught once gone quiet for good in the middle of its exit: the
 # trap wrote the cursor back to its own pane before anything else, the pane was
@@ -3149,6 +3920,16 @@ kill "$exit_filler" "$exit_sub" 2>/dev/null
 exec {exit_fd}>&-
 sub_pid=''
 unset exit_sub exit_fd exit_filler exit_job exit_stuck exit_alive
+
+# The render the folds are drawn from is the size of the whole diff, and nothing
+# else would ever remove it.
+fold_cache=$(mktemp)
+( sidebar_exit ) 2>/dev/null
+fold_left=0
+[[ -e $fold_cache ]] && fold_left=1
+assert_eq 'the render the folds are drawn from goes with the review' 0 "$fold_left"
+/bin/rm -f "$fold_cache"
+unset fold_cache fold_left
 
 section 'start_subscription: a control client, subscribed to the one format'
 sub_dir=$(mktemp -d)
@@ -3466,12 +4247,16 @@ sidebar_run() {
     send_comments() { printf 'SEND %s\n' "$*" >>"$sb_log"; }
     quit() { printf 'QUIT %s\n' "$*" >>"$sb_log"; }
     start_subscription() { return 1; }
-    map_rows() { row_of=([c0]=5 [c1]=40); file_rows=(); file_names=(); mapped=1; }
+    map_rows() {
+      printf 'MAP %s\n' "$*" >>"$sb_log"
+      row_of=([c0]=5 [c1]=40); file_rows=(); file_names=(); mapped=1
+    }
     steer() { printf 'STEER %s\n' "$*" >>"$sb_log"; }
     preselect_agent() { printf 'PRESELECT %s\n' "$*" >>"$sb_log"; }
     load_pick_items() { pick_kind=(range); pick_label=(x); pick_extra=(''); pick_payload=(''); }
     load_pick_sessions() { pick_kind=(session); pick_label=(y); pick_extra=(''); pick_payload=("%5${US}y"); }
     pick_keys() { printf 'PICKKEYS %s\n' "$*" >>"$sb_log"; picking=0; }
+    fold_key() { printf 'FOLD %s\n' "$*" >>"$sb_log"; fold_map=/fold/map; mapped=0; }
     sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) <<<"$keys" >"$sb_out" 2>&1
   sb_seen=$(cat "$sb_log")
@@ -3511,6 +4296,16 @@ assert_match 's hands the queue over, with the window and the range' \
   'SEND @9 .* base\.\.HEAD' "$sb_seen"
 sidebar_run 'j' "$sb_normal" "$sb_normal" "$sb_normal"
 assert_match 'a movement key is steered against the diff' 'STEER %7 j' "$sb_seen"
+sidebar_run '=' "$sb_normal" "$sb_normal" "$sb_normal"
+assert_match '= is a fold, with the focus and the selected commit' 'FOLD %7 = diff 0' "$sb_seen"
+# The herestring ends the keys with a newline, which arrives as enter and is
+# steered like any other key; what matters is that = itself is not.
+assert_eq 'and is not steered' 0 "$(grep -c 'STEER %7 =' <<<"$sb_seen")"
+assert_match 'and the map after it is read from what the fold wrote' 'MAP %7 /fold/map' "$sb_seen"
+sidebar_run '<' "$sb_normal" "$sb_normal" "$sb_normal"
+assert_match '< is one too' 'FOLD %7 < diff 0' "$sb_seen"
+sidebar_run '>' "$sb_normal" "$sb_normal" "$sb_normal"
+assert_match 'and so is >' 'FOLD %7 > diff 0' "$sb_seen"
 
 # a reaches the agent picker without having to walk the selection to its row.
 sidebar_run 'a' "$sb_normal" "$sb_normal" "$sb_normal"
@@ -4231,12 +5026,18 @@ elif ! tmux -L "$hsock" -f /dev/null new-session -d -x 80 -y 24 \
   no 'a throwaway tmux server could be started' 'a server' 'none'
 else
   hp=$(tmux -L "$hsock" display-message -p '#{pane_id}')
+  # Until the history stops growing, not until it starts: seq is still printing
+  # when it first reads non-zero, and on a busy machine the answer read then was
+  # 180 of what came to 377 -- which the assertions below then compared against.
   live=0
+  live_was=-1
   for _ in $(seq 1 40); do
     live=$(tmux -L "$hsock" display-message -p -t "$hp" '#{history_size}')
-    ((live > 0)) && break
+    ((live > 0 && live == live_was)) && break
+    live_was=$live
     sleep 0.25
   done
+  unset live_was
   basis() { tmux -L "$hsock" display-message -p -t "$hp" "$hist_base"; }
   before() { tmux -L "$hsock" display-message -p -t "$hp" "$was"; }
 
@@ -4974,6 +5775,200 @@ unset -f e2e_attach e2e_waitc
 unset e2e_sock e2e_ed e2e_bodyfile e2e_body e2e_pane e2e_win e2e_diff e2e_list
 unset e2e_store e2e_gut
 unset e2e_clients E2E_PTY
+
+section 'end to end: = collapses the commit under the cursor, and = brings it back'
+# Against a real review, with nothing stubbed. The sections above check the
+# pieces -- the render, the swap, the item under a row -- and this checks the
+# promise they are all there to keep: that putting a fold back leaves the pane
+# exactly as delta drew it, since every row the plugin follows the reader by is
+# counted in that pane.
+#
+# No client is needed. Nothing here opens a popup, and the keys go straight to
+# the list, the way the end-to-end section above sends them.
+fold_sock=review-fold-$$
+if ! want_live; then
+  skip 'end to end: = collapses and brings back' 'live sections are out of scope'
+elif ! tmux -L "$fold_sock" -f /dev/null new-session -d -x 285 -y 78 -c "$repo" \
+  'sleep 600' 2>/dev/null; then
+  skip 'end to end: = collapses and brings back' 'no throwaway tmux server could be started'
+else
+  tmux -L "$fold_sock" set-option -g history-limit 50000
+  fold_pane=$(tmux -L "$fold_sock" display-message -p '#{pane_id}')
+  tmux -L "$fold_sock" run-shell -b -t "$fold_pane" \
+    "$plugin/scripts/review.sh open $fold_pane HEAD~1..HEAD"
+  fold_win=''
+  for _ in $(seq 1 240); do
+    fold_win=$(tmux -L "$fold_sock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $fold_win ]] && break
+    sleep 0.25
+  done
+  if [[ -z $fold_win ]]; then
+    skip 'end to end: = collapses and brings back' 'the review window did not open in time'
+  else
+    fold_diff=$(tmux -L "$fold_sock" show-options -w -t "$fold_win" -qv @review_diff_pane)
+    fold_list=$(tmux -L "$fold_sock" show-options -w -t "$fold_win" -qv @review_list_pane)
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$fold_sock" show-options -w -t "$fold_diff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+    # The map is built on the turn after the list hears the diff has landed.
+    sleep 1
+    fold_cap() { tmux -L "$fold_sock" capture-pane -p -e -S - -E - -t "$fold_diff" 2>/dev/null; }
+    fold_title() { tmux -L "$fold_sock" display-message -p -t "$fold_diff" '#{pane_title}'; }
+    fold_before=$(fold_cap | cksum)
+    fold_title_before=$(fold_title)
+
+    # The diff was handed over with its cursor on the first row, which is the
+    # commit's own.
+    #
+    # Pressed again if nothing comes of it. The list drops keys for as long as it
+    # is still holding its placeholder, which can outlast @review_loaded by the
+    # second its subscription takes to say so -- and a dropped key changes
+    # nothing, so pressing it again cannot overshoot.
+    for _ in 1 2 3; do
+      tmux -L "$fold_sock" send-keys -t "$fold_list" =
+      for _ in $(seq 1 16); do
+        [[ $(fold_cap | strip) == *'▸'* ]] && break 2
+        sleep 0.25
+      done
+    done
+    fold_mid=$(fold_cap | strip | grep .)
+    assert_match 'the commit row is still the first row' '^commit [0-9a-f]{7,}' "$fold_mid"
+    assert_match 'and one row stands in for everything under it' \
+      $'^[^\n]*\n    ▸ [^\n]+$' "$fold_mid"
+    assert_eq 'with the diff still being read in copy-mode' 1 \
+      "$(tmux -L "$fold_sock" display-message -p -t "$fold_diff" '#{pane_in_mode}')"
+
+    # Pressed again on the same terms as the first, though by now the list has
+    # long left its placeholder: a key it dropped here would read as a fold
+    # that does not come back, which is the one thing this is checking.
+    for _ in 1 2 3; do
+      tmux -L "$fold_sock" send-keys -t "$fold_list" =
+      for _ in $(seq 1 16); do
+        [[ $(fold_cap | cksum) == "$fold_before" ]] && break 2
+        sleep 0.25
+      done
+    done
+    assert_eq 'the second = puts back exactly what delta drew, escapes and all' \
+      "$fold_before" "$(fold_cap | cksum)"
+    assert_eq 'and the pane keeps the title it had' "$fold_title_before" "$(fold_title)"
+    unset -f fold_cap fold_title
+  fi
+  tmux -L "$fold_sock" kill-server 2>/dev/null || true
+fi
+/bin/rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$fold_sock"
+unset fold_sock fold_pane fold_win fold_diff fold_list fold_before fold_mid fold_title_before
+
+section 'end to end: a fold longer than the view, swapped early and settled'
+# The section above folds a diff that fits on the screen, which never takes the
+# early swap: there is nothing below the view to wait for. This one is a commit
+# of 400 changed lines in a repository made for it, so opening it again after a
+# collapse writes far more rows than the view holds. The reader is put on the
+# rows that have landed, and then on the whole grid once the rest has -- and the
+# pane still has to come back exactly as delta drew it.
+early_sock=review-early-$$
+early_repo=$(mktemp -d)
+early_trace=$(mktemp)
+if ! want_live; then
+  skip 'end to end: a fold longer than the view' 'live sections are out of scope'
+elif ! (cd "$early_repo" && git init -q && seq 1 400 >lines.txt && seq 1 400 >more.txt &&
+  git add lines.txt more.txt &&
+  git -c commit.gpgsign=false -c user.name=t -c user.email=t@example.com commit -qm one &&
+  seq 1 400 | sed 's/$/ changed/' >lines.txt && seq 1 400 | sed 's/$/ changed/' >more.txt &&
+  git -c commit.gpgsign=false -c user.name=t -c user.email=t@example.com commit -qam two); then
+  skip 'end to end: a fold longer than the view' 'the fixture repository could not be made'
+elif ! tmux -L "$early_sock" -f /dev/null new-session -d -x 285 -y 78 -c "$early_repo" \
+  'sleep 600' 2>/dev/null; then
+  skip 'end to end: a fold longer than the view' 'no throwaway tmux server could be started'
+else
+  tmux -L "$early_sock" set-option -g history-limit 50000
+  tmux -L "$early_sock" set-environment -g REVIEW_TRACE "$early_trace"
+  early_pane=$(tmux -L "$early_sock" display-message -p '#{pane_id}')
+  tmux -L "$early_sock" run-shell -b -t "$early_pane" \
+    "$plugin/scripts/review.sh open $early_pane HEAD~1..HEAD"
+  early_win=''
+  for _ in $(seq 1 240); do
+    early_win=$(tmux -L "$early_sock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $early_win ]] && break
+    sleep 0.25
+  done
+  if [[ -z $early_win ]]; then
+    skip 'end to end: a fold longer than the view' 'the review window did not open in time'
+  else
+    early_diff=$(tmux -L "$early_sock" show-options -w -t "$early_win" -qv @review_diff_pane)
+    early_list=$(tmux -L "$early_sock" show-options -w -t "$early_win" -qv @review_list_pane)
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$early_sock" show-options -w -t "$early_diff" -qv @review_loaded 2>/dev/null) == 1 ]] &&
+        break
+      sleep 0.25
+    done
+    sleep 1
+    early_cap() { tmux -L "$early_sock" capture-pane -p -e -S - -E - -t "$early_diff" 2>/dev/null; }
+    early_before=$(early_cap | cksum)
+    # Collapsed first: that render is two rows, all of them in the view.
+    for _ in 1 2 3; do
+      tmux -L "$early_sock" send-keys -t "$early_list" =
+      for _ in $(seq 1 16); do
+        [[ $(early_cap | strip) == *'▸'* ]] && break 2
+        sleep 0.25
+      done
+    done
+    # Opened again: four hundred rows and more, with a view of 78.
+    : >"$early_trace"
+    for _ in 1 2 3; do
+      tmux -L "$early_sock" send-keys -t "$early_list" =
+      for _ in $(seq 1 16); do
+        [[ $(early_cap | cksum) == "$early_before" ]] && break 2
+        sleep 0.25
+      done
+    done
+    sleep 0.5
+    assert_match 'the reader was put on the view before the rest had landed' \
+      'fold-early' "$(cat "$early_trace")"
+    assert_eq 'and the pane is back exactly as delta drew it' "$early_before" "$(early_cap | cksum)"
+    # Settled: copy-mode on the whole grid, not the part the early swap saw, and
+    # the reader still on the commit row at the top of it.
+    assert_eq 'on the whole grid, with the reader still at the top of it' '1 0 0' \
+      "$(tmux -L "$early_sock" display-message -p -t "$early_diff" \
+        '#{==:#{@review_hist_base},#{history_size}} #{e|-:#{@review_hist_base},#{scroll_position}} #{copy_cursor_y}')"
+
+    # And from the middle, where goto-line has real distance to work out: the
+    # view's top on row 10, the cursor thirty rows down it inside the first
+    # file's hunk. = collapses that hunk with the whole second file still below
+    # the view, so the reader is put on it early -- and the view keeps its top,
+    # with the cursor gone up to the hunk's box.
+    early_base=$(tmux -L "$early_sock" display-message -p -t "$early_diff" '#{@review_hist_base}')
+    tmux -L "$early_sock" send-keys -X -t "$early_diff" goto-line $((early_base - 10)) ';' \
+      send-keys -X -t "$early_diff" top-line ';' \
+      send-keys -X -N 30 -t "$early_diff" cursor-down
+    sleep 0.5
+    early_box=$(early_cap | strip | grep -nE '^(─)+┐' | head -1 | cut -d: -f1)
+    early_box=$((early_box - 1))
+    : >"$early_trace"
+    for _ in 1 2 3; do
+      tmux -L "$early_sock" send-keys -t "$early_list" =
+      for _ in $(seq 1 16); do
+        grep -q fold-swapped "$early_trace" && break 2
+        sleep 0.25
+      done
+    done
+    sleep 0.5
+    assert_match 'from the middle the reader is put on the view early too' \
+      'fold-early' "$(cat "$early_trace")"
+    assert_eq 'and settled with the view where it was and the cursor on the box' \
+      "10 $((early_box - 10))" \
+      "$(tmux -L "$early_sock" display-message -p -t "$early_diff" \
+        '#{e|-:#{@review_hist_base},#{scroll_position}} #{copy_cursor_y}')"
+    unset -f early_cap
+  fi
+  tmux -L "$early_sock" kill-server 2>/dev/null || true
+fi
+/bin/rm -rf "$early_repo" "$early_trace" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$early_sock"
+unset early_sock early_repo early_trace early_pane early_win early_diff early_list early_before
+unset early_base early_box
 
 printf '\n\e[1m%s\e[0m  \e[32m%d passed\e[0m' 'total' "$passed"
 ((skipped)) && printf '  \e[33m%d skipped\e[0m' "$skipped"

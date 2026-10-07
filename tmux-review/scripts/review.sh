@@ -361,6 +361,9 @@ gutter_key() {
   local list=$1 key=$2 send=''
   case $key in
     j | k | q | c | s | a | C | R | e | d | n | N | ']' | '[' | '}' | '{') send=$key ;;
+    # The fold keys act on the diff this pane sits beside, the way they do from
+    # anywhere else in the review.
+    '=' | '<' | '>') send=$key ;;
     # The answer to R and d. The list is blocked on a raw read when either has
     # been asked, so the keystroke lands there rather than in its key loop.
     # Outside a question it resolves to nothing there, which is what it means.
@@ -695,6 +698,20 @@ diff_pane_cmd() {
   # pane was narrowed, and the row map counts rows.
   local -a stat_opt=()
   ((diff_w > 0)) && stat_opt=("--stat-width=$diff_w")
+  # Everything delta writes into the pane is kept as well, which is what a fold
+  # is drawn from: tmux cannot hide rows of a pane's history, so collapsing a
+  # commit means writing the pane again without it. Kept from delta's own
+  # output rather than captured off the pane afterwards, because capture-pane
+  # writes each row's colours as a difference from the row before, and a row
+  # left out of a fold would take its colours with it into the rows after.
+  #
+  # tee rather than a second render, so the bytes are the pane's by
+  # construction and nothing has to be run again. Emptied first: the name is
+  # the pane's, and a pane id is recycled once its window has gone.
+  local cache pager_cache
+  cache=$(render_file "$TMUX_PANE")
+  : >"$cache" 2>/dev/null || true
+  printf -v pager_cache '%q' "$cache"
   # The diff is written in two goes: the head of it, and then everything else
   # behind the reader. delta turns this range into five megabytes of escapes
   # and the tmux server parses every one of them on the thread the sidebar is
@@ -715,8 +732,10 @@ diff_pane_cmd() {
     # gr_log_opts comes from that source, which shellcheck cannot follow
     # through a path held in a variable.
     # shellcheck disable=SC2154
-    GIT_PAGER="delta --paging=never$width_opt" \
-      git log "${gr_log_opts[@]}" "${stat_opt[@]+"${stat_opt[@]}"}" "$chunk" || true
+    local -a revs=()
+    read -ra revs <<<"$chunk"
+    GIT_PAGER="delta --paging=never$width_opt | tee -a $pager_cache" \
+      git log "${gr_log_opts[@]}" "${stat_opt[@]+"${stat_opt[@]}"}" "${revs[@]}" || true
     trace "chunk-rendered:$chunk"
     ((first)) || continue
     first=0
@@ -732,7 +751,13 @@ diff_pane_cmd() {
   # on the placeholder for up to another second after there was nothing left
   # to wait for. z is not bound to anything there; it costs no round trip of
   # its own, riding the invocation that sets the flag.
-  tmux set-option -w -t "$TMUX_PANE" @review_loaded 1 ';' send-keys -t '{bottom-left}' z
+  #
+  # The width delta drew at rides along too. A fold's placeholder has to fit it
+  # exactly, or it wraps and adds a row, and the pane is wider than its content
+  # by the columns held back for the comments.
+  tmux set-option -w -t "$TMUX_PANE" @review_loaded 1 ';' \
+    set-option -p -t "$TMUX_PANE" @review_render_w "$diff_w" ';' \
+    send-keys -t '{bottom-left}' z
   read -r || true
   quit "$TMUX_PANE"
 }
@@ -798,7 +823,17 @@ plan_chunks() {
   head_sha=${all%%$'\n'*}
   [[ -n $head_sha ]] || return 0
   if [[ $range == *..* ]]; then
-    chunks=("${range%%..*}..$head_sha" "$head_sha..${range##*..}")
+    # The tail keeps the base. head..tip on its own is everything the tip
+    # reaches that the head does not, and on a history with merges that is not
+    # bounded by the base: the side a merge brought in reaches back past it. A
+    # range of 58 commits came out as 80, the list never found all of its own
+    # commits in the diff, and the row map was built again on every turn --
+    # 150ms a turn on a large diff, for as long as the review was open.
+    #
+    # Two revs in one chunk, split again where it is handed to git. A rev has
+    # no whitespace in it, so the split cannot cut one in half.
+    local base=${range%%..*}
+    chunks=("$base..$head_sha" "$head_sha..${range##*..}${base:+ ^$base}")
   else
     chunks=("$head_sha" "$head_sha..$range")
   fi
@@ -910,12 +945,17 @@ state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x
 # since the last turn is taken, and the last line wins -- the earlier ones are
 # states already superseded.
 read_state() {
-  local pane=$1 line got=0
+  local pane=$1 line='' got=0
   if ((sub_out < 0)); then
     tick=$(tmux display-message -p -t "$pane" "$state_format" 2>/dev/null) || return 1
     return 0
   fi
-  while IFS= read -r -t 0.02 -u "$sub_out" line; do
+  # read -t 0 first, which answers at once whether anything is there. Without it
+  # every turn gave the client a fiftieth of a second to say something, and a
+  # key pressed meanwhile waited on it: up to 20ms on every key, for a client
+  # that almost never had anything to say. The 0.02 is still there for what it
+  # was for, the rest of a line tmux has started writing.
+  while read -t 0 -u "$sub_out" && IFS= read -r -t 0.02 -u "$sub_out" line; do
     line=${sub_partial-}$line
     sub_partial=''
     case $line in
@@ -930,6 +970,9 @@ read_state() {
         return 0
         ;;
     esac
+    # Taken. The loop can now end on read -t 0 finding nothing more, and what
+    # is left here is kept below as the start of a line still to come.
+    line=''
   done
   # tmux can write a line in more than one piece, and a read that gives up part
   # way through one keeps what it had. The rest arrives on a later turn, where
@@ -965,9 +1008,26 @@ read_state() {
 # changes, and each of those is a line starting with % too. Taken as the state,
 # '%session-changed $0 0' came to a list one column wide.
 ask_state() {
-  local pane=$1 line reply='' inside=0
-  ((sub_out >= 0)) || return 1
-  printf 'display-message -p -t %s "%s"\n' "$pane" "$state_format" 1>&"$sub_in" || return 1
+  ctl_ask "$1" "$state_format" || return 1
+  tick=$REPLY
+  return 0
+}
+
+# Any one-line answer about a pane, asked down the control client: REPLY is the
+# format expanded. False when there is no client up, or it did not answer, and
+# the caller asks with a tmux of its own instead.
+#
+# What ask_state does for the tick, for any format. A fold asks this way for the
+# diff pane's state and then for its title, because a fold is the one thing here
+# that asks several questions on a single keypress.
+#
+# An empty answer is passed over rather than taken. Besides the answer to the
+# subscription itself, a command with no output leaves one -- which is what the
+# end of a fold sends, without waiting for it.
+ctl_ask() {
+  local pane=$1 format=$2 line reply='' inside=0
+  ((${sub_out:--1} >= 0)) || return 1
+  printf 'display-message -p -t %s "%s"\n' "$pane" "$format" 1>&"$sub_in" || return 1
   while IFS= read -r -t 1 -u "$sub_out" line; do
     # The same descriptor the turns read, so it can hold the rest of a line one
     # of them read only the start of -- see read_state.
@@ -981,13 +1041,14 @@ ask_state() {
       '%end'*)
         inside=0
         if [[ -n $reply ]]; then
-          tick=$reply
+          REPLY=$reply
           return 0
         fi
         ;;
       '%error'*) return 1 ;;
-      # A push that landed while the reply was in flight. It is the same state,
-      # so it is taken rather than dropped, and the reply still follows.
+      # A push that landed while the reply was in flight. It is the state all
+      # the same, so it is taken rather than dropped, and the reply still
+      # follows.
       '%subscription-changed rv '*) tick=${line#*" : "} ;;
       '%exit'*)
         sub_out=-1
@@ -1006,8 +1067,14 @@ ask_state() {
 # caught once held there, the control client still attached behind it. Nothing
 # is left waiting: when this process goes, the pane goes, and a write still
 # pending on it fails with it.
+#
+# The render the folds are drawn from goes too. It is the size of the whole
+# diff, the diff pane that wrote it is killed with the window rather than left
+# to tidy up, and this is the one process that knows where it is and is still
+# running when the review closes.
 sidebar_exit() {
   [[ -z ${sub_pid:-} ]] || kill "$sub_pid" 2>/dev/null || true
+  [[ -z ${fold_cache:-} ]] || /bin/rm -f "$fold_cache" "$fold_cache.map" 2>/dev/null || true
   { stty echo; printf '\e[?25h'; } 2>/dev/null &
   return 0
 }
@@ -1059,6 +1126,20 @@ sidebar() {
   # Parallel: the scrollback row each file header sits on, and its path. Used to
   # say which file a comment is against.
   local -a file_rows=() file_names=()
+  # The row each hunk's box starts on, which is what a fold counts hunks by.
+  local -a hunk_rows=()
+  # What is collapsed, by the names fold_item_at gives: a commit's sha, then
+  # sha/file, then sha/file/hunk. Held here rather than on the window, because
+  # this loop is what writes the pane from it and nothing else needs to know;
+  # a retarget starts a review with everything open, which is what it is.
+  # fold_gen numbers the rewrites, so each waits on a token of its own.
+  local -A folded=()
+  local fold_gen=0
+  # The headers the last fold wrote, for the map to be built from in place of a
+  # capture. Empty when there is none to trust.
+  local fold_map=''
+  # The render in the background, while a fold is being written. See fold_start.
+  local fold_fd=''
   local mapped=0 width=0 height=0 diff_width=0 shown=-2
   # The width of the column the header shares with the list. The two are one
   # number except while the list is zoomed over the window, when the list is
@@ -1166,8 +1247,9 @@ sidebar() {
   # subdirectory finds the queue left by one opened from the root. One git, once,
   # when the review opens -- next to the log load_commits has already run, and
   # nowhere near a frame.
-  local hdr_file
+  local hdr_file fold_cache
   hdr_file=$(header_file "$pane")
+  fold_cache=$(render_file "$pane")
   local store repo_root
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$PWD
   store=$(comment_file "$repo_root" "$range")
@@ -1552,8 +1634,12 @@ sidebar() {
     fi
     if ((!mapped)); then
       trace map-rows-start
-      map_rows "$pane"
-      trace map-rows-done
+      map_rows "$pane" "$fold_map"
+      fold_map=''
+      # How many of the list's commits the map found, which is what decides
+      # whether it is ever built again. A map that never finds them all is
+      # built on every turn, and this is where that shows.
+      trace "map-rows-done:${#row_of[@]}/${#shas[@]}"
       map_gen=$((map_gen + 1))
     fi
 
@@ -1898,6 +1984,15 @@ sidebar() {
       tmux set-option -p -t "$pane" @review_hist_base "$live" ';' copy-mode -t "$pane"
       continue
     fi
+    # = < and > rewrite the pane, so they want it in copy-mode like every move
+    # above: the rewrite ends by entering it again on the new grid, and the item
+    # they act on is read off copy-mode's own cursor.
+    case $key in
+      '=' | '<' | '>')
+        fold_key "$pane" "$key" "$focus" "$cur"
+        continue
+        ;;
+    esac
     steer "$pane" "$key" "$cur" "$hist" "$scroll" "$cy"
   done
 }
@@ -2008,6 +2103,9 @@ read_key() {
     # list when it has finished, and the list sends it to the header when what
     # is drawn there has changed. It means nothing in the list's own loop.
     j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z | C | R | e | d) ;;
+    # Collapse, open, and turn over, after vim-fugitive's three keys for the
+    # same thing.
+    '=' | '<' | '>') ;;
     # y answers the question R and d ask. It means nothing to any loop here --
     # the one that asked is blocked on a raw read of its own stdin, not on this
     # -- but it has to survive being resolved, or the pane the reader is
@@ -2063,15 +2161,15 @@ steer() {
 # follow.
 # shellcheck disable=SC2034
 legend_diff_tiers=(
-  'jk=line|n/N=any|][=file|}{=commit|c=comment|s=send'
-  'jk=line|n/N=any|}{=commit|c=comment'
+  'jk=line|n/N=any|][=file|}{=commit|=<>=fold|c=comment|s=send'
+  'jk=line|n/N=any|}{=commit|=<>=fold|c=comment'
   'n/N=any|}{=commit|c=comment'
   'n/N=any|c=comment'
 )
 # shellcheck disable=SC2034
 legend_list_tiers=(
-  'jk=commit|PgUp/PgDn=page|gg/G=first/last|a=agent|c=comment|s=send|q=close'
-  'jk=commit|PgUp/PgDn=page|c=comment|s=send|q=close'
+  'jk=commit|PgUp/PgDn=page|gg/G=first/last|=<>=fold|a=agent|c=comment|s=send|q=close'
+  'jk=commit|PgUp/PgDn=page|=<>=fold|c=comment|s=send|q=close'
   'jk=commit|c=comment|q=close'
   'jk=commit|q=close'
 )
@@ -2082,14 +2180,14 @@ legend_list_tiers=(
 # narrow is the whole point of a tier and that ordering is not derivable.
 # shellcheck disable=SC2034
 legend_diff_c_tiers=(
-  'jk=line|][=file|}{=commit|c=comment|C=toggle comments|R=clear|s=send'
+  'jk=line|][=file|}{=commit|=<>=fold|c=comment|C=toggle comments|R=clear|s=send'
   'jk=line|}{=commit|c=comment|C=comments|R=clear|s=send'
   '}{=commit|c=comment|C=comments|R=clear'
   'c=comment|C=comments|R=clear'
 )
 # shellcheck disable=SC2034
 legend_list_c_tiers=(
-  'jk=commit|c=comment|C=toggle comments|R=clear|s=send|q=close'
+  'jk=commit|=<>=fold|c=comment|C=toggle comments|R=clear|s=send|q=close'
   'jk=commit|c=comment|C=comments|R=clear|s=send|q=close'
   'jk=commit|C=comments|R=clear|q=close'
   'C=comments|R=clear|q=close'
@@ -2122,7 +2220,7 @@ legend_gutter_sel_tiers=(
 # nothing is lost by searching. See the binding in .tmux.conf.
 # shellcheck disable=SC2034
 legend_diff_search_tiers=(
-  'jk=line|n/N=match|][=file|}{=commit|c=comment|s=send'
+  'jk=line|n/N=match|][=file|}{=commit|=<>=fold|c=comment|s=send'
   'jk=line|n/N=match|}{=commit|c=comment'
   'n/N=match|}{=commit|c=comment'
   'n/N=match|c=comment'
@@ -2169,8 +2267,11 @@ render_legend() {
     plain="$prefix"
     col="$dim$prefix$reset"
     while IFS= read -r group; do
-      keys=${group%%=*}
-      label=${group#*=}
+      # Split on the last =, not the first. The fold keys are = < and >, and a
+      # key that is itself an equals sign split on the first came out empty,
+      # with the label keeping the rest. No label has one in it.
+      keys=${group%=*}
+      label=${group##*=}
       plain+="  $keys $label"
       col+="  $c_subject$keys$reset $dim$label$reset"
     done < <(printf '%s\n' "${tier//|/$'\n'}")
@@ -3221,12 +3322,17 @@ commit_at() {
   return 0
 }
 
+# Read off a capture of the pane, or, given one, off the file of headers a fold
+# left -- which is written in the very shape the capture is read in, so the two
+# go through the one loop. The file is read straight in, not through a cat: it
+# is on the path a fold waits on.
 map_rows() {
-  local pane=$1 line n text sha commits='' files='' stops=''
+  local pane=$1 from=${2-} commits='' files='' stops=''
 
   row_of=()
   file_rows=()
   file_names=()
+  hunk_rows=()
   # One grep, straight off the capture. The dump used to be read into a shell
   # variable and then grepped twice over it, which on a diff of twenty thousand
   # rows meant holding a megabyte and a half in the shell and walking it three
@@ -3234,29 +3340,16 @@ map_rows() {
   # Matching both kinds of header together and telling them apart here also
   # yields the merged list in row order, so the sort the jump keys used to need
   # is gone with it.
-  while IFS= read -r line; do
-    n=$((${line%%:*} - 1))
-    text=${line#*:}
-    if [[ $text == 'commit '* ]]; then
-      sha=${text#commit }
-      row_of[${sha%% *}]=$n
-      commits+="$n "
-    else
-      files+="$n "
-      file_rows+=("$n")
-      # "<indent><label glyph> path" -- drop the indent, then the glyph, and
-      # what is left is the path.
-      text=${text#"${text%%[![:space:]]*}"}
-      text=${text#* }
-      file_names+=("${text%"${text##*[![:space:]]}"}")
-    fi
-    # Published so the jump keys need no parsing of their own: a jump that
-    # re-greps a 6000-line scrollback and shells out to git config costs most
-    # of a second, which is far too slow for a keypress. n and N stop at either
-    # kind, which is what delta's own navigate did, so the two are merged.
-    stops+="$n "
-  done < <(tmux capture-pane -p -S - -E - -t "$pane" 2>/dev/null |
-    grep -nE "^commit [0-9a-f]{7,}|$file_re" || true)
+  #
+  # The box is delta's: a rule closed by a corner, with the hunk's line and
+  # function on the row below. The rule is grouped so that + repeats the whole
+  # character and not its last byte.
+  if [[ -n $from ]]; then
+    map_parse <"$from"
+  else
+    map_parse < <(tmux capture-pane -p -S - -E - -t "$pane" 2>/dev/null |
+      grep -nE "^commit [0-9a-f]{7,}|^(─)+┐|$file_re" || true)
+  fi
 
   local -a pub=()
   if [[ $commits != "$pub_commits" ]]; then
@@ -3275,6 +3368,41 @@ map_rows() {
   ((${#pub[@]})) && tmux "${pub[@]::${#pub[@]}-1}"
 
   ((${#row_of[@]} == ${#shas[@]})) && mapped=1
+  return 0
+}
+
+# One header per line, "row:text", into the caller's maps and its commits, files
+# and stops -- map_rows' own, which it hands on to be published.
+map_parse() {
+  local line n text sha
+  while IFS= read -r line; do
+    n=$((${line%%:*} - 1))
+    text=${line#*:}
+    if [[ $text == 'commit '* ]]; then
+      sha=${text#commit }
+      row_of[${sha%% *}]=$n
+      commits+="$n "
+    elif [[ $text == ─* ]]; then
+      # The top of a hunk's box, which is what a fold counts a hunk by. Not a
+      # stop: n and N have always meant commits and files, and a hunk every few
+      # rows would turn them into something closer to j.
+      hunk_rows+=("$n")
+      continue
+    else
+      files+="$n "
+      file_rows+=("$n")
+      # "<indent><label glyph> path" -- drop the indent, then the glyph, and
+      # what is left is the path.
+      text=${text#"${text%%[![:space:]]*}"}
+      text=${text#* }
+      file_names+=("${text%"${text##*[![:space:]]}"}")
+    fi
+    # Published so the jump keys need no parsing of their own: a jump that
+    # re-greps a 6000-line scrollback and shells out to git config costs most
+    # of a second, which is far too slow for a keypress. n and N stop at either
+    # kind, which is what delta's own navigate did, so the two are merged.
+    stops+="$n "
+  done
   return 0
 }
 
@@ -3617,6 +3745,27 @@ header_file() {
   dir=${dir%/}
   mkdir -p "$dir/tmux-review" 2>/dev/null && dir=$dir/tmux-review
   printf '%s/header-%s.txt' "$dir" "${1//[^A-Za-z0-9._-]/_}"
+}
+
+# Where the diff pane keeps what delta wrote into it, which every fold is drawn
+# from again. Keyed by the diff pane like the header's frames, for the same
+# reason: it is the one id the pane that writes it and the loop that reads it
+# both have without asking.
+#
+# And by the server, which the header's frames can do without and this cannot.
+# A pane id is unique within one server only, so two servers each have a %1 --
+# and the sidebar takes this file with it when it exits, so a review closing on
+# one server took the render of a review still open on the other. The server's
+# pid is the second field of TMUX, which tmux sets for everything it starts.
+render_file() {
+  local dir=${TMPDIR:-/tmp} server=''
+  dir=${dir%/}
+  mkdir -p "$dir/tmux-review" 2>/dev/null && dir=$dir/tmux-review
+  if [[ -n ${TMUX-} ]]; then
+    server=${TMUX#*,}
+    server=${server%%,*}
+  fi
+  printf '%s/render-%s%s.txt' "$dir" "${server:+$server-}" "${1//[^A-Za-z0-9._-]/_}"
 }
 
 # The parts of a row, two spaces apart, skipping the ones that are not there.
@@ -4640,6 +4789,659 @@ pick_target() {
     last) target=${rows##* } ;;
   esac
   REPLY=$target
+  return 0
+}
+
+# Collapsing and expanding, the way vim-fugitive's = < and > do it in its status
+# buffer: the text is rebuilt, a collapsed item keeps the line that names it and
+# loses the rest, and the set of collapsed items outlives each rebuild so that
+# opening a commit again brings back whatever was collapsed inside it.
+#
+# tmux cannot hide rows of a pane's history, so rebuilding is the only way: the
+# pane is written again from what delta wrote into it the first time, with the
+# hidden regions left out. Measured on a throwaway server, a 45,000-row range is
+# parsed again in about half a second and an ordinary one in tens of
+# milliseconds, which is cheap enough to do on a keypress.
+#
+# Items nest, hunk inside file inside commit, and every one is named by where it
+# sits rather than by a row: a commit by its sha, a file by its commit and which
+# of that commit's files it is, a hunk by its file and which of that file's
+# hunks it is -- 21db538, 21db538/2, 21db538/2/3. Rows move every time the pane
+# is written; positions do not, because a collapsed item keeps its header, and
+# the headers are what both the pane and the render count by.
+
+# delta's output with the collapsed items left out, on stdout. Each keeps the
+# rows that name it -- the commit row, the file header, the hunk's box -- and the
+# rest of it becomes one row saying what was there. Blank rows at the end of a
+# hidden region are kept, so the spacing between items is the same either way.
+# With nothing collapsed, the output is the input byte for byte.
+#
+# awk because this walks every row of the diff, and a bash loop over tens of
+# thousands of them is seconds. Bytes, not characters, under LC_ALL=C: the
+# headers are matched as byte sequences either way, and the one width that has
+# to be measured is counted by hand from UTF-8's continuation bytes.
+#
+# Code rows are told apart by their gutter before anything else. They are
+# nearly every row, and none of them can be a header, so they are printed
+# without the escapes being stripped to look.
+#
+# What goes ahead of the rows and what goes after them can be handed in too,
+# which is how fold_start writes the whole rewrite in this one pass. The first
+# goes out with the first row, so a cache that cannot be read writes nothing at
+# all.
+#
+# And a file to leave the headers in, as they land: each written the way grep -n
+# reads it off a capture of the pane -- the row counted from one, a colon, the
+# row's text -- so that map_rows can read it in place of one. Given that file,
+# the number of rows written goes to stderr at the end, which is how the caller
+# finds out whether any of them wrapped.
+#
+# And a row the reader's view ends on, with a token to put after it: written
+# between that row and the next, and "view" said on stderr the moment it is, so
+# the pane can be swapped onto what has landed while the rows below the reader
+# are still being written. Only when there is a row after it -- a render that
+# ends at the view has nothing behind it to wait for.
+fold_render() {
+  local cache=$1 ids=$2 width=$3 re=$4 ahead=${5-} after=${6-} map=${7-}
+  local mid=${8-0} midtoken=${9-}
+  LC_ALL=C awk -v ids="$ids" -v width="$width" -v file_re="$re" \
+    -v ahead="$ahead" -v after="$after" -v map="$map" \
+    -v mid="$mid" -v midtoken="$midtoken" \
+    -v glyph="$fold_glyph" -v accent="$accent" -v dim="$dim" -v added="$added" \
+    -v removed="$removed" -v reset="$reset" '
+    function strip(s) { gsub(/\033\[[0-9;:?]*[A-Za-z]/, "", s); return s }
+    # Characters, not bytes: every byte that is not a UTF-8 continuation.
+    function chars(s,   n) { n = length(s); return n - gsub(/[\200-\277]/, "", s) }
+    # The first w characters of s, or w-1 of them and an ellipsis, cut between
+    # characters and never inside one. The same rule fit() keeps in bash.
+    function cut(s, w,   out, n, i, c) {
+      if (chars(s) <= w) return s
+      if (w < 1) return ""
+      out = ""
+      n = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c !~ /[\200-\277]/) {
+          if (n == w - 1) break
+          n++
+        }
+        out = out c
+      }
+      sub(/ +$/, "", out)
+      return out "…"
+    }
+    function count(n, what) { return n " " what (n == 1 ? "" : "s") }
+    # A row out, counted: the count is the row the next one lands on.
+    function emit(s) {
+      if (out == mid && mid > 0 && midtoken != "") {
+        printf "%s", midtoken
+        fflush()
+        print "view" > "/dev/stderr"
+        fflush("/dev/stderr")
+      }
+      print s
+      out++
+    }
+    function header(p) { if (map != "") print out + 1 ":" p > map }
+    function figure(s, word,   t) {
+      if (!match(s, "[0-9]+ " word)) return ""
+      t = substr(s, RSTART, RLENGTH)
+      sub(/ .*/, "", t)
+      return t
+    }
+    function hide(k, id) {
+      hidden = id; kind = k
+      lines = 0; hunks = 0; blanks = 0; subject = ""; stat = ""
+    }
+    # One row of a hidden region: counted, and remembered when it is what the
+    # placeholder will say.
+    function swallow(p) {
+      if (p ~ /^[ \t]*$/) { blanks++; return }
+      blanks = 0
+      if (kind == "c") {
+        if (subject == "" && p ~ /^    [^ ]/ && p !~ /┊|│/) {
+          subject = p
+          sub(/^ +/, "", subject)
+        } else if (p ~ /^ [0-9]+ files? changed/) {
+          stat = p
+        }
+        return
+      }
+      # A line of the diff carries a number in one column or both. A modified
+      # line drawn side by side is one row and counts once; the continuation of
+      # a wrapped line carries none and counts not at all.
+      if (p ~ /[0-9](┊|│)/) lines++
+    }
+    # The commit: its subject, since the message is part of what is hidden, and
+    # what the commit came to, from its own diffstat. The subject gives way to
+    # the width, never the figures.
+    function commit_row(   f, a, d, tail, coloured, sep) {
+      tail = ""
+      coloured = ""
+      if (stat != "") {
+        f = figure(stat, "files? changed")
+        a = figure(stat, "insertions?")
+        d = figure(stat, "deletions?")
+        tail = "  ·  " count(f, "file")
+        coloured = dim tail reset
+        sep = "  "
+        if (a != "") { tail = tail sep "+" a; coloured = coloured sep added "+" a reset; sep = " " }
+        if (d != "") { tail = tail sep "-" d; coloured = coloured sep removed "-" d reset }
+      }
+      return "    " accent glyph reset " " cut(subject, width - 6 - chars(tail)) coloured
+    }
+    function close_fold(   text, i) {
+      if (hidden == "") return
+      if (kind == "c") {
+        emit(commit_row())
+      } else {
+        text = count(lines, "line")
+        if (kind == "f") text = count(hunks, "hunk") "  ·  " text
+        emit("   " accent glyph reset " " dim cut(text, width - 5) reset)
+      }
+      for (i = 0; i < blanks; i++) emit("")""
+      hidden = ""
+      kind = ""
+    }
+    BEGIN {
+      n = split(ids, list, " ")
+      for (i = 1; i <= n; i++) folded[list[i]] = 1
+      gutter = "┊"
+    }
+    NR == 1 { printf "%s", ahead }
+    # The two rows of a hunk box under its top, which are header too.
+    box > 0 {
+      emit($0)
+      if (--box == 0 && (hunk in folded)) hide("h", hunk)
+      next
+    }
+    {
+      if (index($0, gutter)) {
+        if (hidden == "") emit($0)
+        else swallow(strip($0))
+        next
+      }
+      plain = strip($0)
+      if (plain ~ /^commit [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) {
+        close_fold()
+        split(plain, word, " ")
+        sha = word[2]
+        files = 0
+        header(plain)
+        emit($0)
+        if (sha in folded) hide("c", sha)
+        next
+      }
+      if (plain ~ file_re) {
+        if (kind == "c") { swallow(plain); next }
+        close_fold()
+        files++
+        file = sha "/" files
+        hunks_in = 0
+        header(plain)
+        emit($0)
+        if (file in folded) hide("f", file)
+        next
+      }
+      if (plain ~ /^(─)+┐/) {
+        if (kind == "c") { swallow(plain); next }
+        if (kind == "f") { hunks++; swallow(plain); next }
+        close_fold()
+        hunks_in++
+        hunk = file "/" hunks_in
+        header(plain)
+        emit($0)
+        box = 2
+        next
+      }
+      if (hidden == "") emit($0)
+      else swallow(plain)
+    }
+    END {
+      close_fold()
+      if (NR) printf "%s", after
+      if (map != "") {
+        close(map)
+        print out > "/dev/stderr"
+      }
+    }
+  ' "$cache"
+}
+
+# The innermost item a scrollback row is inside, from the row maps: REPLY is its
+# name, REPLY_ROW and REPLY_END the rows that name it, and REPLY_UP and
+# REPLY_UP_ROW the item around it and the row that names that -- empty for a
+# commit, which has nothing around it. Answers false above every commit.
+#
+# A hunk runs from its box to the row before whatever comes next, so the blank
+# row under its last line is still the hunk's. A file runs from its header to
+# its first hunk, and a commit from its row to its first file. A hunk or a file
+# above the commit the row is in belongs to an earlier commit and is not
+# counted, which is why the walks stop at the commit's own row.
+fold_item_at() {
+  local row=$1 crow sha frow=-1 nfile=0 hrow=-1 nhunk=0 i
+  commit_at "$row" || return 1
+  crow=$REPLY
+  sha=$REPLY_SHA
+  for ((i = 0; i < ${#file_rows[@]}; i++)); do
+    ((file_rows[i] > row)) && break
+    ((file_rows[i] > crow)) || continue
+    frow=${file_rows[i]}
+    nfile=$((nfile + 1))
+  done
+  if ((frow >= 0)); then
+    for ((i = 0; i < ${#hunk_rows[@]}; i++)); do
+      ((hunk_rows[i] > row)) && break
+      ((hunk_rows[i] > frow)) || continue
+      hrow=${hunk_rows[i]}
+      nhunk=$((nhunk + 1))
+    done
+  fi
+  if ((hrow >= 0)); then
+    REPLY=$sha/$nfile/$nhunk
+    REPLY_ROW=$hrow
+    REPLY_END=$((hrow + 2))
+    REPLY_UP=$sha/$nfile
+    REPLY_UP_ROW=$frow
+  elif ((frow >= 0)); then
+    REPLY=$sha/$nfile
+    REPLY_ROW=$frow
+    REPLY_END=$frow
+    REPLY_UP=$sha
+    REPLY_UP_ROW=$crow
+  else
+    REPLY=$sha
+    REPLY_ROW=$crow
+    REPLY_END=$crow
+    REPLY_UP=''
+    REPLY_UP_ROW=''
+  fi
+  return 0
+}
+
+# What a key changes: REPLY is the item and REPLY_FOLD whether it collapses (1)
+# or opens (0). Both empty when the key changes nothing. Reads the caller's
+# folded.
+#
+# = turns the item over. > opens it and leaves an open one alone. < collapses
+# it, and on an item that is collapsed already it collapses the one around it
+# instead -- the only way the reader can be standing in a collapsed item is on
+# the row that stands in for it, since the rest of it is not on screen, so <
+# pressed there can only mean the next level out. Three <s from deep in a hunk
+# put away the hunk, its file and its commit, in that order.
+fold_decide() {
+  local key=$1 id=$2 up=$3
+  REPLY=''
+  REPLY_FOLD=''
+  case $key in
+    '=')
+      REPLY=$id
+      if [[ -v folded[$id] ]]; then REPLY_FOLD=0; else REPLY_FOLD=1; fi
+      ;;
+    '<')
+      if [[ ! -v folded[$id] ]]; then
+        REPLY=$id
+        REPLY_FOLD=1
+      elif [[ -n $up ]]; then
+        REPLY=$up
+        REPLY_FOLD=1
+      fi
+      ;;
+    '>')
+      if [[ -v folded[$id] ]]; then
+        REPLY=$id
+        REPLY_FOLD=0
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# Where the view goes once the pane has been written again: REPLY for goto-line
+# and REPLY_DOWN for how far down the view the cursor then sits.
+#
+# Collapsing or opening an item only changes the rows below its header, so every
+# row above it, the header included, has the row number it had. The view keeps
+# its top row whenever the header is still in it, which leaves the header where
+# the reader was looking and the rows under it closing up or opening out. A
+# header outside the view comes to the top of it. And the view can sit no lower
+# than the bottom of what is now there, which a collapse near the end can ask
+# for.
+fold_place() {
+  local hist=$1 top=$2 target=$3 height=$4
+  if ((target < top || target >= top + height)); then
+    top=$target
+  fi
+  REPLY=$((hist - top))
+  ((REPLY < 0)) && REPLY=0
+  ((REPLY > hist)) && REPLY=$hist
+  REPLY_DOWN=$((target - (hist - REPLY)))
+  ((REPLY_DOWN < 0)) && REPLY_DOWN=0
+  ((REPLY_DOWN >= height)) && REPLY_DOWN=$((height - 1))
+  return 0
+}
+
+# Writes the pane again: the screen and the history cleared, the render, and an
+# OSC 2 title carrying the token that fold_wait looks for.
+#
+# Written to the pane's tty from here, while the diff is still in copy-mode.
+# Copy-mode shows a copy of the grid taken when it was entered, so the reader
+# goes on seeing the old diff while the new one lands underneath -- measured,
+# scroll_position held at 1500 through a rewrite that took the history from
+# 2951 rows to 951 -- and it changes only when the pane enters copy-mode again.
+#
+# \e[2J alone is not enough: with scroll-on-clear, tmux's default, clearing the
+# screen pushes what was on it into the history, and \e[3J is what then clears
+# the history.
+#
+# Rendered straight into the pane, so tmux parses the rows while the rest are
+# still being rendered rather than after all of them, and the clear goes out
+# with the first row, so a render that cannot read its cache never reaches the
+# pane at all.
+#
+# In the background, so that this loop can act on what the render says as it
+# goes -- that it has passed the view, then how many rows it wrote -- which
+# fold_next reads, one line at a time, off fold_fd. What it says on stderr is
+# all that comes down that descriptor; anything else is a render that failed.
+fold_start() {
+  local tty=$1 cache=$2 ids=$3 width=$4 re=$5 token=$6 map=${7-} mid=${8-0} midtoken=${9-}
+  [[ -z $map ]] || : >"$map" 2>/dev/null || map=''
+  [[ -z $midtoken ]] || midtoken=$'\e]2;'"$midtoken"$'\a'
+  # stderr into the descriptor, stdout into the pane, in that order.
+  exec {fold_fd}< <(fold_render "$cache" "$ids" "$width" "$re" $'\e[H\e[2J\e[3J' \
+    $'\e]2;'"$token"$'\a' "$map" "$mid" "$midtoken" 2>&1 >"$tty")
+  return 0
+}
+
+# The next thing the render says, in REPLY. False once it has said all it will.
+fold_next() {
+  REPLY=''
+  [[ -n ${fold_fd-} ]] || return 1
+  IFS= read -r -u "$fold_fd" REPLY
+}
+
+fold_stop() {
+  [[ -z ${fold_fd-} ]] || exec {fold_fd}<&-
+  fold_fd=''
+  return 0
+}
+
+# Waits until tmux has parsed the whole of a rewrite, answering the history size
+# it then has in REPLY. False when the token never came back, with REPLY the last
+# size read.
+#
+# The write returning is not enough: it returns once the bytes are in the pty,
+# and a tmux command sent after it can be served before tmux has read the last
+# of them. The title is the signal because it travels in the same stream as the
+# rows, after all of them; fold_swap puts the old one back once it has served.
+#
+# Given a second token, either ends the wait; REPLY_TITLE says which was seen.
+fold_wait() {
+  local pane=$1 token=$2 alt=${3-} tries=${fold_wait_tries:-200} raw title hist=''
+  REPLY=''
+  REPLY_TITLE=''
+  # The cursor's row as well: with the history, how many rows the pane came to,
+  # which fold_key holds against how many were written. REPLY_CY.
+  local format='#{pane_title}'$'\x1f''#{history_size}'$'\x1f''#{cursor_y}' cy=''
+  REPLY_CY=''
+  while ((tries > 0)); do
+    tries=$((tries - 1))
+    if ctl_ask "$pane" "$format"; then
+      raw=$REPLY
+    else
+      raw=$(tmux display-message -p -t "$pane" "$format" 2>/dev/null) || raw=''
+    fi
+    IFS=$'\x1f' read -r title hist cy <<<"$raw"
+    REPLY=$hist
+    REPLY_CY=$cy
+    REPLY_TITLE=$title
+    [[ $title == "$token" ]] && return 0
+    [[ -n $alt && $title == "$alt" ]] && return 0
+    ((tries > 0)) && sleep 0.01
+  done
+  return 1
+}
+
+# Puts the reader on the new grid: out of copy-mode and back in, the view placed
+# and the cursor walked down it, the title the token replaced put back, and the
+# basis the sidebar measures rows from reset to the grid copy-mode was just
+# entered on. One invocation, so nothing sees the pane out of copy-mode, and
+# the same moves settle_view makes after the diff has finished arriving.
+#
+# The title goes back with every # doubled: select-pane -T expands formats in
+# what it is given, so a # in it would be read as the start of one.
+#
+# Down the control client when the sidebar has one up, and not waited for. The
+# turn after this asks for the state down the same client, and tmux answers one
+# client's commands in the order they came, so by the time that answer arrives
+# this has been done.
+fold_swap() {
+  local pane=$1 n=$2 down=$3 title=$4
+  local -a cmd=(send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
+    send-keys -X -t "$pane" goto-line "$n" ';' send-keys -X -t "$pane" top-line ';')
+  ((down > 0)) && cmd+=(send-keys -X -N "$down" -t "$pane" cursor-down ';')
+  cmd+=(select-pane -t "$pane" -T "${title//#/##}" ';'
+    set-option -p -t "$pane" -F @review_hist_base '#{history_size}')
+  fold_send "${cmd[@]}"
+}
+
+# The reader onto the part of a rewrite that has landed, while the rest is still
+# being written: the rows down to the bottom of their view are all there, the
+# ones below are arriving. Copy-mode entered on that, the view's top row put at
+# top, and the cursor walked down it.
+#
+# The history copy-mode is entered on is not a number this loop can know, with
+# rows still landing -- and not one #{history_size} gives either, which goes on
+# counting the rows that land after the entry: read that way the view came out
+# five rows off, live. Copy-mode's own scroll does not move with them.
+# history-top puts it at the whole of the history it was entered on, which is
+# the basis -- the same reading reveal_diff takes for the same reason -- and
+# run-shell -C expands its command as a format when it runs, so goto-line can
+# work out its distance from that. Measured with ten thousand rows landing
+# between the entry and the read, a view asked to start at row 1000 started at
+# row 1000. send-keys -F is no help here: goto-line ignored a format handed to
+# it that way.
+#
+# The title is left alone; it is still waiting for the token at the end.
+fold_swap_early() {
+  local pane=$1 top=$2 down=$3
+  local -a cmd=(send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
+    send-keys -X -t "$pane" history-top ';'
+    set-option -p -t "$pane" -F @review_hist_base '#{scroll_position}' ';'
+    run-shell -C -t "$pane" "send-keys -X -t $pane goto-line #{e|-:#{scroll_position},$top}" ';'
+    send-keys -X -t "$pane" top-line)
+  ((down > 0)) && cmd+=(';' send-keys -X -N "$down" -t "$pane" cursor-down)
+  fold_send "${cmd[@]}"
+}
+
+# And onto the whole grid once the rest has landed, under wherever the reader
+# has got to: they had the early view for as long as the rest took, and may have
+# scrolled it. Their top row and the screen row of their cursor are read again,
+# and the grid that is now whole is entered with them still there -- the same
+# moves settle_view makes when the diff first finishes arriving.
+fold_settle() {
+  local pane=$1 hist=$2 title=$3 raw base scroll cy n
+  local format='#{@review_hist_base}'$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'
+  if ctl_ask "$pane" "$format"; then
+    raw=$REPLY
+  else
+    raw=$(tmux display-message -p -t "$pane" "$format" 2>/dev/null) || raw=''
+  fi
+  IFS=$'\x1f' read -r base scroll cy <<<"$raw"
+  n=$((hist - (${base:-0} - ${scroll:-0})))
+  ((n < 0)) && n=0
+  ((n > hist)) && n=$hist
+  fold_swap "$pane" "$n" "${cy:-0}" "$title"
+}
+
+# A command list to the server: down the control client when the sidebar has
+# one up, and not waited for -- the turn after asks for the state down the same
+# client, and tmux answers one client's commands in the order they came -- or
+# by a tmux of its own when it has not.
+fold_send() {
+  if ((${sub_out:--1} >= 0)); then
+    ctl_line "$@"
+    printf '%s\n' "$REPLY" 1>&"$sub_in" 2>/dev/null && return 0
+  fi
+  tmux "$@" 2>/dev/null || true
+  return 0
+}
+
+# A command and its arguments as one line of tmux's own command language, in
+# REPLY, for writing down the control client. An argument is quoted only when
+# tmux would otherwise split it or read something into it, and the three
+# characters a double-quoted string still treats specially are escaped.
+ctl_line() {
+  local arg out=''
+  for arg in "$@"; do
+    if [[ $arg == ';' || $arg =~ ^[A-Za-z0-9%@_./:=+-]+$ ]]; then
+      out+="${out:+ }$arg"
+    else
+      arg=${arg//\\/\\\\}
+      arg=${arg//\"/\\\"}
+      arg=${arg//\$/\\\$}
+      # The quotes are for tmux's own parser, which reads this line; they are
+      # meant to arrive literally.
+      # shellcheck disable=SC2089
+      out+="${out:+ }\"$arg\""
+    fi
+  done
+  REPLY=$out
+  return 0
+}
+
+# =, < or > pressed anywhere in the review. In the list they act on the selected
+# commit, which is what the list is a list of; anywhere else on the innermost
+# item under the diff cursor. Reads and changes the sidebar loop's folded, and
+# leaves the row map to be built again from the grid the rewrite left.
+#
+# The cursor lands on the item's header, unless it was already on one of the
+# header's rows, in which case it stays where it was -- the rows a fold changes
+# are all below the header, so there is nothing to move it for.
+fold_key() {
+  local pane=$1 key=$2 focus=$3 cur=$4
+  local cache raw tty base scroll cy title render_w ph pw
+  local top row id first last up up_row target width ids='' k
+  trace fold-start
+  # Worked out once when the sidebar started, not here: render_file is a
+  # subshell and a mkdir, on the one path in this file a key waits on most.
+  cache=${fold_cache-}
+  if [[ ! -s $cache ]]; then
+    tmux display-message 'review: nothing to fold from -- q and open the review again'
+    return 0
+  fi
+  # Asked for rather than taken from the tick: a move the keys made has just been
+  # flushed, and the tick still describes where the reader was before it.
+  local format='#{pane_tty}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_title}'$'\x1f''#{@review_render_w}'$'\x1f''#{pane_height}'$'\x1f''#{pane_width}'
+  if ctl_ask "$pane" "$format"; then
+    raw=$REPLY
+  else
+    raw=$(tmux display-message -p -t "$pane" "$format" 2>/dev/null) || return 0
+  fi
+  IFS=$'\x1f' read -r tty base scroll cy title render_w ph pw <<<"$raw"
+  [[ -n $tty && -n $base ]] || return 0
+  top=$((base - ${scroll:-0}))
+  trace fold-asked
+
+  if [[ $focus == list ]]; then
+    id=${shas[cur]}
+    [[ -v row_of[$id] ]] || return 0
+    row=${row_of[$id]}
+    first=$row
+    last=$row
+    up=''
+    up_row=''
+  else
+    row=$((top + ${cy:-0}))
+    fold_item_at "$row" || return 0
+    id=$REPLY
+    first=$REPLY_ROW
+    last=$REPLY_END
+    up=$REPLY_UP
+    up_row=$REPLY_UP_ROW
+  fi
+
+  fold_decide "$key" "$id" "$up"
+  local change=$REPLY collapse=$REPLY_FOLD
+  [[ -n $change ]] || return 0
+  if [[ $change == "$id" ]]; then
+    target=$first
+    ((row >= first && row <= last)) && target=$row
+  else
+    target=$up_row
+  fi
+  if ((collapse)); then
+    folded[$change]=1
+  else
+    unset "folded[$change]"
+  fi
+
+  for k in "${!folded[@]}"; do ids+="${ids:+ }$k"; done
+  fold_gen=$((${fold_gen:-0} + 1))
+  width=${render_w:-0}
+  ((width > 0)) || width=${pw:-0}
+  local token="review-fold-$fold_gen" view_token="review-fold-$fold_gen-view"
+  # Where the view will start once the fold is in: where it is, unless the row
+  # the cursor goes to is off it. The render marks the row the view ends on, so
+  # the reader can be put on the fold as soon as tmux has the rows they can see.
+  local view_top=$top
+  ((target < top || target >= top + ph)) && view_top=$target
+  fold_start "$tty" "$cache" "$ids" "$width" "$file_re" "$token" "$cache.map" \
+    $((view_top + ph)) "$view_token"
+  local said='' written='' early=0
+  fold_next && said=$REPLY
+  if [[ $said == view ]]; then
+    fold_wait "$pane" "$view_token" "$token" || true
+    # The end may have landed already, in which case there is nothing to be
+    # early for and the one swap below is all it takes.
+    if [[ ${REPLY_TITLE-} == "$view_token" ]]; then
+      trace fold-early
+      fold_swap_early "$pane" "$view_top" $((target - view_top))
+      early=1
+    fi
+    fold_next && written=$REPLY
+  elif [[ $said =~ ^[0-9]+$ ]]; then
+    written=$said
+  else
+    fold_stop
+    # Nothing reached the pane -- the clear goes out with the first row -- so
+    # the set goes back to describing what is on it.
+    if ((collapse)); then unset "folded[$change]"; else folded[$change]=1; fi
+    tmux display-message 'review: could not write the diff again'
+    return 0
+  fi
+  fold_stop
+  trace fold-written
+  # Given up on, the rows are most likely all there anyway -- the title is only
+  # how we know -- so the swap still happens rather than stranding the reader in
+  # a copy of a grid that no longer exists.
+  fold_wait "$pane" "$token" || true
+  trace fold-waited
+  # The map comes from what was written, not from a capture of the pane, when
+  # every row written is one row of the pane -- which the history and the
+  # cursor's row together say: a row that wrapped is a row more than were
+  # written. One that did, a commit message wider than the pane perhaps, leaves
+  # fold_map empty and the pane is captured as it always was.
+  fold_map=''
+  if [[ -n $written && -n $REPLY && -n ${REPLY_CY-} ]] && ((REPLY + REPLY_CY == written)); then
+    fold_map=$cache.map
+  fi
+  if ((early)); then
+    fold_settle "$pane" "${REPLY:-0}" "$title"
+  else
+    fold_place "${REPLY:-0}" "$top" "$target" "${ph:-1}"
+    fold_swap "$pane" "$REPLY" "$REPLY_DOWN" "$title"
+  fi
+  trace fold-swapped
+
+  # Every row below the fold has moved, so the map is built again on the next
+  # turn -- which moves map_gen on, and that re-anchors the comments -- and the
+  # moves the keys had queued against the old rows are dropped.
+  mapped=0
+  pending_row=-1
+  expect_row=-1
+  shown=-2
+  ask_next=1
   return 0
 }
 

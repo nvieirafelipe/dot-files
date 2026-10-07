@@ -79,6 +79,27 @@ after a rebase has moved every one of them. Where the line number alone is
 ambiguous, as it is between a removed line 10 and an added line 10, the quoted
 text decides.
 
+`=`, `<` and `>` collapse and open what the cursor is in, the way they do in
+vim-fugitive's status buffer: a hunk, the file around it, or the commit around
+that. A collapsed item keeps the rows that name it (the commit row, the file
+header, the hunk's box) and the rest becomes one row saying what was there:
+the commit's subject and diffstat, a file's hunks and lines, a hunk's lines.
+`<` on something already collapsed collapses the item around it, so three
+presses from the middle of a hunk put away the hunk, its file and its commit.
+Opening a commit again brings back whatever was collapsed inside it.
+
+tmux cannot hide rows of a pane's history, so a fold writes the pane again. The
+diff pane keeps what delta wrote into it, and a fold renders that with the
+collapsed items left out and writes it to the pane while the reader is still in
+copy-mode, which goes on showing the old grid until the new one has landed.
+The reader is put on the fold as soon as the rows down to their view have
+landed, and the rest is written behind them: on a range of 40,000 rows read
+halfway down, that is about 0.3 seconds; on an ordinary one, 30 to 50
+milliseconds. The headers stay, so `]`, `}`, `n`, the list and
+the comments all keep working, and a comment on a line that is now hidden is
+drawn against the nearest header still on screen. What is collapsed is not
+saved: reopening the review, or picking another range, opens everything.
+
 The diff is dumped into the pane's own scrollback and read with copy-mode rather
 than piped through a pager. A pager is a full-screen application, so tmux cannot
 see where inside it the reader is; scrollback exposes `#{scroll_position}` and
@@ -100,6 +121,9 @@ In the diff, which is always in copy-mode:
 | `n` / `N` | next / previous stop point — or search match, after `/`    |
 | `]` / `[` | next / previous file                                      |
 | `}` / `{` | next / previous commit                                    |
+| `=`       | collapse or open the hunk, file or commit the cursor is in |
+| `<`       | collapse it; on one already collapsed, the one around it  |
+| `>`       | open it                                                   |
 | `c`       | comment on the line, or on the visual selection           |
 | `C`       | widen the comments column to read it, and narrow it again |
 | `R`       | discard the whole queue, after asking                     |
@@ -115,7 +139,8 @@ repository and the range rather than by the window, so reopening the review
 will not bring it back.
 
 On the commit list: `j`/`k` step commits, `PgUp`/`PgDn` a page, `gg`/`G` the
-ends, and `c`/`s`/`a`/`q` mean what they do in the diff.
+ends, `=`/`<`/`>` collapse and open the selected commit, and `c`/`s`/`a`/`q`
+mean what they do in the diff.
 
 The header is a pane, so it is reached the way any pane is — `prefix + k` from
 the list. The list cannot be walked up out of into it: `k` on the first commit
@@ -139,6 +164,7 @@ anywhere else.
 | `j` / `k` | the next / previous comment, scrolling the diff to it     |
 | `C`       | narrow it back to the marks                               |
 | `c` `s` `R` `q` | what they do everywhere else                        |
+| `=` `<` `>` | collapse and open what the diff cursor is in            |
 
 `s` hands the queue to the chosen agent and brings that window forward with it —
 the comments are pasted, not run, so the agent is left with the prompt on its

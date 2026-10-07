@@ -102,6 +102,12 @@ comment_rows_rest=1
 # what the tests measure and what a caller without colour would get.
 mark_glyph='█'
 
+# The row that stands in for a collapsed commit, file or hunk starts with this,
+# drawn in the accent. A plain small triangle rather than a Nerd Font chevron:
+# it is the mark the reader already knows from every tree view for "there is
+# more in here", and it is one cell in any font.
+fold_glyph='▸'
+
 # And the comment the reader is standing on, once the pane is widened enough to
 # read the bodies. A Nerd Font speech balloon, drawn in the mark's own cell
 # rather than beside it: one cell, measured, so the row it heads starts its

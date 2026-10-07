@@ -143,6 +143,17 @@ bind -T copy-mode-vi C if-shell -F "$routes_left" "send-keys -t '{bottom-left}' 
 bind -T copy-mode-vi R if-shell -F "$routes_left" "send-keys -t '{bottom-left}' R" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 
+# = collapses or opens the commit, file or hunk under the cursor, < collapses
+# it, and > opens it: vim-fugitive's three keys for its inline diffs, meaning
+# the same thing here. Routed to the list's loop like c and s, because the set
+# of collapsed items is held there and so is the row map that says what is
+# under the cursor. tmux binds none of the three in copy-mode-vi, so there is
+# nothing to fall back to but the unzoom the other routed keys share.
+for key in '=' '<' '>'; do
+  bind -T copy-mode-vi "$key" if-shell -F "$routes_left" "send-keys -t '{bottom-left}' $key" \
+    "if-shell -F '$zoomed_review' 'resize-pane -Z'"
+done
+
 # And the y that answers it, for as long as it is being asked. The list asks by
 # blocking on a raw read of its own stdin, so the answer has to be sent there
 # from wherever the reader is standing -- the comments pane and the header both
