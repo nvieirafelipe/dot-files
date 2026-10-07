@@ -1135,9 +1135,6 @@ sidebar() {
   # fold_gen numbers the rewrites, so each waits on a token of its own.
   local -A folded=()
   local fold_gen=0
-  # The headers the last fold wrote, for the map to be built from in place of a
-  # capture. Empty when there is none to trust.
-  local fold_map=''
   # The render in the background, while a fold is being written. See fold_start.
   local fold_fd=''
   local mapped=0 width=0 height=0 diff_width=0 shown=-2
@@ -1632,16 +1629,7 @@ sidebar() {
         mapped=0
       fi
     fi
-    if ((!mapped)); then
-      trace map-rows-start
-      map_rows "$pane" "$fold_map"
-      fold_map=''
-      # How many of the list's commits the map found, which is what decides
-      # whether it is ever built again. A map that never finds them all is
-      # built on every turn, and this is where that shows.
-      trace "map-rows-done:${#row_of[@]}/${#shas[@]}"
-      map_gen=$((map_gen + 1))
-    fi
+    ((mapped)) || remap "$pane"
 
     # The map is built in a single pass once the diff is complete, and that
     # pass costs about a second on a large one. The placeholder stays up for it
@@ -3364,18 +3352,40 @@ map_rows() {
     pub+=(set-option -p -t "$pane" @review_stop_rows "${stops% }" ';')
     pub_stops=$stops
   fi
-  # One invocation for all three, minus the trailing separator.
-  ((${#pub[@]})) && tmux "${pub[@]::${#pub[@]}-1}"
+  # One invocation for all three, minus the trailing separator. Down the control
+  # client when there is one: after a fold this is on the way to the next key,
+  # and a tmux of its own for it was 8ms of that.
+  ((${#pub[@]})) && ctl_send "${pub[@]::${#pub[@]}-1}"
 
   ((${#row_of[@]} == ${#shas[@]})) && mapped=1
   return 0
 }
 
+# The map built again -- from the headers a fold wrote when given them, off the
+# pane otherwise -- and map_gen moved on, which is what re-anchors the comments.
+remap() {
+  trace map-rows-start
+  map_rows "$1" "${2-}"
+  # How many of the list's commits the map found, which is what decides whether
+  # it is ever built again. A map that never finds them all is built on every
+  # turn, and this is where that shows.
+  trace "map-rows-done:${#row_of[@]}/${#shas[@]}"
+  map_gen=$((${map_gen:-0} + 1))
+  return 0
+}
+
 # One header per line, "row:text", into the caller's maps and its commits, files
 # and stops -- map_rows' own, which it hands on to be published.
+#
+# After a fold this is on the way to the next key. Bytes rather than characters,
+# which the patterns here match the same either way, and the lines read in one
+# go rather than one read apiece: 14ms down to 9ms over the 806 headers of a
+# 40,000-row range.
 map_parse() {
-  local line n text sha
-  while IFS= read -r line; do
+  local line n text sha LC_ALL=C
+  local -a lines
+  mapfile -t lines
+  for line in "${lines[@]}"; do
     n=$((${line%%:*} - 1))
     text=${line#*:}
     if [[ $text == 'commit '* ]]; then
@@ -5222,7 +5232,7 @@ fold_swap() {
   ((down > 0)) && cmd+=(send-keys -X -N "$down" -t "$pane" cursor-down ';')
   cmd+=(select-pane -t "$pane" -T "${title//#/##}" ';'
     set-option -p -t "$pane" -F @review_hist_base '#{history_size}')
-  fold_send "${cmd[@]}"
+  ctl_send "${cmd[@]}"
 }
 
 # The reader onto the part of a rewrite that has landed, while the rest is still
@@ -5251,7 +5261,7 @@ fold_swap_early() {
     run-shell -C -t "$pane" "send-keys -X -t $pane goto-line #{e|-:#{scroll_position},$top}" ';'
     send-keys -X -t "$pane" top-line)
   ((down > 0)) && cmd+=(';' send-keys -X -N "$down" -t "$pane" cursor-down)
-  fold_send "${cmd[@]}"
+  ctl_send "${cmd[@]}"
 }
 
 # And onto the whole grid once the rest has landed, under wherever the reader
@@ -5278,7 +5288,7 @@ fold_settle() {
 # one up, and not waited for -- the turn after asks for the state down the same
 # client, and tmux answers one client's commands in the order they came -- or
 # by a tmux of its own when it has not.
-fold_send() {
+ctl_send() {
   if ((${sub_out:--1} >= 0)); then
     ctl_line "$@"
     printf '%s\n' "$REPLY" 1>&"$sub_in" 2>/dev/null && return 0
@@ -5313,7 +5323,8 @@ ctl_line() {
 # =, < or > pressed anywhere in the review. In the list they act on the selected
 # commit, which is what the list is a list of; anywhere else on the innermost
 # item under the diff cursor. Reads and changes the sidebar loop's folded, and
-# leaves the row map to be built again from the grid the rewrite left.
+# builds the row map again from the headers the render wrote -- or, when a row
+# wrapped and they cannot be trusted, leaves it to the next turn to capture.
 #
 # The cursor lands on the item's header, unless it was already on one of the
 # header's rows, in which case it stays where it was -- the rows a fold changes
@@ -5421,10 +5432,10 @@ fold_key() {
   # every row written is one row of the pane -- which the history and the
   # cursor's row together say: a row that wrapped is a row more than were
   # written. One that did, a commit message wider than the pane perhaps, leaves
-  # fold_map empty and the pane is captured as it always was.
-  fold_map=''
+  # the map to the next turn, which captures the pane as it always did.
+  local trusted=0
   if [[ -n $written && -n $REPLY && -n ${REPLY_CY-} ]] && ((REPLY + REPLY_CY == written)); then
-    fold_map=$cache.map
+    trusted=1
   fi
   if ((early)); then
     fold_settle "$pane" "${REPLY:-0}" "$title"
@@ -5434,14 +5445,18 @@ fold_key() {
   fi
   trace fold-swapped
 
-  # Every row below the fold has moved, so the map is built again on the next
-  # turn -- which moves map_gen on, and that re-anchors the comments -- and the
-  # moves the keys had queued against the old rows are dropped.
+  # Every row below the fold has moved, so the map is built again -- which moves
+  # map_gen on, and that re-anchors the comments -- and the moves the keys had
+  # queued against the old rows are dropped.
   mapped=0
   pending_row=-1
   expect_row=-1
   shown=-2
   ask_next=1
+  # Built here rather than on the next turn. The swap has only been sent, and
+  # entering copy-mode copies the whole grid: 12ms on 40,000 rows, which the
+  # next turn would spend waiting on its state and this spends parsing the map.
+  ((!trusted)) || remap "$pane" "$cache.map"
   return 0
 }
 

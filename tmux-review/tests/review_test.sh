@@ -2076,6 +2076,32 @@ assert_eq 'and the pane is not captured to get it' 0 "$(grep -c capture-pane <<<
 unset -f tmux mr_state
 unset mr_rows mr_capture mr_asked
 
+section 'map_rows: the rows published down the control client'
+# Every map rebuilt is published for the jump keys, and after a fold that is on
+# the path to the next key: a tmux of its own for it was 8ms of every fold.
+# Down the client the sidebar already holds it is a line written, not waited
+# for, and it lands behind whatever went down that client before it.
+fold_render "$fx_cache" '' 160 "$fx_re" '' '' "$fm_map" >"$fx_out" 2>/dev/null
+mp_w=$(mktemp)
+exec {mp_wfd}>"$mp_w"
+sub_out=$mp_wfd
+sub_in=$mp_wfd
+mp_asked=''
+tmux() { mp_asked+="[$*]"; return 0; }
+declare -A row_of=()
+mapped=0; pub_commits=''; pub_files=''; pub_stops=''
+map_rows %1 "$fm_map"
+exec {mp_wfd}>&-
+assert_eq 'the three lists in one line down the control client' \
+  'set-option -p -t %1 @review_commit_rows "0 31" ; set-option -p -t %1 @review_file_rows "13 28 41" ; set-option -p -t %1 @review_stop_rows "0 13 28 31 41"' \
+  "$(/bin/cat "$mp_w")"
+assert_eq 'and no tmux of its own' '' "$mp_asked"
+sub_out=-1
+sub_in=-1
+/bin/rm -f "$mp_w"
+unset -f tmux
+unset mp_w mp_wfd mp_asked
+
 section 'fold_item_at: the innermost item a row is inside'
 declare -A row_of=([21db538]=0 [612c33e]=31)
 file_rows=(13 28 41)
@@ -2315,6 +2341,7 @@ fold_wait() {
 fold_swap() { fk_calls+="[swap $*]"; }
 fold_swap_early() { fk_calls+="[early $*]"; }
 fold_settle() { fk_calls+="[settle $*]"; }
+map_rows() { fk_calls+="[map $*]"; mapped=1; }
 # tty, basis, scroll, cursor row, title, render width, height, width.
 tmux() {
   case $* in
@@ -2327,7 +2354,6 @@ tmux() {
 file_re=$fx_re
 fk_reset() {
   folded=()
-  fold_map=''
   fk_calls=''
   fk_cy=26
   fk_lines=(48)
@@ -2341,20 +2367,23 @@ fk_reset() {
 
 fk_reset
 fold_key %7 = diff 0
-assert_eq '= in a hunk collapses the hunk, and the cursor goes to its box' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+# The map is built from what the render wrote, since every row it wrote is one
+# row of the pane -- and built here, the moment the swap has gone: tmux spends
+# 12ms copying a 40,000-row grid into copy-mode, which the next turn would
+# otherwise spend waiting on its state.
+assert_eq '= in a hunk collapses the hunk, the cursor goes to its box, and the map is built' \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 assert_eq 'the hunk is what is collapsed now' '21db538/1/2' "${!folded[*]}"
-assert_eq 'and the map is rebuilt from the new grid, with no move in flight' '0 -1 -1' \
-  "$mapped $pending_row $expect_row"
-assert_eq 'from what the render wrote, since every row it wrote is one row of the pane' \
-  "$fk_cache.map" "$fold_map"
+assert_eq 'and no move is left in flight against the old rows' '-1 -1' \
+  "$pending_row $expect_row"
 
 fk_reset
 fk_cy_after=9
 fold_key %7 = diff 0
-assert_eq 'a row more than were written is a row that wrapped, and the pane is captured instead' \
-  '' "$fold_map"
+assert_eq 'a row more than were written is a row that wrapped, and the map is left to the next turn' \
+  0 "$(grep -c '\[map' <<<"$fk_calls")"
+assert_eq 'which captures the pane for it' 0 "$mapped"
 
 fk_reset
 fold_key %7 = diff 0
@@ -2371,37 +2400,36 @@ fk_reset
 fk_lines=(view 48)
 fold_key %7 = diff 0
 assert_eq 'the reader is swapped onto the view first, and settled on the whole grid after' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][early %7 0 23][wait %7 review-fold-1][settle %7 40 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][early %7 0 23][wait %7 review-fold-1][settle %7 40 host][map %7 $fk_cache.map]" \
   "$fk_calls"
-assert_eq 'with the map still from what was written' "$fk_cache.map" "$fold_map"
 
 fk_reset
 fk_lines=(view 48)
 fk_title='review-fold-1'
 fold_key %7 = diff 0
 assert_eq 'when the end has landed by the time the view is looked for, there is one swap' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1-view review-fold-1][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 
 fk_reset
 fk_cy=17
 fold_key %7 = diff 0
 assert_eq 'a cursor already on the header stays on the row it was on' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/1 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 17 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1/1 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 17 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 
 fk_reset
 folded=([21db538/1/2]=1)
 fold_key %7 '<' diff 0
 assert_eq '< on a collapsed hunk collapses its file, and the cursor goes to the file' \
-  "[start /dev/ttys9 $fk_cache 21db538/1 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 13 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 13 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 
 fk_reset
 fk_cy=0
 fold_key %7 '<' list 1
 assert_eq 'from the list it is the selected commit, wherever the diff cursor is' \
-  "[start /dev/ttys9 $fk_cache 612c33e 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 31 host]" \
+  "[start /dev/ttys9 $fk_cache 612c33e 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 31 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 
 fk_reset
@@ -2413,7 +2441,7 @@ fk_reset
 fk_rw=''
 fold_key %7 = diff 0
 assert_eq 'a render with no width of its own is fitted to the pane' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/2 162 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 162 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 unset fk_rw
 
@@ -2421,7 +2449,7 @@ fk_reset
 fk_wait_rc=1
 fold_key %7 = diff 0
 assert_eq 'a token that never comes back still ends in the swap, not in a stale copy' \
-  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 
 fk_reset
@@ -2458,7 +2486,7 @@ ctl_ask() {
 }
 fold_key %7 = diff 0
 assert_eq 'the state is asked down the control client, and no tmux is run for it' \
-  "[ask][start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host]" \
+  "[ask][start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 unset -f ctl_ask
 
@@ -2470,7 +2498,7 @@ file_rows=(); file_names=(); hunk_rows=(); folded=()
 mapped=0; pending_row=-1; expect_row=-1
 /bin/rm -f "$fk_cache" "$fx_cache" "$fx_out" "$fx_nostat" "$fx_accent" "$fm_map"
 unset -f fx_rows fx_fold
-unset fk_cache fk_calls fk_cy fold_gen file_re saved_shas fold_cache fold_map
+unset fk_cache fk_calls fk_cy fold_gen file_re saved_shas fold_cache map_gen
 unset fk_lines fk_at fk_title fk_cy_after fk_wait_rc
 unset fx fx_plain fx_row fx_mod fx_add fx_re fx_rule fx_cache fx_out fx_nostat fx_accent fm_map
 unset pub_commits pub_files pub_stops
@@ -4256,7 +4284,7 @@ sidebar_run() {
     load_pick_items() { pick_kind=(range); pick_label=(x); pick_extra=(''); pick_payload=(''); }
     load_pick_sessions() { pick_kind=(session); pick_label=(y); pick_extra=(''); pick_payload=("%5${US}y"); }
     pick_keys() { printf 'PICKKEYS %s\n' "$*" >>"$sb_log"; picking=0; }
-    fold_key() { printf 'FOLD %s\n' "$*" >>"$sb_log"; fold_map=/fold/map; mapped=0; }
+    fold_key() { printf 'FOLD %s\n' "$*" >>"$sb_log"; mapped=0; }
     sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) <<<"$keys" >"$sb_out" 2>&1
   sb_seen=$(cat "$sb_log")
@@ -4301,7 +4329,9 @@ assert_match '= is a fold, with the focus and the selected commit' 'FOLD %7 = di
 # The herestring ends the keys with a newline, which arrives as enter and is
 # steered like any other key; what matters is that = itself is not.
 assert_eq 'and is not steered' 0 "$(grep -c 'STEER %7 =' <<<"$sb_seen")"
-assert_match 'and the map after it is read from what the fold wrote' 'MAP %7 /fold/map' "$sb_seen"
+# A fold builds the map itself when it can trust what it wrote. One that
+# cannot leaves it to the next turn, which captures the pane for it.
+assert_match 'and a map the fold left unbuilt is captured on the turn after' $'MAP %7 \n' "$sb_seen"
 sidebar_run '<' "$sb_normal" "$sb_normal" "$sb_normal"
 assert_match '< is one too' 'FOLD %7 < diff 0' "$sb_seen"
 sidebar_run '>' "$sb_normal" "$sb_normal" "$sb_normal"
