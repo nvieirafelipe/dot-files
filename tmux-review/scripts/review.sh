@@ -565,6 +565,23 @@ review_layout() {
   REPLY="$REPLY,$body"
 }
 
+# The same window as list-panes reports it: one pane a line, as id, left, top,
+# width and height, in the order the window holds them -- header, list, diff,
+# comments. relayout recognises a window by this rather than by
+# #{window_layout}, which tmux 3.8 turned into JSON for every client but a
+# control-mode one, while select-layout still reads the grammar above.
+review_panes() {
+  local w=$1 h=$2 list_w=$3 diff_w=$4 gutter_w=$5
+  local hdr=$6 lst=$7 dif=$8 gut=$9
+  local list_h=$((h - header_offset))
+  ((list_h < 1)) && list_h=1
+  REPLY="$hdr 0 0 $list_w $header_rows"
+  REPLY+=$'\n'"$lst 0 $header_offset $list_w $list_h"
+  REPLY+=$'\n'"$dif $((list_w + 1)) 0 $diff_w $h"
+  ((gutter_w > 0)) && REPLY+=$'\n'"$gut $((list_w + diff_w + 2)) 0 $gutter_w $h"
+  return 0
+}
+
 # The widest the commit list may be before the diff is narrower than the width
 # delta rendered it at, which is the width at which its rows start folding.
 #
@@ -648,11 +665,11 @@ relayout() {
   local cur_l=$7 cur_d=$8 cur_g=$9 new_l=${10} new_d=${11} new_g=${12}
   [[ -n $hdr && -n $lst ]] || return 1
   ((ww > 0 && wh > 0)) || return 1
-  review_layout "$ww" "$wh" "$cur_l" "$cur_d" "$cur_g" "$hdr" "$lst" "$dpane" "$gut"
-  # Quoted, because the right of == in [[ ]] is a pattern unless it is: a
-  # layout is mostly brackets and braces, and unquoted it is a glob that matches
-  # nothing it should.
-  [[ $REPLY == "$(tmux display-message -p -t "$dpane" '#{window_layout}' 2>/dev/null)" ]] ||
+  review_panes "$ww" "$wh" "$cur_l" "$cur_d" "$cur_g" "$hdr" "$lst" "$dpane" "$gut"
+  # Quoted, because the right of == in [[ ]] is a pattern unless it is, and this
+  # is a comparison.
+  [[ $REPLY == "$(tmux list-panes -t "$dpane" \
+    -F '#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}' 2>/dev/null)" ]] ||
     return 1
   review_layout "$ww" "$wh" "$new_l" "$new_d" "$new_g" "$hdr" "$lst" "$dpane" "$gut"
   tmux select-layout -t "$dpane" "$REPLY" 2>/dev/null || return 1

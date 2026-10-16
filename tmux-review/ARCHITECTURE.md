@@ -64,7 +64,9 @@ while the diff loads, so the placeholder is drawn at the width the list will
 keep. Widths come from `columns_for` and `reserve_for`, which hold back a
 column for the comments pane's marks before delta renders, so opening that
 pane later moves nothing. Later relayouts go through `review_layout` and
-`relayout`, which write tmux's own layout string.
+`relayout`, which write tmux's own layout string. `relayout` applies one only to
+a window whose panes `list-panes` reports where `review_panes` expects them:
+tmux 3.8 reports `#{window_layout}` as JSON, so the strings cannot be compared.
 
 How the parts exchange data:
 

@@ -174,6 +174,21 @@ review_layout 285 78 41 202 40 %1 %2 %0 %3
 assert_eq 'and reading them is paid for by the list, not the diff' \
   '7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}' "$REPLY"
 
+section 'review_panes: the same window the way list-panes reports it'
+# Read off a real tmux server too: the review's shape built with the splits open
+# uses, each layout above applied with select-layout, and list-panes asked for
+# the format relayout reads. The order is the window's own -- header, list,
+# diff, comments -- which is also the order select-layout hands out cells in.
+review_panes 285 78 80 204 0 %1 %2 %0 %3
+assert_eq 'a window with no comments pane' \
+  $'%1 0 0 80 4\n%2 0 5 80 73\n%0 81 0 204 78' "$REPLY"
+review_panes 285 78 80 202 1 %1 %2 %0 %3
+assert_eq 'the marks take two columns off the diff' \
+  $'%1 0 0 80 4\n%2 0 5 80 73\n%0 81 0 202 78\n%3 284 0 1 78' "$REPLY"
+review_panes 285 78 41 202 40 %1 %2 %0 %3
+assert_eq 'and reading them is paid for by the list, not the diff' \
+  $'%1 0 0 41 4\n%2 0 5 41 73\n%0 42 0 202 78\n%3 245 0 40 78' "$REPLY"
+
 section 'sidebar_max_for: how wide the list may be drawn before the diff folds'
 # With no comments pane the diff pane holds two columns it is not drawing on --
 # the pair reserved for the marks -- so the list may take those two and no more.
@@ -882,13 +897,13 @@ section 'gutter_sync: split, resized, or taken away'
 # which is a subshell, and anything it appends to a variable is gone with it.
 tmux_log=$(mktemp)
 calls() { cat "$tmux_log"; }
-# layout_now is what the stub server believes its window looks like, which
+# panes_now is what the stub server believes its window looks like, which
 # gutter_sync checks before it restates it.
-layout_now=''
+panes_now=''
 tmux() {
   printf '[%s]' "$*" >>"$tmux_log"
   [[ $1 == split-window ]] && printf '%%9 /dev/ttys9'
-  [[ $1 == display-message && $* == *window_layout* ]] && printf '%s' "$layout_now"
+  [[ $1 == list-panes ]] && printf '%s' "$panes_now"
   return 0
 }
 self=/plugin/review.sh
@@ -929,7 +944,7 @@ assert_eq 'and claims no resize' 0 "$gutter_resized"
 gutter_pane=%3
 gutter_w=1
 gutter_resized=0
-layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+panes_now=$'%1 0 0 80 4\n%2 0 5 80 73\n%0 81 0 202 78\n%3 284 0 1 78'
 gutter_list_back=''
 gutter_focus_back=''
 gutter_sync %0 40 285 78 %1 %2 80 %0
@@ -967,7 +982,7 @@ assert_eq 'and no resize is claimed, because the diff did not move' 0 \
 gutter_w=1
 gutter_resized=0
 gutter_list_back=''
-layout_now='7ce9,285x78,0,0{60x78,0,0[60x4,0,0,1,60x73,0,5,2],222x78,61,0,0,1x78,284,0,3}'
+panes_now=$'%1 0 0 60 4\n%2 0 5 60 73\n%0 61 0 222 78\n%3 284 0 1 78'
 gutter_sync %0 40 285 78 %1 %2 60 %2
 assert_eq 'a dragged border is restated from where it actually is' 1 \
   "$(calls | grep -cF 'select-layout -t %0 7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}')"
@@ -980,7 +995,7 @@ assert_eq 'and so is the list it was opened from' '%2' "$gutter_focus_back"
 : >"$tmux_log"
 gutter_w=40
 gutter_resized=0
-layout_now='7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}'
+panes_now=$'%1 0 0 41 4\n%2 0 5 41 73\n%0 42 0 202 78\n%3 245 0 40 78'
 gutter_sync %0 1 285 78 %1 %2 41 %3
 assert_eq 'collapsing puts the border back where it was dragged' 1 \
   "$(calls | grep -cF 'select-layout -t %0 7ce9,285x78,0,0{60x78,0,0[60x4,0,0,1,60x73,0,5,2],222x78,61,0,0,1x78,284,0,3}')"
@@ -1000,7 +1015,7 @@ assert_eq 'and forgets that too' '' "$gutter_focus_back"
 gutter_w=40
 gutter_list_back=''
 gutter_focus_back=''
-layout_now='7dc3,285x78,0,0{41x78,0,0[41x4,0,0,1,41x73,0,5,2],202x78,42,0,0,40x78,245,0,3}'
+panes_now=$'%1 0 0 41 4\n%2 0 5 41 73\n%0 42 0 202 78\n%3 245 0 40 78'
 gutter_sync %0 1 285 78 %1 %2 41 %3
 assert_eq 'with nowhere remembered, the reader goes to the diff' 1 \
   "$(calls | grep -cF 'select-pane -t %0')"
@@ -1009,7 +1024,7 @@ assert_eq 'with nowhere remembered, the reader goes to the diff' 1 \
 : >"$tmux_log"
 gutter_w=1
 gutter_focus_back=''
-layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+panes_now=$'%1 0 0 80 4\n%2 0 5 80 73\n%0 81 0 202 78\n%3 284 0 1 78'
 gutter_sync %0 40 285 78 %1 %2 80 %3
 assert_eq 'opening it from the marks remembers the diff, not the marks' '%0' \
   "$gutter_focus_back"
@@ -1021,7 +1036,7 @@ assert_eq 'opening it from the marks remembers the diff, not the marks' '%0' \
 : >"$tmux_log"
 gutter_w=1
 gutter_resized=0
-layout_now='beef,285x78,0,0{142x78,0,0,1,142x78,143,0,0}'
+panes_now=$'%1 0 0 142 78\n%0 143 0 142 78'
 gutter_sync %0 40 285 78 %1 %2 80
 assert_eq 'a window of another shape is not rearranged' 0 \
   "$(calls | grep -c 'select-layout')"
@@ -1030,11 +1045,20 @@ assert_eq 'and the reader is left standing where they were' 0 \
   "$(calls | grep -c 'select-pane')"
 assert_eq 'and the pane keeps the width it had' 1 "$gutter_w"
 assert_eq 'with no resize claimed, so the row map stands' 0 "$gutter_resized"
+# Zoomed, the diff is reported over the whole window while the rest keep the
+# places they will go back to. select-layout would unzoom it to apply anything,
+# so that is a shape of the reader's making too.
+: >"$tmux_log"
+panes_now=$'%1 0 0 80 4\n%2 0 5 80 73\n%0 0 0 285 78\n%3 284 0 1 78'
+gutter_sync %0 40 285 78 %1 %2 80
+assert_eq 'nor is a window with a pane zoomed over it' 0 \
+  "$(calls | grep -c 'select-layout')"
+assert_eq 'which keeps the pane at the width it had' 1 "$gutter_w"
 
 # Without the window and the panes to write a layout from there is nothing to
 # restate, and resize-pane would take the difference out of the diff.
 : >"$tmux_log"
-layout_now='400a,285x78,0,0{80x78,0,0[80x4,0,0,1,80x73,0,5,2],202x78,81,0,0,1x78,284,0,3}'
+panes_now=$'%1 0 0 80 4\n%2 0 5 80 73\n%0 81 0 202 78\n%3 284 0 1 78'
 gutter_sync %0 40
 assert_eq 'and with nothing to write a layout from, nothing happens' 0 \
   "$(calls | grep -c 'select-layout')"
@@ -1049,7 +1073,7 @@ assert_match 'by killing the pane' 'kill-pane -t %9' "$(calls)"
 assert_eq 'and forgets how wide it was' 0 "$gutter_w"
 /bin/rm -f "$tmux_log"
 unset -f tmux calls
-unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter layout_now
+unset tmux_log gutter_pane gutter_tty gutter_w gutter_resized shown_gutter panes_now
 unset gutter_list_back gutter_focus_back
 unset shown_gutter_at gutter_sig needs_gutter_clear self
 
@@ -5692,6 +5716,9 @@ else
     skip 'end to end: a comment is written, stepped onto, and deleted' \
       'no client could be attached over a pty'
   else
+    # Named now, while it is the only client: the review attaches one of its
+    # own in control mode once it opens.
+    e2e_client=$(tmux -L "$e2e_sock" list-clients -F '#{client_name}' | head -1)
     e2e_pane=$(tmux -L "$e2e_sock" display-message -p '#{pane_id}')
     tmux -L "$e2e_sock" run-shell -b -t "$e2e_pane" \
       "$plugin/scripts/review.sh open $e2e_pane HEAD~1..HEAD"
@@ -5724,9 +5751,18 @@ else
     e2e_count() { comment_count "$e2e_store"; }
     # Keys go straight to the list: the bindings that route them from the diff
     # live in .tmux.conf, and this server was started with -f /dev/null.
+    #
+    # Typed by the attached client rather than sent to the pane, because tmux
+    # puts the editor's popup on the client most recently active and only typing
+    # makes a client active. Sent to the pane, the key left the review's control
+    # client the newest; 3.6 ran the editor on it unseen, and 3.8 draws no popup
+    # on a control client at all. -K types into the active pane, so the reader is
+    # put in the list first.
+    e2e_type() { tmux -L "$e2e_sock" send-keys -K -c "$e2e_client" "$@"; }
     tmux -L "$e2e_sock" copy-mode -t "$e2e_diff"
     sleep 0.8
-    tmux -L "$e2e_sock" send-keys -t "$e2e_list" c
+    tmux -L "$e2e_sock" select-pane -t "$e2e_list"
+    e2e_type c
     for _ in $(seq 1 60); do (($(e2e_count) >= 1)) && break; sleep 0.25; done
     assert_eq 'c writes one through the editor and queues it' 1 "$(e2e_count)"
 
@@ -5735,7 +5771,7 @@ else
     # same when there is only ever one in it.
     tmux -L "$e2e_sock" send-keys -X -t "$e2e_diff" -N 15 cursor-up 2>/dev/null || true
     sleep 0.8
-    tmux -L "$e2e_sock" send-keys -t "$e2e_list" c
+    e2e_type c
     for _ in $(seq 1 60); do (($(e2e_count) >= 2)) && break; sleep 0.25; done
     assert_eq 'and a second one from another row' 2 "$(e2e_count)"
 
@@ -5801,10 +5837,10 @@ else
   tmux -L "$e2e_sock" kill-server 2>/dev/null || true
 fi
 /bin/rm -f "$e2e_ed" "$e2e_bodyfile" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$e2e_sock"
-unset -f e2e_attach e2e_waitc
+unset -f e2e_attach e2e_waitc e2e_type
 unset e2e_sock e2e_ed e2e_bodyfile e2e_body e2e_pane e2e_win e2e_diff e2e_list
 unset e2e_store e2e_gut
-unset e2e_clients E2E_PTY
+unset e2e_clients e2e_client E2E_PTY
 
 section 'end to end: = collapses the commit under the cursor, and = brings it back'
 # Against a real review, with nothing stubbed. The sections above check the
