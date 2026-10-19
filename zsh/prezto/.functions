@@ -42,17 +42,42 @@ jp() {
 # nothing. The themes themselves are installed once by
 # claude/bin/session-theme.sh -- keep this list in step with its palette.
 #
-# Pure shell on purpose: an array index and one expansion, no subprocess, since
-# this sits in front of every launch. Only when interactive and when no
-# --settings of your own is present, so scripts and one-off overrides are left
-# alone.
+# Settings that must stay out of this public repo, such as an employer's auto
+# mode rules and plugins, live in an untracked ~/.claude/settings.work.json.
+# Claude Code reads autoMode only from the user file, managed settings or
+# --settings, so that file rides in on --settings too. A second --settings
+# replaces the first rather than merging with it, so both go in one object:
+# the file's outer braces are dropped and its keys follow the theme's.
+#
+# Pure shell on purpose: an array index, one file read and a few expansions,
+# no external command, since this sits in front of every launch. The theme only
+# when interactive; the work settings always, so scripts keep the same auto
+# mode rules. A --settings of your own replaces both, so one-off overrides are
+# left alone.
 claude() {
-  if [[ -o interactive ]] && [[ " $* " != *' --settings '* ]]; then
+  if [[ " $* " == *' --settings '* ]]; then
+    command claude "$@"
+    return
+  fi
+
+  local -a fields=()
+  if [[ -o interactive ]]; then
     local -a pool=(
       tn-red tn-orange tn-yellow tn-green tn-teal
       tn-cyan tn-blue tn-blue1 tn-purple tn-magenta
     )
-    command claude --settings "{\"theme\":\"custom:${pool[RANDOM % $#pool + 1]}\"}" "$@"
+    fields+=("\"theme\":\"custom:${pool[RANDOM % $#pool + 1]}\"")
+  fi
+
+  local work=~/.claude/settings.work.json body
+  if [[ -f $work ]]; then
+    body=${${"$(<$work)"}#*\{}
+    body=${body%\}*}
+    [[ -n ${body//[[:space:]]/} ]] && fields+=("$body")
+  fi
+
+  if (( $#fields )); then
+    command claude --settings "{${(j:,:)fields}}" "$@"
   else
     command claude "$@"
   fi
