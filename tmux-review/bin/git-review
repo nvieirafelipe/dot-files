@@ -62,30 +62,33 @@ gr_base_branch() {
 # everything the branch beneath it carries. 872 commits under 5, in the
 # repository this was written for.
 #
-# So look for the ancestor of HEAD that sits closest behind it. Only published
-# refs count -- a remote-tracking ref, or a local branch that has one. Published
-# is what separates a base from a scratch ref left pointing a couple of commits
-# back on the same line: a base is something the work was branched from and will
-# go back into, and that is a branch someone else can fetch.
+# So look for the ancestor of the tip that sits closest behind it. Only
+# published refs count -- a remote-tracking ref, or a local branch that has
+# one. Published is what separates a base from a scratch ref left pointing a
+# couple of commits back on the same line: a base is something the work was
+# branched from and will go back into, and that is a branch someone else can
+# fetch.
 #
-# $1 is the trunk's branch name, which is left out of the search: trunk is what
-# the conventional resolution already answers, and a local `main` sitting ahead
-# of `origin/main` is an alias for it rather than a base of its own. Without
-# that, pushing nothing to trunk for a day would quietly change what a review of
-# a branch cut from trunk shows.
+# $2 is the tip, HEAD or a local branch, and $3 the branch it is, if any.
+#
+# $1 is the trunk, as gr_base_branch names it. A ref on the trunk's own commit
+# is exactly as far behind the tip as the trunk, so it can never be the nearer
+# of the two, and leaving it out leaves nothing to count on a branch cut from
+# trunk. A local trunk that has run ahead of its remote is on a commit of its
+# own, and a branch cut from it is reviewed against it: the commits it has not
+# pushed are the trunk's, not the branch's.
 #
 # Answers in REPLY, with the distance in REPLY_DIST. REPLY is empty when no such
 # ancestor exists, which is the ordinary case on a branch cut from trunk.
 gr_nearest_base() {
   REPLY=''
   REPLY_DIST=0
-  local trunk=${1-} head branch refs
-  head=$(git rev-parse --verify --quiet HEAD) || return 0
-  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
+  local trunk=$1 tip=$2 branch=$3 trunk_obj='' head refs
+  head=$(git rev-parse --verify --quiet "$tip") || return 0
 
-  # One walk for every ref that is an ancestor of HEAD. --merged is what keeps
-  # this from costing a merge-base call per branch in the repository.
-  refs=$(git for-each-ref --merged HEAD \
+  # One walk for every ref that is an ancestor of the tip. --merged is what
+  # keeps this from costing a merge-base call per branch in the repository.
+  refs=$(git for-each-ref --merged "$head" \
     --format='%(objectname) %(refname) %(refname:short)' refs/heads refs/remotes 2>/dev/null) ||
     return 0
   [[ -n $refs ]] || return 0
@@ -107,6 +110,7 @@ gr_nearest_base() {
       *) continue ;;
     esac
     [[ $obj == "$head" ]] && at_head[$name]=1
+    [[ $short == "$trunk" ]] && trunk_obj=$obj
   done <<<"$refs"
 
   # refs/remotes/<remote>/HEAD is another name for the trunk rather than a
@@ -124,7 +128,7 @@ gr_nearest_base() {
     # pushed rather than what the branch is.
     [[ -n $branch && $name == "$branch" ]] && continue
     [[ -n ${at_head[$name]-} ]] && continue
-    [[ -n $trunk && $name == "$trunk" ]] && continue
+    [[ $obj == "$trunk_obj" ]] && continue
     ((rank == 0)) && [[ -z ${published[$name]-} ]] && continue
     # Ties on the same commit go to the local name: it is the one the reader
     # rebases, and the shorter of the two to read in the header pane.
@@ -172,9 +176,9 @@ gr_nearest_base() {
   done
 }
 
-# How far HEAD has come since a ref, or nothing when the ref will not resolve.
+# How far a tip has come since a ref, or nothing when the ref will not resolve.
 gr_distance() {
-  git rev-list --count "$1..HEAD" 2>/dev/null
+  git rev-list --count "$1..$2" 2>/dev/null
 }
 
 # Answers in REPLY rather than on stdout. Read through $(...) it cost a fork,
@@ -213,18 +217,27 @@ gr_resolve_range() {
     return
   fi
 
-  local base range branch configured base_dist unpushed=0
+  local branch
+  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
+  gr_default_range HEAD "$branch"
+}
+
+# The range the work on a tip comes to: from the nearest base behind it, or the
+# whole of it when there is none. The tip is HEAD for the review being opened,
+# or a local branch's name for one the picker offers; branch is the branch the
+# tip is, when it is one, so that its own remote twin and reviewBase are known.
+gr_default_range() {
+  local tip=$1 branch=$2 base range configured base_dist unpushed=0
 
   # Set once per branch and the search is skipped: `git config
   # branch.<name>.reviewBase <ref>` is the way to say a base the shape of the
   # history cannot be read off.
-  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
   configured=''
   if [[ -n $branch ]]; then
     configured=$(git config --get "branch.$branch.reviewBase" 2>/dev/null) || configured=''
   fi
   if [[ -n $configured ]]; then
-    REPLY="$configured..HEAD"
+    REPLY="$configured..$tip"
     return
   fi
 
@@ -233,24 +246,24 @@ gr_resolve_range() {
     # the bare name only where origin has no trunk at all -- so nothing on it
     # has been pushed there.
     [[ $base == origin/* ]] || unpushed=1
-    gr_nearest_base "${base#origin/}"
+    gr_nearest_base "$base" "$tip" "$branch"
     # The trunk keeps the range whenever nothing published sits closer, so a
     # branch cut from trunk resolves exactly as it always did -- and the range
     # line goes on naming origin/main rather than a local alias for it.
-    base_dist=$(gr_distance "$base")
+    base_dist=$(gr_distance "$base" "$tip")
     if [[ -n $REPLY && -n $base_dist ]] && ((REPLY_DIST < base_dist)); then
       base=$REPLY
       unpushed=0
     fi
   else
-    gr_nearest_base
+    gr_nearest_base '' "$tip" "$branch"
     if [[ -n $REPLY ]]; then
       base=$REPLY
-    elif git rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    elif git rev-parse --verify --quiet "$tip" >/dev/null 2>&1; then
       # No trunk under any name and no published branch behind HEAD: the work
       # was never branched from anything, so there is no base to leave out of
       # it and every commit is the review.
-      REPLY=HEAD
+      REPLY=$tip
       return 0
     else
       echo 'git review: no commits to review yet' >&2
@@ -258,19 +271,28 @@ gr_resolve_range() {
     fi
   fi
 
-  range="$base..HEAD"
-  if [[ -z $(git rev-list -1 "$range") ]]; then
+  range="$base..$tip"
+  if [[ -z $(git rev-list -1 "$range" 2>/dev/null) ]]; then
     if ((unpushed)); then
       # Level with a trunk nobody has pushed: every commit on it is still
       # outstanding, and that is the review.
-      range=HEAD
+      range=$tip
     else
       # Up to date with a pushed base: nothing is outstanding, so review the
       # tip commit.
-      range=$(git rev-parse --verify --quiet HEAD~1 >/dev/null && echo 'HEAD~1..HEAD' || echo HEAD)
+      range=$(git rev-parse --verify --quiet "$tip~1" >/dev/null && echo "$tip~1..$tip" || echo "$tip")
     fi
   fi
   REPLY=$range
+}
+
+# A local branch's own work, for the picker to offer beside the review on
+# screen. Fails when it has no a..b spelling: the whole of a branch with
+# nothing beneath it would be its bare name, which a review reads as "since"
+# that name.
+gr_branch_range() {
+  gr_default_range "$1" "$1" 2>/dev/null
+  [[ $REPLY == *..* ]]
 }
 
 gr_header() {

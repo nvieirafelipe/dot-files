@@ -210,8 +210,13 @@ Published means a remote-tracking ref, or a local branch that has one. It is
 what separates a base from a scratch branch left pointing a couple of commits
 back on the same line: a base is something the work was branched from and goes
 back into, and that is a branch someone else can fetch. A branch's own remote
-twin is never its base, and neither is a local `main` that has run ahead of
-`origin/main` — that is an alias for trunk, not a base of its own.
+twin is never its base.
+
+A local `main` that has run ahead of `origin/main` is a base. A branch cut from
+it is reviewed as `main..HEAD`, because the commits `main` has not pushed are
+`main`'s and not the branch's. On `main` itself those commits are the review,
+as `origin/main..HEAD`. Level with its remote, `main` changes nothing and the
+range line keeps naming `origin/main`.
 
 A repository that was never pushed anywhere has no base to find: no remote, no
 trunk under any of the usual names, or only the branch being read. There the

@@ -4457,9 +4457,10 @@ assert_eq 'level with a pushed base falls back to the tip' 'HEAD~1..HEAD' \
 assert_eq 'origin/HEAD is the base' 'origin/main..HEAD' \
   "$(cd "$tmp" && "$review" --range)"
 
-# On a branch, the same resolution covers the commits the base lacks.
+# On a branch cut from main, which is two commits ahead of origin/main, those two
+# are main's and not the branch's: the branch is reviewed against main.
 (cd "$tmp" && git checkout -q -b feature && echo x > f && git add f && git commit -qm f) >/dev/null 2>&1
-assert_eq 'a branch resolves against the same base' 'origin/main..HEAD' \
+assert_eq 'a branch resolves against the local trunk it was cut from' 'main..HEAD' \
   "$(cd "$tmp" && "$review" --range)"
 
 # The old alias reviewed `--not HEAD..master`, which is empty on the base
@@ -4545,11 +4546,51 @@ assert_eq 'local trunk ahead of its remote is still trunk' 'origin/main..HEAD' \
 assert_eq 'and it does not displace a nearer base' 'long-lived..HEAD' \
   "$(cd "$stack" && "$review" --range)"
 
+# A branch cut from a local trunk that had run ahead of its remote. The unpushed
+# commits under it are the trunk's, not the branch's, so the local trunk is the
+# base: reviewing against the remote would show them as the branch's own work.
+ahead=$(mktemp -d)
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead"' EXIT
+(
+  cd "$ahead" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  # The user's own config signs every commit; this identity has no key.
+  git config commit.gpgsign false
+  echo trunk > trunk && git add trunk && git commit -qm trunk
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  for n in 1 2 3 4; do echo "$n" > "main$n"; git add "main$n"; git commit -qm "main $n"; done
+  git checkout -q -b feature
+  for n in 1 2; do echo "$n" > "feat$n"; git add "feat$n"; git commit -qm "feat $n"; done
+) >/dev/null 2>&1
+
+assert_eq 'a local trunk ahead of its remote is the base of a branch cut from it' \
+  'main..HEAD' "$(cd "$ahead" && "$review" --range)"
+
+# The unpushed commits do not vanish: on the trunk itself they are the review.
+assert_eq 'on the local trunk, what it has not pushed is the review' 'origin/main..HEAD' \
+  "$(cd "$ahead" && git checkout -q main && "$review" --range)"
+(cd "$ahead" && git checkout -q feature) >/dev/null 2>&1
+
+# Pushed, the local trunk is level with its remote and the remote keeps the
+# range line, the way a branch cut from trunk has always read.
+(cd "$ahead" && git update-ref refs/remotes/origin/main main) >/dev/null 2>&1
+assert_eq 'a local trunk level with its remote leaves the remote the base' \
+  'origin/main..HEAD' "$(cd "$ahead" && "$review" --range)"
+
+# Behind, the remote is the nearer of the two.
+(cd "$ahead" && git update-ref refs/remotes/origin/main feature~1) >/dev/null 2>&1
+assert_eq 'a local trunk behind its remote does not displace it' 'origin/main..HEAD' \
+  "$(cd "$ahead" && "$review" --range)"
+(cd "$ahead" && git update-ref refs/remotes/origin/main main~4) >/dev/null 2>&1
+
 # Where HEAD is a merge, two published lines are both ancestors and the nearer
 # of the two is the base. Which one a history walk reaches first is git's
 # business and not the question being asked, so the counting decides it.
 merged=$(mktemp -d)
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged"' EXIT
 (
   cd "$merged" || exit 1
   git init -q -b main .
@@ -4589,7 +4630,7 @@ assert_eq 'a detached HEAD resolves the same way' 'long-lived..HEAD' \
 # Two published lines equally far behind a merge. Which one git hands back first
 # is its business, so the name decides and the answer is the same twice running.
 tie=$(mktemp -d)
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie"' EXIT
 (
   cd "$tie" || exit 1
   git init -q -b main .
@@ -4618,7 +4659,7 @@ assert_eq 'and it answers the same way twice' 'aaa..HEAD' \
 # No trunk under any of the names git-review knows, but a published branch the
 # work was cut from. The search is the only thing left to answer with.
 notrunk=$(mktemp -d)
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk"' EXIT
 (
   cd "$notrunk" || exit 1
   git init -q -b dev .
@@ -4642,7 +4683,7 @@ assert_eq 'a published base stands in for a trunk there is none of' 'dev..HEAD' 
 # so it is not a base, and there is nothing else. The work was never branched
 # from anything, so all of it is the review.
 unbased=$(mktemp -d)
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk" "$unbased"' EXIT
 (
   cd "$unbased" || exit 1
   git init -q -b docs .
@@ -4667,10 +4708,55 @@ assert_eq 'detached, it is still every commit' 'HEAD' \
 
 # And a repository with no commits has nothing to review at all.
 unborn=$(mktemp -d)
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"' EXIT
 git -C "$unborn" init -q -b docs . >/dev/null 2>&1
 (cd "$unborn" && "$review" --range) >/dev/null 2>&1
 assert_eq 'an unborn HEAD is refused' 1 "$?"
+
+section 'git-review: another branch, against its own base'
+# Read from wherever the reader is, which is never the branch itself: the
+# picker offers every local branch but the one checked out.
+br() { (cd "$1" && gr_branch_range "$2" && printf '%s' "$REPLY"); }
+(cd "$ahead" && git checkout -q main) >/dev/null 2>&1
+
+assert_eq 'a branch cut from the local trunk is reviewed against it' 'main..feature' \
+  "$(br "$ahead" feature)"
+
+# The trunk is a branch like any other, and what it has not pushed is its own.
+(cd "$ahead" && git checkout -q feature) >/dev/null 2>&1
+assert_eq 'the local trunk is reviewed against its remote' 'origin/main..main' \
+  "$(br "$ahead" main)"
+
+(cd "$stack" && git checkout -q main) >/dev/null 2>&1
+assert_eq 'a stacked branch is reviewed against the branch beneath it' \
+  'long-lived..feature' "$(br "$stack" feature)"
+
+# The branch's own setting, not that of the branch the reader is on.
+(cd "$stack" && git config branch.feature.reviewBase origin/main) >/dev/null 2>&1
+assert_eq "that branch's reviewBase is the one read" 'origin/main..feature' \
+  "$(br "$stack" feature)"
+(cd "$stack" && git config --unset branch.feature.reviewBase &&
+  git checkout -q feature) >/dev/null 2>&1
+
+# Level with a pushed base, the branch has nothing outstanding: its tip commit
+# is the review, as it is for HEAD.
+(cd "$tmp" && git branch landed origin/main) >/dev/null 2>&1
+assert_eq 'a branch level with its base is its tip commit' 'landed~1..landed' \
+  "$(br "$tmp" landed)"
+(cd "$tmp" && git branch -q -D landed) >/dev/null 2>&1
+
+# With no base at all, a branch's review is the whole of it, and that has no
+# a..b spelling: a bare name means "since" to whatever opens a review. So it is
+# refused rather than handed over to be read as something else.
+br "$unbased" docs >/dev/null
+assert_eq 'a branch with nothing beneath it is refused' 1 "$?"
+
+# Deleted between the picker opening and the choice. The sidebar's stderr is
+# its pane, so git's complaint about the name is kept off it.
+assert_eq 'a branch that is gone is refused, and quietly' '1 ' \
+  "$(br "$ahead" gone 2>&1; printf '%s ' "$?")"
+assert_eq 'and as quietly where there is no trunk to measure it from' '1 ' \
+  "$(br "$unbased" gone 2>&1; printf '%s ' "$?")"
 
 section 'git-review: the header'
 with=$(cd "$tmp" && "$review" 1 2>&1 | head -1)
@@ -4734,7 +4820,7 @@ section 'opening a review window: all three panes survive it'
 socket=review-test-$$
 # kill-server does not always take the socket file with it, and a suite that
 # has been run a few hundred times leaves a few hundred of them behind.
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 # -f /dev/null: a server that reads the real config spends half a minute
 # letting TPM load every plugin, and none of them matter here.
 if ! want_live; then
@@ -4991,7 +5077,7 @@ assert_ok "$([[ -n ${in_review:-} && -n ${routes_left:-} && -n ${zoomed_review:-
   "${in_review:-} / ${routes_left:-} / ${zoomed_review:-}"
 
 gsock=review-guard-$$
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the routing guard' 'live sections are out of scope'
@@ -5071,7 +5157,7 @@ assert_ok "$([[ -n ${hist_base:-} ]] && echo 0 || echo 1)" \
 was='#{?@review_hist_base,#{@review_hist_base},#{history_size}}'
 
 hsock=review-basis-$$
-trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
+trap 'rm -rf "$tmp" "$tmp_counts" "$stack" "$ahead" "$merged" "$tie" "$notrunk" "$unbased" "$unborn"; clean_sockets' EXIT
 
 if ! want_live; then
   skip 'the header pane answers its own keys' 'live sections are out of scope'
