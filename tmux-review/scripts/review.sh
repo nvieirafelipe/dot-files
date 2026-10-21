@@ -3460,7 +3460,7 @@ claim_width() {
 # without the renderer having to know where the groups are.
 #
 # Built on demand rather than at startup: branches and stashes change under a
-# long-lived review, and this costs four git calls only when it is asked for.
+# long-lived review, and this costs five git calls only when it is asked for.
 #
 # Nothing is offered that would open onto nothing. A branch HEAD is level with
 # or behind has no commits since it, a clean working tree has nothing
@@ -3514,6 +3514,23 @@ load_pick_items() {
     pick_add sep '' '' ''
     for name in "${branches[@]}"; do
       pick_add range "$name" 'since' "$name"
+    done
+  fi
+
+  # Every local branch but the one checked out, each to be reviewed as a branch
+  # of its own: against its own base, not since it. Which is how a branch that
+  # contains HEAD is reached at all -- the one stacked on top of this, or the
+  # one cut from this trunk. The base is found when the branch is chosen, not
+  # here, because finding one is several git calls a branch.
+  local -a locals=()
+  while ((${#locals[@]} < 12)) && IFS= read -r name; do
+    [[ $name == '*'* ]] || locals+=("${name#?}")
+  done < <(git for-each-ref --sort=-committerdate \
+    --format='%(HEAD)%(refname:short)' refs/heads 2>/dev/null)
+  if ((${#locals[@]})); then
+    pick_add sep '' '' ''
+    for name in "${locals[@]}"; do
+      pick_add branch "$name" 'branch' "$name"
     done
   fi
 
@@ -3641,6 +3658,15 @@ apply_pick() {
   case $kind in
     range)
       retarget "$win" "$payload"
+      ;;
+    # Refused when the branch has nothing beneath it: its whole history has no
+    # a..b spelling, and its bare name would be read as the commits since it.
+    branch)
+      if gr_branch_range "$payload"; then
+        retarget "$win" "$REPLY"
+      else
+        tmux display-message -t "$pane" "review: no base to review $payload against"
+      fi
       ;;
     wip | staged)
       tmux display-popup -E -w 90% -h 90% -d "$cwd" "$git_review --$kind"

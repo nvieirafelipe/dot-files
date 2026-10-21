@@ -234,11 +234,19 @@ review that is already open, and `git review <base>` takes one for a single
 run.
 
 The picker behind that row offers only what has commits or changes in it. A
-branch at or ahead of HEAD is left out, the working tree and the index only
-appear when something is in them, and the count prompt says how many commits
-there are to go back through. A range typed at either prompt that turns
-out to hold nothing is refused with a message, and the review already open
-stays where it is.
+branch at or ahead of HEAD is left out of the "since" group, the working tree
+and the index only appear when something is in them, and the count prompt says
+how many commits there are to go back through. A range typed at either prompt
+that turns out to hold nothing is refused with a message, and the review
+already open stays where it is.
+
+Below those, the picker lists up to twelve local branches, all but the one
+checked out, each to be reviewed against its own base the way `prefix + g`
+would review it from that branch. From `main`, a `feature` cut from it opens
+as `main..feature`; from `feature`, `main` opens as `origin/main..main`. The
+base is found when the branch is chosen, not when the picker opens. A branch
+with nothing beneath it, such as the only branch of a repository that was
+never pushed, has no `a..b` range and is refused with a message.
 
 ## Options
 

@@ -345,9 +345,11 @@ sequenceDiagram
   list writes three versions of it, one per selection, to `header-PANE.txt`,
   so moving the selection in the header costs no round trip.
 - The range picker offers the current range, the last n commits, a typed
-  range, uncommitted and staged changes when there are any, and up to twelve
-  branches and twelve stashes. A range retargets the review; uncommitted, staged and stash open `git-review` in a
-  popup.
+  range, uncommitted and staged changes when there are any, up to twelve
+  branches to review since, up to twelve other local branches to review
+  against their own base, and twelve stashes. A range retargets the review; a
+  local branch is resolved with `gr_branch_range` when chosen and then
+  retargets; uncommitted, staged and stash open `git-review` in a popup.
 - The agent picker lists every pane running `claude`, `codex` or a version
   number (Claude Code's process name), with its tmux-agent-status state beside
   it, `idle` when none is set. The choice goes into `@review_agent_pane`,

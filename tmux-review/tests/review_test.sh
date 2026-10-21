@@ -663,7 +663,9 @@ prompt-count|last n commits|1-3|3
 prompt-range|a range|asks|HEAD' "$(picked)"
 
 # A branch behind HEAD has commits since it and one ahead has none. A change to
-# a tracked file is uncommitted, and a staged one is in the index as well.
+# a tracked file is uncommitted, and a staged one is in the index as well. Every
+# local branch but the one checked out is offered for its own review as well,
+# against its own base, whichever side of HEAD it is on.
 (
   cd "$pick_repo" || exit 1
   git branch older HEAD~1
@@ -682,7 +684,10 @@ sep|||
 wip|uncommitted|working tree|
 staged|staged|index|
 sep|||
-range|older|since|older' "$(picked)"
+range|older|since|older
+sep|||
+branch|ahead|branch|ahead
+branch|older|branch|older' "$(picked)"
 assert_eq 'the arrays stay the same length' \
   "${#pick_kind[@]} ${#pick_kind[@]} ${#pick_kind[@]}" \
   "${#pick_label[@]} ${#pick_extra[@]} ${#pick_payload[@]}"
@@ -692,11 +697,33 @@ assert_eq 'the arrays stay the same length' \
 git -C "$pick_repo" reset -q doc2 >/dev/null 2>&1
 pick_in_repo 'HEAD'
 assert_eq 'a change that is not staged offers no index' \
-  'range prompt-count prompt-range sep wip sep range' "${pick_kind[*]}"
+  'range prompt-count prompt-range sep wip sep range sep branch branch' "${pick_kind[*]}"
 git -C "$pick_repo" checkout -q -- doc1 doc2 >/dev/null 2>&1
 pick_in_repo 'HEAD'
 assert_eq 'an untracked file offers no working tree' \
-  'range prompt-count prompt-range sep range' "${pick_kind[*]}"
+  'range prompt-count prompt-range sep range sep branch branch' "${pick_kind[*]}"
+
+# Detached, no branch is the one checked out, so every one is offered.
+git -C "$pick_repo" checkout -q --detach >/dev/null 2>&1
+pick_in_repo 'HEAD'
+assert_eq 'detached, every local branch is offered' \
+  'range|outstanding|HEAD|
+prompt-count|last n commits|1-3|3
+prompt-range|a range|asks|HEAD
+sep|||
+range|older|since|older
+sep|||
+branch|ahead|branch|ahead
+branch|docs|branch|docs
+branch|older|branch|older' "$(picked)"
+git -C "$pick_repo" checkout -q docs >/dev/null 2>&1
+
+# Twelve at most, as the other groups are: fifteen local branches beside the
+# one checked out still make a list that fits the pane.
+for n in $(seq 10 22); do git -C "$pick_repo" branch "b$n" >/dev/null 2>&1; done
+pick_in_repo 'HEAD'
+assert_eq 'twelve local branches are offered at most' 12 \
+  "$(printf '%s\n' "${pick_kind[@]}" | grep -c '^branch$')"
 rm -rf "$pick_repo"
 unset -f picked pick_in_repo
 unset pick_cwd pick_repo
@@ -3470,14 +3497,14 @@ section 'apply_pick: a range replaces the window, anything else is a popup'
 pick_args=''
 retarget() { pick_args+="[retarget $*]"; }
 tmux() {
-  case $1 in
-    display-message) printf '/w/repo'; return 0 ;;
+  case $1:$2 in
+    display-message:-p) printf '/w/repo'; return 0 ;;
     *) pick_args+="[$*]" ;;
   esac
 }
 git_review='/plugin/bin/git-review'; self='/plugin/review.sh'
-pick_kind=(range wip staged stash prompt-count prompt-range none)
-pick_payload=('HEAD~4..HEAD' '' '' 'stash@{2}' '32' 'HEAD' '')
+pick_kind=(range wip staged stash prompt-count prompt-range none branch)
+pick_payload=('HEAD~4..HEAD' '' '' 'stash@{2}' '32' 'HEAD' '' 'feature')
 pick_args=''; apply_pick '%7' '@9' 0
 assert_eq 'a range is opened over this window' '[retarget @9 HEAD~4..HEAD]' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 1
@@ -3498,6 +3525,18 @@ assert_match 'a range is asked for, seeded with the one on screen' \
   'command-prompt -p review: -I HEAD run-shell' "$pick_args"
 pick_args=''; apply_pick '%7' '@9' 6
 assert_eq 'the row that says no agent is running does nothing' '' "$pick_args"
+
+# A branch is resolved only now it is chosen, against its own base.
+gr_branch_range() { pick_args+="[resolve $1]"; REPLY="main..$1"; }
+pick_args=''; apply_pick '%7' '@9' 7
+assert_eq 'a branch is opened over this window, against its own base' \
+  '[resolve feature][retarget @9 main..feature]' "$pick_args"
+
+gr_branch_range() { pick_args+="[resolve $1]"; REPLY=$1; return 1; }
+pick_args=''; apply_pick '%7' '@9' 7
+assert_eq 'one with no base to review it against says so, and the review stays' \
+  '[resolve feature][display-message -t %7 review: no base to review feature against]' \
+  "$pick_args"
 unset -f tmux; restore_review; unset pick_args
 
 section 'clear_comments: asks first, because nothing brings it back'
