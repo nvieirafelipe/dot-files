@@ -98,7 +98,8 @@ halfway down, that is about 0.3 seconds; on an ordinary one, 30 to 50
 milliseconds. The headers stay, so `]`, `}`, `n`, the list and
 the comments all keep working, and a comment on a line that is now hidden is
 drawn against the nearest header still on screen. What is collapsed is not
-saved: reopening the review, or picking another range, opens everything.
+saved: reopening the review, picking another range, or dragging the list's
+border, opens everything.
 
 The diff is dumped into the pane's own scrollback and read with copy-mode rather
 than piped through a pager. A pager is a full-screen application, so tmux cannot
@@ -267,6 +268,22 @@ that the diff gets fewer than 140 (`diff_comfort`). On a smaller display that
 puts it at its floor of 34 columns: at 160 columns the diff is drawn at 123
 rather than 101, and in the commit this was measured on, 74 rows wrap instead
 of 140.
+
+delta draws the diff at the width it is given. Dragging the list's border, or
+resizing the window, leaves the diff pane a different width from what delta
+drew: narrower folds every full row, wider leaves blank columns at its right.
+Once the border has stayed put for about half a second (`redraw_settle_turns`),
+the diff is drawn again at the pane's new width, in the same pane, and you are
+put back in the commit you were reading. While the drag is still moving the
+list holds without its highlight. A long diff takes a few seconds to draw
+again, and collapsed commits open.
+
+The one drag still taken back is a wider list while the comments are expanded
+with `C`: those columns were borrowed from the list, so its width then is not
+one you chose, and the diff is not drawn again for it. The reverse holds too:
+`C` borrows thirty-nine columns from the list and leaves the diff alone, so
+once the diff has been drawn for a list narrower than 73 columns, `C` refuses
+until the list is dragged wider.
 
 ## Tests
 

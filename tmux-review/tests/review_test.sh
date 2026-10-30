@@ -207,6 +207,98 @@ assert_eq 'and while a comment is open it is what the layout left it' 41 "$REPLY
 sidebar_max_for 120 0
 assert_eq 'a narrow window leaves what little it has' 36 "$REPLY"
 
+section 'redraw_plan: the width a redraw would draw the diff at'
+# A list dragged narrower leaves the diff pane wider than delta drew it, and
+# only drawing it again puts those columns to use. 220 opens the list at 77 and
+# draws the diff at 140; dragged to 40, the diff can be drawn at 177, with the
+# marks' column still held back.
+rp() { redraw_plan "$@" && printf '%s %s' "$REPLY" "$REPLY_GUTTER"; }
+assert_eq 'a list dragged narrower gives the diff its columns' '177 40' \
+  "$(rp 220 40 140)"
+# Dragged wider, the diff pane is narrower than delta drew it and every full
+# row folds, so it is drawn again at what is left rather than the drag refused.
+assert_eq 'a list dragged wider has the diff drawn again narrower' '117 40' \
+  "$(rp 220 100 140)"
+# Where the list opened, the diff already fills its pane: drawing it again
+# would cost the wait and change nothing.
+rp 220 77 140 >/dev/null
+assert_eq 'a list where it opened has nothing to give' 1 "$?"
+# Reading the comments borrows thirty-nine columns from the list, so its width
+# then is not one the reader chose and the diff is not to be drawn for it.
+gutter_expanded=1
+rp 220 39 140 >/dev/null
+assert_eq 'nor does a list narrowed by the comments being read' 1 "$?"
+unset gutter_expanded
+# Under diff_min there is still no column to spare for the marks, so all of it
+# goes to the diff, as it does when a review opens that narrow.
+assert_eq 'a narrow window still keeps no column for the marks' '99 0' \
+  "$(rp 120 20 85)"
+
+section 'redraw_due: whether this turn is one to draw the diff again on'
+# The window, the list, what delta drew, whether the list is zoomed, and the
+# comments pane's width this turn is heading for against the width it has.
+rd() { redraw_due "$@" && printf '%s %s' "$REPLY" "$REPLY_GUTTER"; }
+assert_eq 'a dragged list with the comments pane staying put is drawn for' '178 40' \
+  "$(rd 220 39 140 0 1 1)"
+assert_eq 'and so is one with no comments pane at all' '178 40' "$(rd 220 39 140 0 0 0)"
+# Collapsing the comments gives the list back its thirty-nine columns, but not
+# until the layout is restated further down the same turn. Until then the list
+# is still narrowed by them, and drawing the diff for that would draw it for a
+# width the reader never chose -- and hold the loop before the restate, for good.
+rd 220 38 140 0 1 40 >/dev/null
+assert_eq 'not while the comments pane is about to change width' 1 "$?"
+rd 220 39 140 0 0 1 >/dev/null
+assert_eq 'nor while it is about to open' 1 "$?"
+rd 220 39 140 1 0 0 >/dev/null
+assert_eq 'nor while the list is zoomed over the window' 1 "$?"
+unset -f rd
+
+section 'redraw: the diff drawn again, in the pane it was drawn in'
+# One invocation: the list is told the diff is loading before the old process
+# goes, the comments pane's reserve follows the new width, and the pane keeps
+# its id -- the key bindings, the window options and the render cache are all
+# keyed on it. respawn-pane keeps the scrollback, so the old render is cleared
+# in the same command list, before any of the new one has been read.
+redraw_calls=''
+tmux() { redraw_calls+="[$*]"; return 0; }
+self='/plugin/review.sh'
+redraw '%7' 'base..HEAD' 177 40
+assert_eq 'the diff is respawned at the new width, its old render cleared' \
+  '[set-option -w -t %7 @review_loaded 0 ; set-option -w -t %7 @review_gutter_w 40 ; respawn-pane -k -t %7 /plugin/review.sh diff base..HEAD 177 ; clear-history -t %7]' \
+  "$redraw_calls"
+unset -f tmux; restore_review; unset redraw_calls
+
+section 'redraw_settled: the diff drawn again for a drag that has stopped'
+# The sidebar's own state, as the loop holds it: a 220-column window drew the
+# diff at 140 for a list of 77, and the reader has since dragged the list to 39.
+declare -A row_of=() folded=()
+rk_state() {
+  printf 'drawn=%s reserved=%s list_drawn=%s mapped=%s map=%s folded=%s ask=%s' \
+    "$drawn_w" "$gutter_reserved" "$list_drawn" "$mapped" "${#row_of[@]}" "${#folded[@]}" \
+    "$ask_next"
+}
+rk_reset() {
+  drawn_w=140 gutter_reserved=40 list_drawn=0 mapped=1 ask_next=0 gutter_expanded=0
+  row_of=([c0]=5 [c1]=40)
+  folded=([c0]=1)
+  rk_calls=''
+}
+redraw() { rk_calls+="[redraw $*]"; }
+tmux() { rk_calls+="[$*]"; return 0; }
+
+rk_reset
+redraw_settled '%7' 'base..HEAD' 220 39
+assert_eq 'a dragged list has the diff drawn again at the width it left' \
+  '[redraw %7 base..HEAD 178 40]' "$rk_calls"
+# The new render is unfolded and its rows are where nothing has been mapped, so
+# the map and the folds go with the old one; and the width it was drawn for is
+# what the clamp and the comments pane measure from from now on.
+assert_eq 'and everything measured off the old render is let go' \
+  'drawn=178 reserved=40 list_drawn=39 mapped=0 map=0 folded=0 ask=1' "$(rk_state)"
+unset -f tmux redraw rk_state rk_reset; restore_review
+unset drawn_w gutter_reserved list_drawn mapped ask_next gutter_expanded rk_calls
+row_of=(); folded=()
+
 section 'diff_pinned_for: the width the diff is held at for good'
 diff_pinned_for 285
 assert_eq 'the window less the list, the marks and two borders' 202 "$REPLY"
@@ -214,6 +306,22 @@ assert_eq 'the window less the list, the marks and two borders' 202 "$REPLY"
 # the layout state it rather than work it out from what is left over.
 diff_pinned_for 200
 assert_eq 'and it follows the window down' $((200 - 59 - 3)) "$REPLY"
+# Once r has drawn the diff again for a list the reader dragged to 39, that is
+# the width it is held at, and the list may grow back only into the two
+# columns held for the marks -- any further and the new render folds.
+list_drawn=39
+diff_pinned_for 220
+assert_eq 'after a redraw, the width it was drawn at' 178 "$REPLY"
+sidebar_max_for 220 0
+assert_eq 'and the list may not grow back past what it was drawn for' 41 "$REPLY"
+# Not even to sidebar_min. The floor is there so the list is never refused the
+# width it needs to say which commit is which, but a reader who dragged it below
+# that and had the diff drawn for it chose otherwise: growing it back to 34 here
+# would fold every row of the diff that was just drawn at 137.
+list_drawn=20
+sidebar_max_for 160 0
+assert_eq 'a list the reader dragged under the floor is held there' 22 "$REPLY"
+unset list_drawn
 
 section 'columns_for: a share of the window, then the clamps'
 # Depends on the window alone -- which is what lets open settle the layout
@@ -917,6 +1025,12 @@ gutter_can_expand 213
 assert_eq 'one column under that cannot' 1 "$?"
 gutter_can_expand 200
 assert_eq 'nor can a window narrower still' 1 "$?"
+# After r drew the diff for a list dragged to 39, the list has that and not its
+# share to lend, and 39 less the thirty-nine is nothing.
+list_drawn=39
+gutter_can_expand 220
+assert_eq 'a list the diff was redrawn for has nothing to lend' 1 "$?"
+unset list_drawn
 # Nothing was reserved, so there is nothing to expand into at any width.
 gutter_reserved=0
 gutter_can_expand 285
@@ -3735,6 +3849,10 @@ for k in '=' '<' '>'; do
     "bind-key -T copy-mode-vi $k if-shell -F [^ ]*pane_at_left[^ ]* send-keys -t '\\{bottom-left\\}' $k" \
     "$bound"
 done
+# r is left to copy-mode-vi's own refresh-from-pane. The diff is drawn again
+# for a dragged border once the drag stops, so there is nothing to press.
+assert_eq 'r is not bound, and stays refresh-from-pane' 0 \
+  "$(grep -c 'bind-key -T copy-mode-vi r ' <<<"$bound")"
 assert_match 'every one is guarded on the window being a review' \
   '@review' "$bound"
 assert_match 'and on the pane being read rather than showing output' \
@@ -4352,6 +4470,7 @@ sidebar_run() {
     load_pick_sessions() { pick_kind=(session); pick_label=(y); pick_extra=(''); pick_payload=("%5${US}y"); }
     pick_keys() { printf 'PICKKEYS %s\n' "$*" >>"$sb_log"; picking=0; }
     fold_key() { printf 'FOLD %s\n' "$*" >>"$sb_log"; mapped=0; }
+    redraw() { printf 'REDRAW %s\n' "$*" >>"$sb_log"; }
     sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) <<<"$keys" >"$sb_out" 2>&1
   sb_seen=$(cat "$sb_log")
@@ -4403,6 +4522,66 @@ sidebar_run '<' "$sb_normal" "$sb_normal" "$sb_normal"
 assert_match '< is one too' 'FOLD %7 < diff 0' "$sb_seen"
 sidebar_run '>' "$sb_normal" "$sb_normal" "$sb_normal"
 assert_match 'and so is >' 'FOLD %7 > diff 0' "$sb_seen"
+
+# The list dragged from the 77 it opened at to 39: the diff pane is 180 wide but
+# was drawn at 140, which leaves blank columns at its right until it is drawn
+# again at what the pane can hold.
+sb_dragged=$(sb_tick 1 100 100 0 180 220 40 0 1 0 1 100)
+
+# Once the border has stayed where it was put for redraw_settle_turns turns, the
+# drag is over and the diff is drawn again for it, with nothing pressed. Two
+# here, so a run of scripted ticks can tell a drag still moving from one that
+# has stopped.
+sb_settle=$redraw_settle_turns
+redraw_settle_turns=2
+sidebar_run '' "$sb_normal" "$sb_dragged" "$sb_dragged" "$sb_dragged"
+assert_match 'a drag that has stopped has the diff drawn again for it' \
+  'REDRAW %7 base\.\.HEAD 178 40' "$sb_seen"
+
+# A border still moving is a drag still going: each new width starts the count
+# again, and the diff is drawn once, for where the border came to rest.
+sb_dragged50=$(sb_tick 1 100 100 0 169 220 40 0 1 0 1 100)
+sb_dragged60=$(sb_tick 1 100 100 0 159 220 40 0 1 0 1 100)
+sidebar_run '' "$sb_normal" "$sb_dragged" "$sb_dragged50" "$sb_dragged60" "$sb_dragged60"
+assert_eq 'a drag still moving is drawn for once, where it stops' \
+  'REDRAW %7 base..HEAD 157 40' "$(grep REDRAW <<<"$sb_seen")"
+# Back where the diff was drawn for, the count is over: a drag out to the same
+# width again is a new one, and is still moving on its first turn there.
+sidebar_run '' "$sb_normal" "$sb_dragged" "$sb_normal" "$sb_dragged"
+assert_eq 'a drag back and out again starts the count again' 0 \
+  "$(grep -c REDRAW <<<"$sb_seen")"
+
+# Dragged wider than the diff was drawn for, the list is left where it was put
+# -- not taken back by restating the layout -- and the diff is drawn again for
+# what is left of the window.
+sb_wider=$(sb_tick 1 100 100 0 119 220 40 0 1 0 1 100)
+sidebar_run '' "$sb_normal" "$sb_wider" "$sb_wider" "$sb_wider"
+assert_eq 'a list dragged wider is not taken back' 0 \
+  "$(grep -c -e 'list-panes' -e 'select-layout' -e 'display-message' <<<"$sb_seen")"
+assert_match 'and the diff is drawn again for what is left' \
+  'REDRAW %7 base\.\.HEAD 117 40' "$sb_seen"
+
+# A new render starts at the top. The reader was in the second commit when they
+# dragged the border, so once it has landed and been mapped, the list puts them
+# back there.
+sb_in_c1=$(sb_tick 1 100 100 45 142 220 40 0 1 0 1 100)
+sb_dragged_c1=$(sb_tick 1 100 100 45 180 220 40 0 1 0 1 100)
+sb_redrawing=$(sb_tick 1 100 100 0 180 220 40 0 1 0 0 100)
+sb_redrawn=$(sb_tick 1 100 100 0 180 220 40 0 1 0 1 100)
+sidebar_run '' "$sb_in_c1" "$sb_in_c1" "$sb_dragged_c1" "$sb_dragged_c1" "$sb_redrawing" \
+  "$sb_redrawn" "$sb_redrawn"
+assert_match 'and puts the reader back in the commit they were reading' \
+  'goto-line' "${sb_seen#*REDRAW}"
+
+# Where the list opened the diff already fills its pane: nothing is drawn again,
+# and the reader is left exactly where they are rather than sent back to the
+# head of their commit.
+sb_open_c1=$(sb_tick 1 100 100 45 142 220 40 0 1 0 1 100)
+sidebar_run '' "$sb_open_c1" "$sb_open_c1" "$sb_open_c1" "$sb_open_c1"
+assert_eq 'a list where the diff was drawn for draws nothing and moves nothing' 0 \
+  "$(grep -c -e 'goto-line' -e 'REDRAW' <<<"$sb_seen")"
+redraw_settle_turns=$sb_settle
+unset sb_settle
 
 # a reaches the agent picker without having to walk the selection to its row.
 sidebar_run 'a' "$sb_normal" "$sb_normal" "$sb_normal"
@@ -4962,7 +5141,8 @@ fi
 # 80 columns of a 100-column pane and left the rest blank.
 #
 # 285 wide: the list's share is 80, delta renders at 202, and 82 is the widest
-# the list can be before the diff is narrower than it rendered at.
+# the list can be before the diff is narrower than it rendered at. Past that the
+# diff is drawn again for what the list leaves it, once the drag has stopped.
 section 'the commit list follows the border the reader drags'
 rsock=review-resize-$$
 if ! want_live; then
@@ -5042,7 +5222,6 @@ else
       sleep 0.25
     done
     rsettle 80 80
-    tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" >"$tmp/rs_base.txt"
 
     assert_eq 'the list opens at its share of the window' 80 "$(rwidth "$rlist")"
     assert_eq 'and draws rows that exactly fill it' 80 "$(rcols)"
@@ -5066,39 +5245,120 @@ else
     assert_eq 'the diff left exactly the width it rendered at' 202 \
       "$(rwidth "$rdiff")"
 
-    # Dragged wider than the diff can afford. The border is taken back to the
-    # last width that leaves the diff the 202 it rendered at.
+    # Dragged wider than the diff was drawn for. The border stands where it was
+    # put, and once it has stopped the diff is drawn again for the 184 left to
+    # it: 182, with the marks' column still held back.
     tmux -L "$rsock" resize-pane -x 100 -t "$rlist"
-    # Watched, not only waited for. The list builds its rows for 100 in the turn
-    # that sees the drag, takes the border back to 82 and goes on from the state
-    # tmux last pushed -- which still says 100, and goes on saying it until the
-    # next push a second later. Every row of that second was drawn for 100 in an
-    # 82-column pane and wrapped. A wait for 82 and 82 passes over it, because
-    # the rows it drew before the drag are still 82 wide when the border comes
-    # back, so the second is only seen by looking during it.
-    rwide=0
-    for _ in $(seq 1 30); do
-      [[ $(rwidth "$rlist") == 82 ]] && (($(rcols) > 82)) && rwide=$((rwide + 1))
-      sleep 0.1
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$rsock" show-options -w -t "$rdiff" -qv @review_loaded 2>/dev/null) == 1 &&
+        $(tmux -L "$rsock" show-options -p -t "$rdiff" -qv @review_render_w 2>/dev/null) == 182 ]] &&
+        break
+      sleep 0.25
     done
-    rsettle 82 82
-    assert_eq 'dragged too wide, the border is taken back' 82 "$(rwidth "$rlist")"
-    assert_eq 'and the rows are never drawn wider than it was given back' 0 "$rwide"
-    assert_eq 'to exactly what the diff rendered at' 202 "$(rwidth "$rdiff")"
-    assert_eq 'and the rows follow it there too' 82 "$(rcols)"
-    tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" >"$tmp/rs_after.txt"
-    # The whole reason for the clamp. A diff narrower than its content folds
-    # every full row, which breaks the row map and breaks searching across the
-    # fold. Measured before the clamp existed: this drag wrapped 26 rows.
-    assert_ok "$(cmp -s "$tmp/rs_base.txt" "$tmp/rs_after.txt" && echo 0 || echo 1)" \
-      'and not one row of the diff folded on the way' 'the same scrollback' 'rows folded'
+    rsettle 100 100
+    assert_eq 'dragged wider than the diff was drawn for, the border stands' 100 \
+      "$(rwidth "$rlist")"
+    assert_eq 'and the rows follow it there' 100 "$(rcols)"
+    assert_eq 'and the diff is drawn again for what is left' '184 182' \
+      "$(rwidth "$rdiff") $(tmux -L "$rsock" show-options -p -t "$rdiff" -qv @review_render_w)"
+    # A diff narrower than its content folds every full row, which breaks the
+    # row map and breaks searching across the fold: measured, this drag wrapped
+    # 26 rows while the diff was left as delta first drew it. -J joins what
+    # wrapped, so a scrollback with nothing folded reads the same both ways.
+    assert_eq 'and not one row of the diff is left folded' \
+      "$(tmux -L "$rsock" capture-pane -p -S - -E - -t "$rdiff" | wc -l)" \
+      "$(tmux -L "$rsock" capture-pane -p -J -S - -E - -t "$rdiff" | wc -l)"
     unset -f rwidth rcols rover rsettle
-    unset rwide
   fi
   tmux -L "$rsock" kill-server 2>/dev/null
 fi
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$rsock"
 unset rsock rpane rwin rdiff rlist
+
+# delta draws once, at the width it is told, so a list dragged narrower leaves
+# blank columns at the right of the diff, and one dragged wider folds every full
+# row of it. Once the drag stops, the diff is drawn again, in the same pane, at
+# the width it now has -- with nothing pressed.
+#
+# 160 wide: the list opens at sidebar_min, 34, and delta draws at 123. Dragged
+# to 20, the diff pane is 139 and the diff can be drawn at 137 with the marks'
+# column still held back. Dragged out to 50, the pane is 109 and the diff is
+# drawn at 107, where the list used to be taken back to 22.
+section 'redraw: the diff drawn again once a drag of the list stops'
+wsock=review-redraw-$$
+if ! want_live; then
+  skip 'the diff drawn again' 'live sections are out of scope'
+elif ! tmux -L "$wsock" -f /dev/null new-session -d -x 160 -y 45 -c "$repo" \
+  'sleep 900' 2>/dev/null; then
+  skip 'the diff drawn again' 'no tmux server could be started'
+else
+  tmux -L "$wsock" set-option -g history-limit 50000
+  wpane=$(tmux -L "$wsock" display-message -p '#{pane_id}')
+  tmux -L "$wsock" run-shell -b -t "$wpane" \
+    "$plugin/scripts/review.sh open $wpane HEAD~2..HEAD"
+  wwin=''
+  for _ in $(seq 1 120); do
+    wwin=$(tmux -L "$wsock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $wwin ]] && break
+    sleep 0.25
+  done
+  if [[ -z $wwin ]]; then
+    skip 'the diff drawn again' 'the review window never opened'
+  else
+    wdiff=$(tmux -L "$wsock" show-options -w -t "$wwin" -qv @review_diff_pane)
+    wlist=$(tmux -L "$wsock" show-options -w -t "$wwin" -qv @review_list_pane)
+    wwidth() { tmux -L "$wsock" display-message -p -t "$1" '#{pane_width}'; }
+    wdrawn() { tmux -L "$wsock" show-options -p -t "$wdiff" -qv @review_render_w 2>/dev/null; }
+    # Until the diff says it has finished drawing at the width asked for.
+    wloaded() {
+      local _
+      for _ in $(seq 1 200); do
+        [[ $(tmux -L "$wsock" show-options -w -t "$wdiff" -qv @review_loaded 2>/dev/null) == 1 &&
+          $(wdrawn) == "$1" ]] && return 0
+        sleep 0.25
+      done
+      return 0
+    }
+    wloaded 123
+    for _ in $(seq 1 200); do
+      [[ $(tmux -L "$wsock" display-message -p -t "$wwin" '#{window_zoomed_flag}') == 0 ]] &&
+        break
+      sleep 0.25
+    done
+    # And until the list has mapped the diff, which it says by publishing the
+    # commits' rows, so the drags below start from a review that has settled.
+    for _ in $(seq 1 200); do
+      [[ -n $(tmux -L "$wsock" show-options -p -t "$wdiff" -qv @review_commit_rows 2>/dev/null) ]] &&
+        break
+      sleep 0.25
+    done
+    assert_eq 'a small window opens the list at its floor' 34 "$(wwidth "$wlist")"
+    assert_eq 'and draws the diff at what is left' 123 "$(wdrawn)"
+
+    tmux -L "$wsock" resize-pane -x 20 -t "$wlist"
+    wloaded 137
+    assert_eq 'a list dragged narrower has the diff drawn again for it' 137 "$(wdrawn)"
+    assert_eq 'in the same pane, so every binding and option still finds it' \
+      "$wdiff 0" "$(tmux -L "$wsock" display-message -p -t "$wdiff" '#{pane_id} #{pane_dead}')"
+    assert_eq 'and the review is still the three panes it was' 3 \
+      "$(tmux -L "$wsock" list-panes -t "$wwin" -F x 2>/dev/null | grep -c x)"
+    # respawn-pane keeps the scrollback, so the old render has to be cleared
+    # with it, or the map finds every commit twice.
+    assert_eq 'with the old render gone from the scrollback' 2 \
+      "$(tmux -L "$wsock" capture-pane -p -S - -E - -t "$wdiff" | grep -c '^commit ')"
+
+    tmux -L "$wsock" resize-pane -x 50 -t "$wlist"
+    wloaded 107
+    assert_eq 'a list dragged wider has the diff drawn again narrower' 107 "$(wdrawn)"
+    assert_eq 'and the list stays where it was put, not taken back' '50 109' \
+      "$(wwidth "$wlist") $(wwidth "$wdiff")"
+    unset -f wwidth wdrawn wloaded
+  fi
+  tmux -L "$wsock" kill-server 2>/dev/null
+fi
+rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$wsock"
+unset wsock wpane wwin wdiff wlist
 
 # A routed key is sent to {left}, and {left} is the leftmost *visible* pane --
 # so in any arrangement where the pressing pane is itself the leftmost visible
@@ -5592,14 +5852,26 @@ else
     # refused, and the pane did not widen. Silently, every tick, until the
     # reader dragged back onto 80 or overshot and let the clamp put them there.
     #
-    # 285 wide: the diff is pinned at 202 and the pane reserves 40, so with it
-    # open the list has 41 to live in and no more. A drag narrower than that is
-    # kept, and the cells come out of the strip the diff is not drawing on; a
-    # drag wider is squeezed to 41 and handed back when the pane collapses.
+    # 285 wide, with the marks up. A drag is followed by the diff being drawn
+    # again for what the list leaves it, and the comments pane then pays for
+    # itself out of the list as it does at the share: the diff keeps the width
+    # it was drawn again at, so the list can lend thirty-nine columns only if it
+    # keeps sidebar_min.
     gsettle() {
       local _
       for _ in $(seq 1 80); do
         [[ $(tmux -L "$gsock" display-message -p -t "$1" '#{pane_width}') == "$2" ]] && return 0
+        sleep 0.25
+      done
+      return 0
+    }
+    # Until the diff has been drawn again at the width given and has finished.
+    gredrawn() {
+      local _
+      for _ in $(seq 1 200); do
+        [[ $(tmux -L "$gsock" show-options -w -t "$gdiff" -qv @review_loaded 2>/dev/null) == 1 &&
+          $(tmux -L "$gsock" show-options -p -t "$gdiff" -qv @review_render_w 2>/dev/null) == "$1" ]] &&
+          return 0
         sleep 0.25
       done
       return 0
@@ -5613,57 +5885,43 @@ else
         "$(tmux -L "$gsock" display-message -p -t "$gdiff" '#{pane_width}')" \
         "$(tmux -L "$gsock" display-message -p -t "$ggut" '#{pane_width}')"
     }
+    # How many rows of a pane are folded onto a second line: -J joins what
+    # wrapped, so a pane with nothing folded reads the same both ways. The
+    # whole scrollback, or with a second argument only what is on screen -- the
+    # list's history is rewrapped by tmux at every width it has had, and only
+    # what it draws now is its own.
+    gfolded() {
+      local -a range=(-S - -E -)
+      (($# > 1)) && range=()
+      local a b
+      a=$(tmux -L "$gsock" capture-pane -p "${range[@]}" -t "$1" | wc -l)
+      b=$(tmux -L "$gsock" capture-pane -p -J "${range[@]}" -t "$1" | wc -l)
+      printf '%s' $((a - b))
+    }
 
-    # Dragged wider than the open pane leaves room for. 285 less the 60 the
-    # list takes, its border, the marks and theirs.
-    tmux -L "$gsock" resize-pane -x 60 -t "$glist"
-    gsettle "$glist" 60
-    assert_eq 'the border moves with the pane still at the marks' '60/222/1' "$(gwidths)"
-
-    tmux -L "$gsock" send-keys -t "$glist" C
-    gsettle "$ggut" 40
-    assert_eq 'C opens it anyway, squeezing the list to what is left' '41/202/40' \
-      "$(gwidths)"
+    # Dragged wider than the share, with the marks up: 285 less the 90 the list
+    # takes, its border, the marks and theirs leaves the diff 192, and it is
+    # drawn again at that.
+    tmux -L "$gsock" resize-pane -x 90 -t "$glist"
+    gredrawn 192
+    gsettle "$glist" 90
+    assert_eq 'the border stays where it was put with the pane at the marks' \
+      '90/192/1' "$(gwidths)"
+    assert_eq 'and the diff is drawn again for it, nothing folded' '192 0' \
+      "$(tmux -L "$gsock" show-options -p -t "$gdiff" -qv @review_render_w) $(gfolded "$gdiff")"
     tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/dragged.txt"
-    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/dragged.txt" && echo 0 || echo 1)" \
-      'with the diff still exactly as delta drew it' 'the same scrollback' 'rows folded'
-
-    tmux -L "$gsock" send-keys -t "$glist" C
-    gsettle "$ggut" 1
-    assert_eq 'and collapsing returns the drag, not the share' '60/222/1' "$(gwidths)"
-
-    # Dragged inside the 41 instead, where nothing has to be taken from the list
-    # at all: the diff is sitting on 244 and only has to keep the 202 it
-    # rendered at, so the thirty-nine come out of the forty-two it is not
-    # drawing on and the border does not move.
-    tmux -L "$gsock" resize-pane -x 38 -t "$glist"
-    gsettle "$glist" 38
-    assert_eq 'dragged inside what the open pane leaves' '38/244/1' "$(gwidths)"
-    # How many rows the list draws at this width, taken here rather than
-    # written down: 38 columns is narrow enough that the legend wraps on its
-    # own, and how many rows that comes to is the reader's business and not
-    # this test's. What is this test's business is that opening the pane does
-    # not add to it.
-    grows_before=$(tmux -L "$gsock" capture-pane -p -t "$glist" | grep -c .)
 
     tmux -L "$gsock" send-keys -t "$glist" C
     gsettle "$ggut" 40
-    assert_eq 'the pane opens without moving the border at all' '38/205/40' "$(gwidths)"
-    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/kept.txt"
-    assert_ok "$(cmp -s "$gtmp/before.txt" "$gtmp/kept.txt" && echo 0 || echo 1)" \
-      'and the diff untouched there too' 'the same scrollback' 'rows folded'
-    # Counted rather than measured. A row built for a width the pane does not
-    # have wraps, and a wrapped row is still a row of at most the pane's width,
-    # so nothing about one gives it away except that there are more of them
-    # than there were. This is the assertion that catches the row-building
-    # width and the layout disagreeing about where the border went: the layout
-    # leaves the border at 38 and a frame built for 41 folds into 39.
-    assert_eq 'and the list drew the same rows it drew before' "$grows_before" \
-      "$(tmux -L "$gsock" capture-pane -p -t "$glist" | grep -c .)"
+    assert_eq 'C opens it, paid for by the list' '51/192/40' "$(gwidths)"
+    tmux -L "$gsock" capture-pane -p -S - -E - -t "$gdiff" >"$gtmp/opened.txt"
+    assert_ok "$(cmp -s "$gtmp/dragged.txt" "$gtmp/opened.txt" && echo 0 || echo 1)" \
+      'with the diff exactly as it was drawn again' 'the same scrollback' 'rows folded'
+    assert_eq 'and the list drawn for the width it was left' 0 "$(gfolded "$glist" screen)"
 
     tmux -L "$gsock" send-keys -t "$glist" C
     gsettle "$ggut" 1
-    assert_eq 'and the border is still where the reader put it' '38/244/1' "$(gwidths)"
+    assert_eq 'and collapsing returns the drag, not the share' '90/192/1' "$(gwidths)"
 
     # And from wherever else it was pressed. The toggle is offered in the list
     # as well as the diff, and a reader who opens the comments from the list is
@@ -5681,15 +5939,28 @@ else
     gsettle "$ggut" 1
     assert_eq 'and closing returns them to the list they opened it from' \
       "$glist" "$(gactive)"
+
+    # Dragged narrower, the diff is drawn again at the 222 the list leaves it,
+    # and a list of 60 cannot lend thirty-nine columns and keep sidebar_min. So
+    # C is refused rather than the diff narrowed under the reader.
+    tmux -L "$gsock" resize-pane -x 60 -t "$glist"
+    gredrawn 222
+    gsettle "$glist" 60
+    assert_eq 'dragged narrower, the diff is drawn again for the room' '60/222/1' \
+      "$(gwidths)"
+    tmux -L "$gsock" send-keys -t "$glist" C
+    sleep 1
+    assert_eq 'and C is refused while the list cannot pay for the pane' '60/222/1' \
+      "$(gwidths)"
   fi
   tmux -L "$gsock" kill-server 2>/dev/null
 fi
 rm -f "$gstore"
 rm -rf "$gtmp"
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$gsock"
-unset -f gview gsettle gwidths gactive
+unset -f gview gsettle gredrawn gwidths gfolded gactive
 unset gsock gtmp gstore gpane gwin gdiff glist ggut ghdr gbefore
-unset ghist_before ghist_after grows_before
+unset ghist_before ghist_after
 
 section 'review.sh: the dispatcher'
 # The process that holds the header pane open. Given no tty there is nothing to

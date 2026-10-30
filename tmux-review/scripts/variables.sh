@@ -35,6 +35,10 @@ diff_min=100
 # at the width it was told. At 160 columns the share left delta 101, and 140
 # of a commit's 596 rows wrapped; drawn at 123 instead, 74 did.
 diff_comfort=140
+# How many turns of the list's loop the border has to stay put before a drag is
+# taken to be over and the diff is drawn again for it. A turn is a quarter of a
+# second, so a pause shorter than this mid-drag draws nothing.
+redraw_settle_turns=3
 
 # The pane above the list: the range, the agent a comment would go to, and the
 # count of what is being reviewed. Its own pane rather than three rows of the

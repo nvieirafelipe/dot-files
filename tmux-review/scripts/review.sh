@@ -520,6 +520,69 @@ reserve_for() {
   return 0
 }
 
+# The width delta would draw the diff at for the list as it now stands, and the
+# comments pane's reserve at that width -- what open works out for the share,
+# worked out for wherever the reader has dragged the border. False when that is
+# what delta last drew: a list back where the diff was drawn for has nothing to
+# give it or take from it.
+#
+# False while the comments are being read, too: they borrow thirty-nine columns
+# from the list, so its width then is not one the reader chose.
+redraw_plan() {
+  local window=$1 list=$2 drawn=$3
+  ((!${gutter_expanded:-0})) || return 1
+  reserve_for $((window - list - 1))
+  ((REPLY != drawn))
+}
+
+# Whether the diff is to be drawn again for the list as it stands this turn:
+# what redraw_plan says, unless the list is zoomed over the window or the
+# comments pane is about to open, close or change width. That restates the
+# layout further down this same turn, so the list's width until then is one it
+# is leaving -- and holding the loop for it would keep the restate from ever
+# being reached.
+redraw_due() {
+  local window=$1 list=$2 drawn=$3 zoomed=$4 target=$5 gutter=$6
+  ((!zoomed && target == gutter)) || return 1
+  redraw_plan "$window" "$list" "$drawn"
+}
+
+# A drag that has stopped. delta draws once, at the width it is told, so a list
+# dragged narrower leaves blank columns at the right of the diff, and one
+# dragged wider folds every full row of it. This draws it again for the border
+# as the reader left it, once redraw_plan has said there is something to draw:
+# a redraw is a wait -- seconds, on a large range.
+#
+# Everything measured off the old render goes with it: the map, since the rows
+# move, and the folds, since the new render has everything open. list_drawn is
+# what the clamp and the comments pane measure from from now on.
+redraw_settled() {
+  local dpane=$1 range=$2 window=$3 list=$4
+  reserve_for $((window - list - 1))
+  redraw "$dpane" "$range" "$REPLY" "$REPLY_GUTTER"
+  drawn_w=$REPLY
+  gutter_reserved=$REPLY_GUTTER
+  list_drawn=$list
+  row_of=()
+  folded=()
+  mapped=0
+  ask_next=1
+}
+
+# The diff drawn again, in the pane it was drawn in. respawn-pane keeps the pane
+# id, and the key bindings, the window options and the render cache are all
+# keyed on it -- a retarget would build a new window instead. It keeps the
+# scrollback too, so the old render is cleared in the same command list, before
+# the server has read anything the new process wrote. @review_loaded goes to 0
+# first, so the list holds its placeholder until the new render says it is done.
+redraw() {
+  local dpane=$1 range=$2 width=$3 gutter=$4
+  tmux set-option -w -t "$dpane" @review_loaded 0 ';' \
+    set-option -w -t "$dpane" @review_gutter_w "$gutter" ';' \
+    respawn-pane -k -t "$dpane" "$self diff $(printf '%q' "$range") $width" ';' \
+    clear-history -t "$dpane"
+}
+
 # tmux's own layout checksum, from layout-custom.c: the running total rotated
 # right by one within sixteen bits, then the byte added. Reimplemented rather
 # than read off the server because select-layout refuses a layout whose checksum
@@ -594,13 +657,15 @@ review_panes() {
 # Never below sidebar_min, which is the width the list stops being able to say
 # which commit is which at. A window too narrow for even that has bigger
 # problems than this rule, and refusing to let the list exist is not an
-# improvement on letting it be cramped.
+# improvement on letting it be cramped. Unless the diff has been drawn again for
+# a list the reader dragged below it: they chose that width, and growing the
+# list back to sidebar_min would fold every row that was just drawn.
 sidebar_max_for() {
   local window=$1 gutter=$2
   diff_pinned_for "$window"
   REPLY=$((window - REPLY - 1))
   ((gutter > 0)) && REPLY=$((REPLY - gutter - 1))
-  ((REPLY < sidebar_min)) && REPLY=$sidebar_min
+  ((REPLY < sidebar_min && ${list_drawn:-0} == 0)) && REPLY=$sidebar_min
   # Said rather than left to the last test, which answers false whenever the
   # window had room to spare -- and a function whose last command answers false
   # answers false itself, which under set -e takes the sidebar down at the call.
@@ -681,9 +746,19 @@ relayout() {
 # the comments pane happens to be -- widening it takes the difference out of the
 # list -- which is what makes it a number the layout can assert rather than a
 # remainder that moves.
+# The list's width when the diff was drawn: its share of the window, unless the
+# diff has since been drawn again for a list the reader dragged, in which case
+# that. Everything that must not narrow the diff below what delta drew measures
+# from this.
+list_drawn_for() {
+  columns_for "$1"
+  ((${list_drawn:-0} > 0)) && REPLY=$list_drawn
+  return 0
+}
+
 diff_pinned_for() {
   local window=$1
-  columns_for "$window"
+  list_drawn_for "$window"
   REPLY=$((window - REPLY - gutter_thin - 2))
 }
 
@@ -1220,6 +1295,17 @@ sidebar() {
   # The drag that provoked it stays provoking it until they drag back, and one
   # message per tick is not a message, it is a stuck status line.
   local clamp_said=0
+  # The width delta last drew the diff at, and the list's width when it did:
+  # what a dragged list is measured against, and what the clamp and the
+  # comments pane measure from once the diff has been drawn again. list_drawn
+  # is 0 until then, which reads as the share the review opened with.
+  local drawn_w=0 list_drawn=0 redraw_at=-1
+  # The geometry a drag was last seen at, and for how many turns it has stayed
+  # there. A drag is over once it has stayed for redraw_settle_turns. And the
+  # commit the reader was in on the last turn that had a map, which is where
+  # the redraw puts them back: by the time the drag is seen, the map is of a
+  # diff the drag has already folded.
+  local settle_geom='' settle_turns=0 last_cur=-1
   # Set when this loop has just restated the layout itself, so the next turn
   # asks for the state rather than waiting on a push that is up to a second
   # away -- see where it is set.
@@ -1285,6 +1371,9 @@ sidebar() {
   # seconds behind it -- seconds of blank pane. The placeholder needs nothing
   # from tmux: the geometry came in as arguments and the commit count from the
   # log just read, so the first frame costs one git log and no round trip.
+  columns_for "$win_w"
+  reserve_for $((win_w - REPLY - 1))
+  drawn_w=$REPLY
   if ((win_w > 0 && win_h > 0)); then
     render_loading "$win_w" "$win_h" 0
     # The header needs nothing from tmux either: its tty is an argument, the
@@ -1465,6 +1554,9 @@ sidebar() {
     # pane to be widened back and take the difference from the diff. Dropping
     # the reserve first means the width settled below is the plain share again
     # and there is nothing for it to correct.
+    #
+    # Not for good: the diff is drawn again for the resized window once it has
+    # stopped changing, and that reserves the pane's cells afresh.
     if ((gutter_win != ww)); then
       if [[ -n $gutter_pane ]]; then
         gutter_reserved=0
@@ -1474,7 +1566,8 @@ sidebar() {
         # The pane it would have returned to goes with it.
         gutter_list_back=''
         gutter_focus_back=''
-        tmux display-message 'review: the window was resized -- reopen the review for comments'
+        tmux display-message \
+          'review: the window was resized -- the comments come back once the diff is redrawn'
       fi
       gutter_win=$ww
     fi
@@ -1552,14 +1645,18 @@ sidebar() {
       continue
     fi
 
-    # A drag wider than the diff can afford is taken back.
+    # While the comments are being read, a drag wider than the diff can afford
+    # is taken back.
     #
-    # The diff renders once, at a width settled before delta ran, and a pane
-    # narrower than its content folds every full row onto a second line. Rows
-    # are what this whole plugin follows the reader by, and a fold breaks
-    # searching too: a match spanning the fold is no longer one string in the
-    # scrollback. So the border stops where the diff would start folding --
-    # measured, the drag to 100 columns wrapped 26 rows of a two-commit diff.
+    # The diff renders at a width settled before delta ran, and a pane narrower
+    # than its content folds every full row onto a second line. Rows are what
+    # this whole plugin follows the reader by, and a fold breaks searching too:
+    # a match spanning the fold is no longer one string in the scrollback.
+    # Anywhere else the diff is drawn again for the width a drag leaves it --
+    # see where the drag is followed, below -- but not for a list the comments
+    # pane has borrowed thirty-nine columns from, since that width is not one
+    # the reader chose. So there the border stops where the diff would start
+    # folding.
     #
     # Only growth is refused. Shrinking this pane only ever makes the diff wider
     # than the width it rendered at, which costs a strip of unused cells at its
@@ -1569,7 +1666,7 @@ sidebar() {
     # other way: a second resize-pane is how the diff gets damaged in the first
     # place, and the reflow it would cause is only reversible while the folded
     # rows still fit in history-limit. Restating states the diff's width.
-    if ((!zoomed)); then
+    if ((!zoomed && gutter_expanded)); then
       local cur_g=0 list_max
       [[ -n ${gutter_pane:-} ]] && cur_g=$gutter_w
       sidebar_max_for "$ww" "$cur_g"
@@ -1630,6 +1727,31 @@ sidebar() {
       continue
     fi
 
+    # The border has moved, or the window has, and the diff pane is no longer
+    # the width delta drew it at: narrower folds every full row, wider leaves
+    # blank columns at its right. Once the border has stopped moving it is drawn
+    # again for the width it has. Until then the list holds, without a highlight
+    # and without the keys, rather than mapping a diff about to be thrown away:
+    # remapping a folded one costs a second on a large range. Asked rather than
+    # waited for meanwhile, since a push is up to a second behind the drag.
+    if redraw_due "$ww" "$list_now" "$drawn_w" "$zoomed" "$gutter_target" "$gutter_w"; then
+      if [[ "$ww $list_now" != "$settle_geom" ]]; then
+        settle_geom="$ww $list_now"
+        settle_turns=0
+      fi
+      settle_turns=$((settle_turns + 1))
+      if ((settle_turns < redraw_settle_turns)); then
+        ask_next=1
+        hold_list
+        continue
+      fi
+      redraw_settled "$pane" "$range" "$ww" "$list_now"
+      redraw_at=$last_cur
+      continue
+    fi
+    # Back where the diff was drawn for, so a drag out again is a new one.
+    settle_geom=''
+
     # Resizing the diff makes tmux reflow its scrollback, which moves every row.
     if ((dw != diff_width)); then
       diff_width=$dw
@@ -1657,6 +1779,13 @@ sidebar() {
       continue
     fi
 
+    # A redraw starts the diff at the top. Once the new render is mapped, the
+    # reader goes back to the commit they were reading when they dragged.
+    if ((redraw_at >= 0 && mapped)); then
+      select_index "$redraw_at"
+      redraw_at=-1
+    fi
+
     # Where the reader is as far as the keys are concerned: the row reported by
     # the pane, unless something has been asked for since and not yet arrived
     # there. Everything the keys do is measured from this rather than from the
@@ -1668,6 +1797,7 @@ sidebar() {
     local cur settled=1
     current_index "$at_row"
     cur=$REPLY
+    last_cur=$cur
 
     # A move this loop drew but the server has not reported yet. Its state
     # still describes where the reader was, so the highlight is left where it
@@ -4193,7 +4323,7 @@ paint_gutter() {
 gutter_can_expand() {
   local window=$1 left
   ((${gutter_reserved:-0} > 0)) || return 1
-  columns_for "$window"
+  list_drawn_for "$window"
   left=$((REPLY - (gutter_reserved - gutter_thin)))
   ((left >= sidebar_min))
 }

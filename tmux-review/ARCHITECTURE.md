@@ -113,6 +113,7 @@ stateDiagram-v2
     Loaded --> Mapped: remap finds every commit
     Mapped --> Mapped: keys, comments, folds
     Mapped --> Loaded: diff width changed, row map dropped
+    Mapped --> Loading: drag settled, the diff respawned at a new width
     Mapped --> Opening: another range picked, retarget
     Mapped --> [*]: q, quit
 ```
@@ -124,6 +125,17 @@ stateDiagram-v2
   copy-mode at the top, unzooms the list and sets `@review_hist_base`.
 - **Loaded.** `diff_pane_cmd` sets `@review_loaded` and `@review_render_w`.
   The list's next turn builds the row map.
+- **Redraw.** When `redraw_plan` finds the diff pane a different width from
+  what delta drew (a dragged border or a resized window), the list holds
+  without a highlight and asks for the state every turn. Once the geometry has
+  stayed the same for `redraw_settle_turns` turns, `redraw_settled` respawns the
+  diff pane at the new width (`redraw`). The pane keeps its id, the old render
+  is cleared with `clear-history`, and `@review_loaded` goes back to 0 until the
+  new render is done. The row map and the folds are dropped; once the new
+  render is mapped, the list selects the commit the reader was in. `list_drawn`
+  then replaces the list's share in `diff_pinned_for` and `gutter_can_expand`,
+  so the comments pane measures from the new render. Not while the comments are
+  expanded: a wider drag is taken back then instead (the drag clamp).
 - **Retarget.** Picking another range in the header opens a new review from the
   old diff pane and closes the old window (`retarget`).
 - **Quit.** `q` from any pane selects the window the review was opened from
@@ -193,8 +205,9 @@ a new tmux process.
 
 ## The list's loop
 
-The real turn also tracks resizes, focus changes, the drag clamp and the agent
-guess. This is its spine:
+The real turn also tracks resizes, focus changes, redraws after a drag, the
+drag clamp while the comments are expanded, and the agent guess. This is its
+spine:
 
 ```mermaid
 flowchart TD
@@ -533,8 +546,8 @@ Options on tmux objects:
 | `@review` | window | `open` | the binding guards in `review.tmux` |
 | `@review_return` | window | `open` | `quit`, `retarget` |
 | `@review_diff_pane`, `@review_list_pane` | window | `open` | `keypress`, `nav`, `gutter`, `retarget` |
-| `@review_gutter_w` | window | `open` | `sidebar`, as the comments pane's reserve |
-| `@review_loaded` | window | `diff_pane_cmd` | the list, through `state_format` |
+| `@review_gutter_w` | window | `open`, `redraw` | `sidebar`, as the comments pane's reserve |
+| `@review_loaded` | window | `diff_pane_cmd`, `redraw` | the list, through `state_format` |
 | `@review_render_w` | diff pane | `diff_pane_cmd` | `fold_key` |
 | `@review_hist_base` | diff pane | `reveal_diff`, `settle_view`, the list, `fold_swap`, `fold_swap_early` | everything that turns a screen row into a scrollback row |
 | `@review_commit_rows`, `@review_file_rows`, `@review_stop_rows` | diff pane | `map_rows` | `nav` |
