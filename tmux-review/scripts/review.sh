@@ -457,15 +457,15 @@ load_change_summary() {
 }
 
 # Wide enough for the longest subject, date and author it will show, but bounded
-# so the diff keeps diff_min columns to read side by side in.
+# so the diff keeps diff_comfort columns to read side by side in.
 # A share of the window, then three clamps. Depends on nothing but the window,
 # which is what lets open work it out before either pane exists.
 columns_for() {
   local window=$1 need
   need=$((window * sidebar_pct / 100))
   ((need > sidebar_max)) && need=$sidebar_max
-  # The pane border costs a column too, so diff_min really is a minimum.
-  ((need > window - diff_min - 1)) && need=$((window - diff_min - 1))
+  # The pane border costs a column too, so diff_comfort is what the diff gets.
+  ((need > window - diff_comfort - 1)) && need=$((window - diff_comfort - 1))
   ((need < sidebar_min)) && need=$sidebar_min
   # REPLY rather than stdout, the way fit answers: a caller reading this
   # through $(...) pays a fork for it, and on a machine whose endpoint agent
@@ -4182,7 +4182,7 @@ paint_gutter() {
 # Expanding is the one state that has to be afforded. The marks are paid for out
 # of the diff before delta runs, but the cells that turn them into readable
 # comments come out of the commit list, and a narrow window has none to give: at
-# 200 columns the list is 70, and handing over the thirty-nine would leave 31 --
+# 200 columns the list is 59, and handing over the thirty-nine would leave 20 --
 # below sidebar_min, which is the width the list stops being able to say which
 # commit is which at. Refused rather than squeezed, and refused by reporting the
 # marks, so the caller has nothing to undo.

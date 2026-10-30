@@ -213,19 +213,22 @@ assert_eq 'the window less the list, the marks and two borders' 202 "$REPLY"
 # Independent of how wide the comments pane is at the time, which is what lets
 # the layout state it rather than work it out from what is left over.
 diff_pinned_for 200
-assert_eq 'and it follows the window down' $((200 - 70 - 3)) "$REPLY"
+assert_eq 'and it follows the window down' $((200 - 59 - 3)) "$REPLY"
 
 section 'columns_for: a share of the window, then the clamps'
 # Depends on the window alone -- which is what lets open settle the layout
 # before either pane exists, and the commits be measured by nobody.
-columns_for 200
-assert_eq 'a share of the window' $((200 * sidebar_pct / 100)) "$REPLY"
-columns_for 160
-assert_eq 'and it follows the window down' $((160 * sidebar_pct / 100)) "$REPLY"
+columns_for 225
+assert_eq 'a share of the window' $((225 * sidebar_pct / 100)) "$REPLY"
 columns_for 1000
 assert_eq 'capped, so a wide terminal goes to the diff' "$sidebar_max" "$REPLY"
-columns_for 140
-assert_eq 'bounded so the diff keeps diff_min' $((140 - diff_min - 1)) "$REPLY"
+# On a smaller display the share would leave delta too little to draw two
+# columns without wrapping most lines, so the list gives way first: it grows
+# past sidebar_min only once the diff has diff_comfort.
+columns_for 200
+assert_eq 'bounded so the diff keeps diff_comfort' $((200 - diff_comfort - 1)) "$REPLY"
+columns_for 160
+assert_eq 'down to the floor, where the diff takes the rest' "$sidebar_min" "$REPLY"
 columns_for 100
 assert_eq 'never below sidebar_min' "$sidebar_min" "$REPLY"
 columns_for 0
@@ -881,11 +884,12 @@ assert_eq 'and expanded wants every cell held back for it' 40 "$REPLY"
 # list stops being able to say which commit is which.
 gutter_want 200
 assert_eq 'a list that cannot afford it stays at the marks' 1 "$REPLY"
-# The narrowest window that can afford it: at 209 the list is 73, and 73 less
-# the thirty-nine is exactly sidebar_min. One column narrower and it is not.
-gutter_want 209
+# The narrowest window that can afford it: at 214 the list is 73, what is left
+# once the diff has diff_comfort, and 73 less the thirty-nine is exactly
+# sidebar_min. One column narrower and it is not.
+gutter_want 214
 assert_eq 'the narrowest window that can afford it does expand' 40 "$REPLY"
-gutter_want 208
+gutter_want 213
 assert_eq 'and one column under that cannot' 1 "$REPLY"
 # Refused, not deferred: collapsed is a state the caller can be left in, and
 # the reader pressed a key that did nothing rather than one that half-worked.
@@ -907,9 +911,9 @@ section 'gutter_can_expand: whether the commit list can pay for it'
 gutter_reserved=40
 gutter_can_expand 285
 assert_eq 'a wide window can' 0 "$?"
-gutter_can_expand 209
+gutter_can_expand 214
 assert_eq 'and so can the narrowest that leaves the list sidebar_min' 0 "$?"
-gutter_can_expand 208
+gutter_can_expand 213
 assert_eq 'one column under that cannot' 1 "$?"
 gutter_can_expand 200
 assert_eq 'nor can a window narrower still' 1 "$?"

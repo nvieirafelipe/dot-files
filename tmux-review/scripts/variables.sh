@@ -29,6 +29,12 @@ sidebar_min=34
 # What the diff is left with, so the list cannot grow until delta has no room to
 # show two columns.
 diff_min=100
+# What the diff is given before the list grows past sidebar_min. On a smaller
+# display the share would leave delta so little that most lines wrap in both
+# columns, and a dragged border cannot help afterwards: delta has already drawn
+# at the width it was told. At 160 columns the share left delta 101, and 140
+# of a commit's 596 rows wrapped; drawn at 123 instead, 74 did.
+diff_comfort=140
 
 # The pane above the list: the range, the agent a comment would go to, and the
 # count of what is being reviewed. Its own pane rather than three rows of the

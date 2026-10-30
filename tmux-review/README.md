@@ -260,6 +260,14 @@ not making them: the sidebar takes a share of the window worked out in
 arithmetic, so that neither pane has to wait on the other to learn how wide to
 draw.
 
+## Widths
+
+The list opens at 35% of the window and at most 80 columns, but never so wide
+that the diff gets fewer than 140 (`diff_comfort`). On a smaller display that
+puts it at its floor of 34 columns: at 160 columns the diff is drawn at 123
+rather than 101, and in the commit this was measured on, 74 rows wrap instead
+of 140.
+
 ## Tests
 
     ./run_tests
