@@ -129,6 +129,7 @@ In the diff, which is always in copy-mode:
 | `C`       | widen the comments column to read it, and narrow it again |
 | `R`       | discard the whole queue, after asking                     |
 | `a`       | choose which agent the comments go to                     |
+| `E`       | open the file at this line in the nvim in this session    |
 | `s`       | send everything queued to that agent                      |
 | `q`       | close the review, back to where it was opened from        |
 
@@ -140,7 +141,7 @@ repository and the range rather than by the window, so reopening the review
 will not bring it back.
 
 On the commit list: `j`/`k` step commits, `PgUp`/`PgDn` a page, `gg`/`G` the
-ends, `=`/`<`/`>` collapse and open the selected commit, and `c`/`s`/`a`/`q`
+ends, `=`/`<`/`>` collapse and open the selected commit, and `c`/`s`/`a`/`E`/`q`
 mean what they do in the diff.
 
 The header is a pane, so it is reached the way any pane is — `prefix + k` from
@@ -260,6 +261,16 @@ Every option read is a round trip to the server, and this plugin is built around
 not making them: the sidebar takes a share of the window worked out in
 arithmetic, so that neither pane has to wait on the other to learn how wide to
 draw.
+
+## Opening a line in nvim
+
+`E` opens the file under the cursor, at its line, in the first nvim running in
+the same tmux session, and switches to that pane. A visual selection opens at
+its first line. The nvim is found through the socket its server opens, so any
+nvim works without configuration. The line is the one delta numbered in the
+commit: if the working tree has changed since, it is near the line rather than
+on it. With no nvim in the session, or a file the working tree no longer has,
+`E` says so and does nothing.
 
 ## Widths
 

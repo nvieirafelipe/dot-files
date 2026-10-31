@@ -81,6 +81,9 @@ items:
           - name: Choose which agent
             key: a
             command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} a"'
+      - name: Open this line in nvim
+        key: E
+        command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} E"'
       - separator: true
       - name: +Navigate the diff
         key: j

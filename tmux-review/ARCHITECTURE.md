@@ -249,7 +249,7 @@ flowchart TD
 flowchart LR
     diffKey["key in the diff<br/>copy-mode-vi"]
     native["j, k, search, selection<br/>tmux copy-mode itself"]
-    routed["] [ } { c s a C R = #lt; #gt; q<br/>if-shell routes_left"]
+    routed["] [ } { c s a C R E = #lt; #gt; q<br/>if-shell routes_left"]
     whichkey["which-key menu<br/>review.sh key WIN KEY"]
     gutterKey["key in the comments pane<br/>gutter_key"]
     listIn["list pane's stdin<br/>send-keys -t bottom-left"]

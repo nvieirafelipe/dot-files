@@ -123,6 +123,13 @@ bind -T copy-mode-vi s if-shell -F "$routes_left" "send-keys -t '{bottom-left}' 
 bind -T copy-mode-vi a if-shell -F "$routes_left" "send-keys -t '{bottom-left}' a" \
   "if-shell -F '$zoomed_review' 'resize-pane -Z'"
 
+# E opens the file and line under the cursor in the nvim running in the same
+# session, and goes there. Routed like c, because the list holds the map that
+# says which file a row belongs to. It is copy-mode-vi's next-space-end
+# everywhere else, and keeps that outside a review.
+bind -T copy-mode-vi E if-shell -F "$routes_left" "send-keys -t '{bottom-left}' E" \
+  "send-keys -X next-space-end"
+
 # C shows the comments beside the lines they were written on, in a pane split
 # off the right of the diff, and hides it again. Like c, s and a it means
 # nothing else in copy-mode-vi -- tmux binds no single uppercase C there -- so

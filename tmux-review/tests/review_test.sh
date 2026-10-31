@@ -1620,7 +1620,7 @@ section 'read_key: the keys that reach the loop at all'
 # nothing. y was missing, so the question d asks in the comments pane could not
 # be answered from the pane the reader was standing in -- it timed out and kept
 # the comment every time.
-for rk_key in e d c s a C R j k q y Y '=' '<' '>'; do
+for rk_key in e d c s a C R E j k q y Y '=' '<' '>'; do
   printf '%s' "$rk_key" | { read_key 0.05; printf '%s' "$REPLY"; } > "$tmp_counts"
   assert_eq "read_key passes $rk_key through" "$rk_key" "$(/bin/cat "$tmp_counts")"
 done
@@ -3815,12 +3815,12 @@ assert_match 'prefix+g opens a review, in the background' \
   'bind-key g run-shell -b .*/scripts/review\.sh open #\{pane_id\}' "$bound"
 assert_match 'prefix+G is the working tree, in a popup' \
   'bind-key G display-popup .*/bin/git-review --wip' "$bound"
-assert_eq 'seventeen keys are bound in copy-mode' 17 \
+assert_eq 'eighteen keys are bound in copy-mode' 18 \
   "$(grep -o 'bind-key -T copy-mode-vi' <<<"$bound" | grep -c .)"
 # C and R are bound from the start even though the legend only offers them once
 # there is something queued: a binding that came and went would mean reloading
 # the configuration mid-review, which takes the review's own bindings with it.
-for k in ']' '\[' '}' '{' c C R s a n N q y Enter '=' '<' '>'; do
+for k in ']' '\[' '}' '{' c C R E s a n N q y Enter '=' '<' '>'; do
   matched=0; grep -q -- "bind-key -T copy-mode-vi $k " <<<"$bound" || matched=1
   assert_ok "$matched" "copy-mode $k is bound"
 done
@@ -3853,6 +3853,11 @@ done
 # for a dragged border once the drag stops, so there is nothing to press.
 assert_eq 'r is not bound, and stays refresh-from-pane' 0 \
   "$(grep -c 'bind-key -T copy-mode-vi r ' <<<"$bound")"
+# E is copy-mode-vi's next-space-end everywhere else, so it keeps that outside
+# a review, the way n keeps search-again.
+assert_match 'E opens the line in the editor from a review, and moves by WORD elsewhere' \
+  "bind-key -T copy-mode-vi E if-shell -F [^ ]*pane_at_left[^ ]* send-keys -t '\\{bottom-left\\}' E send-keys -X next-space-end" \
+  "$bound"
 assert_match 'every one is guarded on the window being a review' \
   '@review' "$bound"
 assert_match 'and on the pane being read rather than showing output' \
@@ -4264,6 +4269,116 @@ unset -f tmux anchor_rows anchor_text; restore_review
 unset comment_msgs add_store anchor_rc text_rc queued editor_writes
 unset a_commit a_file a_first a_last a_block
 
+section 'editor_pane: the nvim in the session the review is in'
+# One row a pane, as list-panes -s writes them: the pane, its process, what it
+# is running, and its window.
+ep_us=$'\x1f'
+ep_shell="%1${ep_us}101${ep_us}zsh${ep_us}@1"
+ep_nvim="%4${ep_us}104${ep_us}nvim${ep_us}@2"
+ep_other="%6${ep_us}106${ep_us}nvim${ep_us}@3"
+editor_pane "$ep_shell"$'\n'"$ep_nvim"$'\n'"$ep_other"
+assert_eq 'the first pane running nvim, with its process and its window' \
+  '%4 104 @2' "$REPLY $REPLY_PID $REPLY_WINDOW"
+editor_pane "$ep_shell"
+assert_eq 'a session with no nvim has none to give' 1 "$?"
+unset ep_us ep_shell ep_nvim ep_other
+
+section 'editor_socket: the server of the nvim running in a pane'
+# nvim is two processes: the one in the pane draws, and the nvim --embed it
+# starts is the server, listening on nvim.<its pid>.0 under the run directory.
+# The pane's own process is a shell, unless nvim was the pane's command.
+es_dir=$(mktemp -d)
+mkdir -p "$es_dir/nvim.$USER/a1" "$es_dir/nvim.$USER/b2"
+: >"$es_dir/nvim.$USER/a1/nvim.201.0"
+# Left by an nvim that has since gone: no live process owns it.
+: >"$es_dir/nvim.$USER/b2/nvim.999.0"
+es_ps=$'  104     1 -zsh\n  200   104 nvim\n  201   200 nvim\n  500     1 nvim'
+editor_socket "$es_ps" 104 "$es_dir"
+assert_eq 'the server under the pane, found by its pid' \
+  "$es_dir/nvim.$USER/a1/nvim.201.0" "$REPLY"
+# nvim as the pane's own command, and an older nvim that is its own server.
+: >"$es_dir/nvim.$USER/b2/nvim.300.0"
+editor_socket $'  300     1 /opt/homebrew/bin/nvim' 300 "$es_dir"
+assert_eq 'the pane process itself, named by its path' \
+  "$es_dir/nvim.$USER/b2/nvim.300.0" "$REPLY"
+editor_socket $'  104     1 -zsh\n  200   104 nvim\n  999     1 nvim' 104 "$es_dir"
+assert_eq 'and nothing when no nvim under the pane is listening' 1 "$?"
+/bin/rm -rf "$es_dir"
+unset es_dir es_ps
+
+section 'open_in_editor: E sends the line under the cursor to the nvim beside it'
+oe_root=$(mktemp -d)
+mkdir -p "$oe_root/a dir" "$oe_root/run/nvim.$USER/a1"
+: >"$oe_root/a dir/it's.txt"
+: >"$oe_root/run/nvim.$USER/a1/nvim.201.0"
+oe_sock="$oe_root/run/nvim.$USER/a1/nvim.201.0"
+oe_us=$'\x1f'
+anchor_rows() { ANCHOR_FIRST_ROW=10; ANCHOR_LAST_ROW=10; ANCHOR_HIST=100; return 0; }
+anchor_text() {
+  ANCHOR_COMMIT=40c21a5; ANCHOR_FILE=$oe_file; ANCHOR_FIRST=$oe_line
+  ANCHOR_LAST=$oe_line; ANCHOR_BLOCK=''
+  return 0
+}
+tmux() {
+  case $1 in
+    list-panes) printf '%s\n' "$oe_panes" ;;
+    display-message) oe_log+="[msg ${*:2}]" ;;
+    *) oe_log+="[$*]" ;;
+  esac
+  return 0
+}
+ps() { printf '%s\n' "$oe_ps"; }
+nvim() { oe_log+="[nvim $*]"; return "$oe_nvim_rc"; }
+oe_reset() {
+  oe_file="a dir/it's.txt" oe_line=42 oe_nvim_rc=0 oe_log=''
+  oe_panes="%1${oe_us}101${oe_us}zsh${oe_us}@1"$'\n'"%4${oe_us}104${oe_us}nvim${oe_us}@2"
+  oe_ps=$'  104     1 -zsh\n  200   104 nvim\n  201   200 nvim'
+}
+oe_tmpdir=${TMPDIR:-}
+TMPDIR="$oe_root/run"
+
+oe_reset
+open_in_editor '%7' "$oe_root"
+assert_eq 'the file goes to that nvim at the line, and the reader goes with it' \
+  "[nvim --server $oe_sock --remote-expr execute(['stopinsert', 'drop +42 ' . fnameescape('$oe_root/a dir/it''s.txt')])][select-window -t @2 ; select-pane -t %4]" \
+  "$oe_log"
+
+oe_reset
+oe_panes="%1${oe_us}101${oe_us}zsh${oe_us}@1"
+open_in_editor '%7' "$oe_root"
+assert_eq 'with no nvim in the session it says so, and sends nothing' \
+  '[msg review: no nvim open in this session]' "$oe_log"
+
+oe_reset
+oe_line=''
+open_in_editor '%7' "$oe_root"
+assert_eq 'a row that is no line of a file has nothing to open' \
+  '[msg review: no line of a file under the cursor]' "$oe_log"
+
+oe_reset
+oe_file='gone.txt'
+open_in_editor '%7' "$oe_root"
+assert_eq 'a file the working tree no longer has is not opened empty' \
+  '[msg review: gone.txt is not in the working tree]' "$oe_log"
+
+oe_reset
+oe_ps=$'  104     1 -zsh\n  200   104 nvim\n  202   200 nvim'
+open_in_editor '%7' "$oe_root"
+assert_eq 'an nvim with no server to reach says so' \
+  '[msg review: the nvim in %4 is not listening]' "$oe_log"
+
+oe_reset
+oe_nvim_rc=1
+open_in_editor '%7' "$oe_root"
+assert_eq 'and a send that fails says so, and leaves the reader where they are' \
+  "[nvim --server $oe_sock --remote-expr execute(['stopinsert', 'drop +42 ' . fnameescape('$oe_root/a dir/it''s.txt')])][msg review: the nvim in %4 did not take the file]" \
+  "$oe_log"
+
+TMPDIR=$oe_tmpdir
+/bin/rm -rf "$oe_root"
+unset -f tmux ps nvim anchor_rows anchor_text oe_reset; restore_review
+unset oe_root oe_sock oe_us oe_file oe_line oe_nvim_rc oe_log oe_panes oe_ps oe_tmpdir
+
 section 'edit_comment: the same editor, under the references as recorded'
 # The end to end section presses e and d against a real review, but only down
 # the one path a reader takes when nothing goes wrong. These are the rest: the
@@ -4471,6 +4586,7 @@ sidebar_run() {
     pick_keys() { printf 'PICKKEYS %s\n' "$*" >>"$sb_log"; picking=0; }
     fold_key() { printf 'FOLD %s\n' "$*" >>"$sb_log"; mapped=0; }
     redraw() { printf 'REDRAW %s\n' "$*" >>"$sb_log"; }
+    open_in_editor() { printf 'OPEN %s\n' "$*" >>"$sb_log"; }
     sidebar '%7' '%6' "$sb_hdr" 'base..HEAD' 220 40
   ) <<<"$keys" >"$sb_out" 2>&1
   sb_seen=$(cat "$sb_log")
@@ -4582,6 +4698,10 @@ assert_eq 'a list where the diff was drawn for draws nothing and moves nothing' 
   "$(grep -c -e 'goto-line' -e 'REDRAW' <<<"$sb_seen")"
 redraw_settle_turns=$sb_settle
 unset sb_settle
+
+# E hands the line under the diff's cursor to the editor beside the review.
+sidebar_run 'E' "$sb_normal" "$sb_normal" "$sb_normal"
+assert_match 'E opens the line under the cursor in the editor' 'OPEN %7' "$sb_seen"
 
 # a reaches the agent picker without having to walk the selection to its row.
 sidebar_run 'a' "$sb_normal" "$sb_normal" "$sb_normal"
@@ -5359,6 +5479,93 @@ else
 fi
 rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$wsock"
 unset wsock wpane wwin wdiff wlist
+
+# E, against a real nvim found the way it is found in use: by the socket its
+# server opens under the run directory, not one it was told to listen on. A
+# throwaway repository, so the line is known: line 20 of 30 is rewritten, and
+# a search puts the diff's cursor on it.
+section 'E: the line under the cursor, opened in the nvim beside the review'
+esock=review-editor-$$
+etmp=$(mktemp -d)
+(
+  cd "$etmp" || exit 1
+  git init -q -b main .
+  git config user.email t@example.com
+  git config user.name Test
+  git config commit.gpgsign false
+  for n in $(seq 1 30); do printf 'line %02d\n' "$n"; done >notes.txt
+  git add notes.txt
+  git commit -qm 'add the notes'
+  sed -i '' 's/^line 20$/line 20 EDITED/' notes.txt
+  git commit -qam 'edit line 20'
+) >/dev/null 2>&1
+etop=$(git -C "$etmp" rev-parse --show-toplevel)
+if ! want_live; then
+  skip 'the line opened in nvim' 'live sections are out of scope'
+elif ! command -v nvim >/dev/null; then
+  skip 'the line opened in nvim' 'nvim is not installed'
+elif ! tmux -L "$esock" -f /dev/null new-session -d -x 200 -y 45 -c "$etmp" \
+  'sleep 900' 2>/dev/null; then
+  skip 'the line opened in nvim' 'no tmux server could be started'
+else
+  tmux -L "$esock" set-option -g history-limit 50000
+  epane=$(tmux -L "$esock" display-message -p '#{pane_id}')
+  enpane=$(tmux -L "$esock" new-window -d -P -F '#{pane_id}' -c "$etmp" 'nvim --clean')
+  # The socket appears once nvim's server is up, a moment after the pane is.
+  esrv=''
+  for _ in $(seq 1 80); do
+    editor_socket "$(ps -A -o pid=,ppid=,comm=)" \
+      "$(tmux -L "$esock" display-message -p -t "$enpane" '#{pane_pid}')" \
+      "${TMPDIR:-/tmp}" /tmp && esrv=$REPLY && break
+    sleep 0.25
+  done
+  tmux -L "$esock" run-shell -b -t "$epane" \
+    "$plugin/scripts/review.sh open $epane HEAD~1..HEAD"
+  ewin=''
+  for _ in $(seq 1 120); do
+    ewin=$(tmux -L "$esock" list-windows -F '#{window_id} #{window_name}' 2>/dev/null |
+      grep review | cut -d' ' -f1)
+    [[ -n $ewin ]] && break
+    sleep 0.25
+  done
+  if [[ -z $esrv || -z $ewin ]]; then
+    skip 'the line opened in nvim' 'nvim or the review never came up'
+  else
+    ediff=$(tmux -L "$esock" show-options -w -t "$ewin" -qv @review_diff_pane)
+    elist=$(tmux -L "$esock" show-options -w -t "$ewin" -qv @review_list_pane)
+    for _ in $(seq 1 200); do
+      [[ -n $(tmux -L "$esock" show-options -p -t "$ediff" -qv @review_commit_rows 2>/dev/null) ]] &&
+        break
+      sleep 0.25
+    done
+    tmux -L "$esock" send-keys -X -t "$ediff" search-forward 'EDITED'
+    sleep 0.5
+    tmux -L "$esock" send-keys -t "$elist" E
+    eat=''
+    for _ in $(seq 1 40); do
+      eat=$(nvim --server "$esrv" --remote-expr 'expand("%:p") . ":" . line(".")' 2>/dev/null)
+      [[ $eat == *notes.txt:* ]] && break
+      sleep 0.25
+    done
+    assert_eq 'E opens the file at the line under the cursor in that nvim' \
+      "$etop/notes.txt:20" "$eat"
+    assert_eq 'and leaves nvim in normal mode, ready to read' n \
+      "$(nvim --server "$esrv" --remote-expr 'mode()' 2>/dev/null)"
+    # The focus moves once nvim has answered, so it is waited for too.
+    efocus=''
+    for _ in $(seq 1 20); do
+      efocus=$(tmux -L "$esock" list-panes -s -F '#{pane_id}' \
+        -f '#{&&:#{window_active},#{pane_active}}')
+      [[ $efocus == "$enpane" ]] && break
+      sleep 0.25
+    done
+    assert_eq 'and takes the reader to it' "$enpane" "$efocus"
+  fi
+  tmux -L "$esock" kill-server 2>/dev/null
+fi
+/bin/rm -rf "$etmp"
+rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$esock"
+unset esock etmp etop epane enpane esrv ewin ediff elist eat efocus
 
 # A routed key is sent to {left}, and {left} is the leftmost *visible* pane --
 # so in any arrangement where the pressing pane is itself the leftmost visible

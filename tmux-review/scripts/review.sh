@@ -2028,6 +2028,10 @@ sidebar() {
       add_comment "$pane" "$store"
       continue
     fi
+    if [[ $key == E ]]; then
+      open_in_editor "$pane" "$repo_root"
+      continue
+    fi
     if [[ $key == s ]]; then
       send_comments "$win" "$store" "$range"
       continue
@@ -2237,7 +2241,7 @@ read_key() {
     # z is the key this plugin wakes a pane with -- the diff sends it to the
     # list when it has finished, and the list sends it to the header when what
     # is drawn there has changed. It means nothing in the list's own loop.
-    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z | C | R | e | d) ;;
+    j | k | n | N | ']' | '[' | '}' | '{' | q | c | s | a | z | C | R | E | e | d) ;;
     # Collapse, open, and turn over, after vim-fugitive's three keys for the
     # same thing.
     '=' | '<' | '>') ;;
@@ -2833,6 +2837,107 @@ add_comment() {
     "$ANCHOR_LAST" "$ANCHOR_BLOCK" "$REPLY"
   comments=$(comment_count "$store")
   tmux display-message "review: $comments queued for ${agent_label_cur:-no agent}"
+  return 0
+}
+
+# The editor E sends the file to: the first pane in the session running nvim,
+# read off list-panes -s rows of pane, process, command and window. REPLY is
+# the pane, REPLY_PID the process the pane was started with, which is a shell
+# unless nvim was run as the pane's command, and REPLY_WINDOW its window.
+editor_pane() {
+  local panes=$1 pane pid cmd win
+  REPLY='' REPLY_PID='' REPLY_WINDOW=''
+  while IFS=$'\x1f' read -r pane pid cmd win; do
+    [[ $cmd == nvim ]] || continue
+    REPLY=$pane
+    REPLY_PID=$pid
+    REPLY_WINDOW=$win
+    return 0
+  done <<<"$panes"
+  return 1
+}
+
+# The socket of the nvim running in a pane, given ps rows of pid, parent and
+# command, the pane's process, and the run directories nvim listens under.
+#
+# nvim is two processes: the one in the pane draws, and the nvim --embed it
+# starts is the server, listening on nvim.<pid>.0 named after itself. So the
+# pane's process and everything under it is walked, and the first nvim among
+# them with a socket is the answer. Matching on live pids is what makes the
+# sockets a crashed nvim leaves behind harmless: no process owns them.
+editor_socket() {
+  local listing=$1 root=$2 pid parent cmd dir sock i=0 user=${USER:-}
+  shift 2
+  local -A children=() name=()
+  local -a walk=("$root")
+  while read -r pid parent cmd; do
+    [[ -n $pid ]] || continue
+    children[$parent]+="$pid "
+    name[$pid]=${cmd##*/}
+  done <<<"$listing"
+  REPLY=''
+  while ((i < ${#walk[@]})); do
+    pid=${walk[i]}
+    i=$((i + 1))
+    # shellcheck disable=SC2206 # a list of pids, split on purpose
+    walk+=(${children[$pid]:-})
+    [[ ${name[$pid]:-} == nvim ]] || continue
+    for dir in "$@"; do
+      for sock in "${dir%/}/nvim.$user"/*/"nvim.$pid.0"; do
+        [[ -e $sock ]] || continue
+        REPLY=$sock
+        return 0
+      done
+    done
+  done
+  return 1
+}
+
+# E. The file and line under the cursor -- or at the top of the selection --
+# opened in the nvim running beside the review, in the same session, and the
+# reader taken to it. The line is the one delta numbered, which is the line in
+# the commit: if the working tree has moved on since, it is near rather than on.
+#
+# Sent with --remote-expr rather than as keys: an expression runs whatever mode
+# nvim is in and needs only its quotes escaped, where keys would need every <
+# and space spelled out. drop rather than edit, so a window already showing the
+# file is the one used. Every way this can come to nothing is said, because an
+# E that does nothing reads as a binding that is not there.
+open_in_editor() {
+  local dpane=$1 root=$2 file line path pane win listing
+  anchor_rows "$dpane" || return 0
+  if ! anchor_text "$dpane" "$ANCHOR_FIRST_ROW" "$ANCHOR_LAST_ROW" "$ANCHOR_HIST" ||
+    [[ -z $ANCHOR_FILE || -z $ANCHOR_FIRST ]]; then
+    tmux display-message 'review: no line of a file under the cursor'
+    return 0
+  fi
+  file=$ANCHOR_FILE
+  line=$ANCHOR_FIRST
+  path=$root/$file
+  if [[ ! -e $path ]]; then
+    tmux display-message "review: $file is not in the working tree"
+    return 0
+  fi
+  if ! editor_pane "$(tmux list-panes -s -t "$dpane" \
+    -F '#{pane_id}'$'\x1f''#{pane_pid}'$'\x1f''#{pane_current_command}'$'\x1f''#{window_id}' \
+    2>/dev/null)"; then
+    tmux display-message 'review: no nvim open in this session'
+    return 0
+  fi
+  pane=$REPLY
+  win=$REPLY_WINDOW
+  listing=$(ps -A -o pid=,ppid=,comm= 2>/dev/null) || listing=''
+  if ! editor_socket "$listing" "$REPLY_PID" "${TMPDIR:-/tmp}" /tmp; then
+    tmux display-message "review: the nvim in $pane is not listening"
+    return 0
+  fi
+  if ! nvim --server "$REPLY" --remote-expr \
+    "execute(['stopinsert', 'drop +$line ' . fnameescape('${path//\'/\'\'}')])" \
+    >/dev/null 2>&1; then
+    tmux display-message "review: the nvim in $pane did not take the file"
+    return 0
+  fi
+  tmux select-window -t "$win" ';' select-pane -t "$pane"
   return 0
 }
 
