@@ -25,6 +25,9 @@
       "mcp__plugin_Notion_notion__notion-create-pages",
       "mcp__plugin_Notion_notion__notion-update-page",
       "mcp__plugin_Notion_notion__notion-move-pages"
+    ],
+    "deny": [
+      "Skill(caveman:caveman-commit)"
     ]
   },
   "hooks": {
