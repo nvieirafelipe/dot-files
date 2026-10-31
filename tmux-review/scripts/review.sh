@@ -2798,7 +2798,11 @@ compose_comment() {
     printf '#\n# Lines beginning with # are dropped. Save nothing to cancel.\n'
   } >"$tmp"
 
-  tmux display-popup -E -w 80% -h 60% -T ' comment ' \
+  # Started beside the draft. Without -d the popup starts where the session
+  # does, which is the repository under review, and a :w\ that meant :w wrote
+  # the draft into the working tree as a file named \ -- one an agent's
+  # git add . would commit.
+  tmux display-popup -E -w 80% -h 60% -T ' comment ' -d "${tmp%/*}" \
     "\${EDITOR:-vi} $(printf '%q' "$tmp")"
 
   body=$(sed -e '/^#/d' -e 's/[[:space:]]*$//' "$tmp")

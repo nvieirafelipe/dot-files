@@ -4226,6 +4226,14 @@ tmux() {
       # file is what follows the space in it. Taken positionally rather than
       # out of "$*", which joins on IFS, and IFS is not always a space here.
       popup_cmd=${*: -1}
+      # And the directory it is started in, which is what a relative write from
+      # the editor lands in.
+      popup_dir=''
+      local arg prev=''
+      for arg in "$@"; do
+        [[ $prev == -d ]] && popup_dir=$arg
+        prev=$arg
+      done
       [[ -n $editor_writes ]] && printf '%s\n' "$editor_writes" >>"${popup_cmd##* }"
       ;;
     display-message) comment_msgs+="[${*:2}]" ;;
@@ -4240,6 +4248,12 @@ agent_label_cur='󰚩  main:2  web'
 editor_writes='the guard runs after this'
 comment_msgs=''; add_comment '%7' "$add_store"
 assert_eq 'the comment is queued' 1 "$(comment_count "$add_store")"
+# Started beside its draft rather than wherever the session is, which is the
+# repository under review: a :w\ that meant :w wrote the draft into the working
+# tree as a file named \.
+popup_draft=${popup_cmd##* }
+assert_eq 'the editor runs in the directory of its draft, not the repository' \
+  "${popup_draft%/*}" "$popup_dir"
 assert_match 'and the count and the agent are reported' \
   '1 queued for 󰚩  main:2  web' "$comment_msgs"
 queued=$(comment_prompt "$add_store" 'base..HEAD' repo)
@@ -4266,7 +4280,7 @@ anchor_rc=1; comment_msgs=''; add_comment '%7' "$add_store"
 assert_eq 'and a pane that reports no rows is left alone' '' "$comment_msgs"
 /bin/rm -f "$add_store"
 unset -f tmux anchor_rows anchor_text; restore_review
-unset comment_msgs add_store anchor_rc text_rc queued editor_writes
+unset comment_msgs add_store anchor_rc text_rc queued editor_writes popup_dir popup_draft
 unset a_commit a_file a_first a_last a_block
 
 section 'editor_pane: the nvim in the session the review is in'
@@ -6249,6 +6263,9 @@ section 'end to end: a comment is written, stepped onto, and deleted'
 e2e_sock=review-e2e-$$
 e2e_ed=$(mktemp "${TMPDIR:-/tmp}/review-e2e-editor.XXXXXX")
 e2e_bodyfile=$(mktemp "${TMPDIR:-/tmp}/review-e2e-body.XXXXXX")
+# Where the editor found itself, and where its draft is, both resolved: a
+# relative write from the editor lands in the first, and it must be the second.
+e2e_cwdfile=$(mktemp "${TMPDIR:-/tmp}/review-e2e-cwd.XXXXXX")
 e2e_body='a comment written by the test'
 printf '%s\n' "$e2e_body" >"$e2e_bodyfile"
 # The body is copied from a file rather than written into the script, so that
@@ -6256,6 +6273,7 @@ printf '%s\n' "$e2e_body" >"$e2e_bodyfile"
 cat >"$e2e_ed" <<EOF
 #!/usr/bin/env bash
 /bin/cat $(printf '%q' "$e2e_bodyfile") >"\$1"
+printf '%s %s\n' "\$(pwd -P)" "\$(cd "\$(dirname "\$1")" && pwd -P)" >$(printf '%q' "$e2e_cwdfile")
 EOF
 chmod +x "$e2e_ed"
 
@@ -6372,6 +6390,11 @@ else
     e2e_type c
     for _ in $(seq 1 60); do (($(e2e_count) >= 1)) && break; sleep 0.25; done
     assert_eq 'c writes one through the editor and queues it' 1 "$(e2e_count)"
+    # Not the repository, which is where the session is: a :w\ there left the
+    # draft in the working tree as a file named \.
+    read -r e2e_ed_cwd e2e_ed_draft <"$e2e_cwdfile"
+    assert_eq 'and the editor ran beside its draft, not in the repository' \
+      "$e2e_ed_draft" "${e2e_ed_cwd:-}"
 
     # A second, somewhere else in the diff, so that deleting one leaves the
     # other -- an emptied queue and a queue with the wrong record gone look the
@@ -6443,9 +6466,9 @@ else
   kill "${E2E_PTY:-0}" 2>/dev/null || true
   tmux -L "$e2e_sock" kill-server 2>/dev/null || true
 fi
-/bin/rm -f "$e2e_ed" "$e2e_bodyfile" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$e2e_sock"
+/bin/rm -f "$e2e_ed" "$e2e_bodyfile" "$e2e_cwdfile" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$e2e_sock"
 unset -f e2e_attach e2e_waitc e2e_type
-unset e2e_sock e2e_ed e2e_bodyfile e2e_body e2e_pane e2e_win e2e_diff e2e_list
+unset e2e_sock e2e_ed e2e_bodyfile e2e_cwdfile e2e_ed_cwd e2e_ed_draft e2e_body e2e_pane e2e_win e2e_diff e2e_list
 unset e2e_store e2e_gut
 unset e2e_clients e2e_client E2E_PTY
 
