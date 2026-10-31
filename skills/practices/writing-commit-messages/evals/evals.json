@@ -1,0 +1,83 @@
+{
+  "skill_name": "writing-commit-messages",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Write a commit message for the staged changes described in evals/files/mixed-staging.md.",
+      "expected_output": "One Conventional Commits message for the staged cache-key fix only, in a code block.",
+      "files": ["evals/files/mixed-staging.md"],
+      "expectations": [
+        "The header starts with `fix` and uses the `cache` scope, matching the scopes in history",
+        "The message does not mention the ranker or the recency weight, which are unstaged",
+        "The description starts with a lowercase imperative verb and has no final period",
+        "The header is 72 characters or fewer",
+        "Any body explains that different locales shared a cache key, without listing files",
+        "The message is not marked as a breaking change",
+        "The response does not run git commit or stage files",
+        "The response does not suggest installing a commit linter"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Write a commit message for the staged change described in evals/files/plain-history.md.",
+      "expected_output": "A plain imperative subject matching the repository's history, with no type prefix.",
+      "files": ["evals/files/plain-history.md"],
+      "expectations": [
+        "The subject has no Conventional Commits prefix such as `feat:` or `feat(tmux):`",
+        "The subject starts with a capitalized imperative verb, like the history",
+        "The subject names the new file-jump keys in the review",
+        "The subject has no final period and is 72 characters or fewer",
+        "The response does not suggest adopting Conventional Commits or installing a commit linter"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Write a commit message for the staged changes described in evals/files/breaking-rename.md.",
+      "expected_output": "A Conventional Commits message within the configured rules that marks the environment variable rename as breaking and tells deployers what to change.",
+      "files": ["evals/files/breaking-rename.md"],
+      "expectations": [
+        "The header uses the `config` scope, which the configured scope-enum allows",
+        "The header is 60 characters or fewer, following the configured header-max-length",
+        "The change is marked breaking with `!` before the colon, a `BREAKING CHANGE:` footer, or both",
+        "The message tells deployers to set `DATABASE_URL` instead of `DB_URL`",
+        "The README edit is not described as a separate change or given its own type"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review the commit message `Fixed stuff.` for the staged changes in evals/files/mixed-staging.md.",
+      "expected_output": "The problems with the message, followed by a corrected Conventional Commits message.",
+      "files": ["evals/files/mixed-staging.md"],
+      "expectations": [
+        "The review says the subject does not name the changed behavior",
+        "The review says the history uses Conventional Commits and the message has no type",
+        "The review flags the final period or the past-tense verb",
+        "A corrected message starting with `fix(cache):` is supplied in a code block",
+        "The corrected message does not mention the unstaged ranker change"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Write the message for reverting commit 3f2a9c1, `feat(search): rank results by recency`, in the repository described in evals/files/mixed-staging.md.",
+      "expected_output": "A revert message using the revert type and a Refs footer with the reverted SHA.",
+      "files": ["evals/files/mixed-staging.md"],
+      "expectations": [
+        "The header uses the `revert` type",
+        "The description identifies the reverted change, ranking results by recency",
+        "A `Refs:` footer lists 3f2a9c1",
+        "The message does not invent a reason for the revert"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "How should this Elixir repository enforce Conventional Commits? It has no commit linter yet.",
+      "expected_output": "A recommendation of git_ops with a commit-msg hook, without drafting a commit message.",
+      "files": [],
+      "expectations": [
+        "The response recommends git_ops",
+        "The response names `mix git_ops.message_hook` or elixir_git_hooks to run the check on commit",
+        "The response does not install anything or edit files without being asked"
+      ]
+    }
+  ]
+}
