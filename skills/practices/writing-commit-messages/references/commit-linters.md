@@ -23,7 +23,8 @@ asks how to enforce a convention.
 Hook managers do not lint by themselves. Read the `commit-msg` entry to see which linter
 it calls: `.husky/commit-msg`, a `commit-msg:` section in `lefthook.yml`,
 `stages: [commit-msg]` in `.pre-commit-config.yaml`, or `config :git_hooks` in an
-Elixir project.
+Elixir project. A `make` target or package script that runs one of these tools also
+reveals it.
 
 Release tools that compute versions from commit types also imply Conventional Commits,
 even without a linter: semantic-release (`.releaserc*`, or a `release` key in
@@ -45,6 +46,15 @@ that is missing.
 | convco | `convco check --from-stdin < "$draft"` |
 | committed | `committed --commit-file "$draft"` |
 | git_ops | `mix git_ops.check_message "$draft"` |
+
+commitlint can live in a nested npm project, such as a front-end `assets/` directory,
+with a root config that extends the preset by path. `npx --no commitlint` run from the
+root then finds no binary. Call the nested binary by path from the root instead:
+`assets/node_modules/.bin/commitlint < "$draft"`. Do not rely on `npx --prefix <dir>`
+for this. UNVERIFIED: one report has npm 10 downloading commitlint from the registry
+there, while npm 11 used the nested install. If the nested `node_modules` is missing,
+the linter is declared but not installed. Report that the draft was not linted and name
+the install command, such as `npm --prefix assets ci`, instead of running it.
 
 Sources: commitlint reads stdin when `--edit`, `--env`, `--from`, and `--to` are
 omitted ([CLI reference][commitlint-cli]). commitizen documents `--message` and
