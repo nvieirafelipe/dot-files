@@ -7,8 +7,9 @@
 # does not pass on the most recent .livemd in
 # .snippets/issue-*/ matching the current branch, OR if any cell output
 # in those notebooks reports ExUnit failures (a `[1-9][0-9]* failure`
-# line) or contains a `TODO` marker. The two checks correspond to the
-# two pass conditions documented in
+# line), OR if the notebook's Solution Critique section still lists a
+# `TODO` item. The first two checks correspond to the two pass
+# conditions documented in
 # references/solution-verifier.md#the-two-pass-conditions.
 #
 # Usage:
@@ -34,7 +35,7 @@ set -euo pipefail
 readonly SCRIPT_NAME="${0##*/}"
 
 usage() {
-  sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 log()   { printf '[%s] %s\n' "$SCRIPT_NAME" "$*" >&2; }
@@ -111,12 +112,21 @@ for livemd in "${LIVEMDS[@]}"; do
   # Re-render the notebook and scan for unsatisfied ACs. `playbill show`
   # prints the captured cell outputs alongside the markdown. Pass
   # condition 2 from solution-verifier.md: zero ExUnit failures in the
-  # baseline. TODO markers in the Solution Critique also block.
-  if playbill show "$livemd" 2>/dev/null \
-      | grep -nE '[1-9][0-9]* failure|TODO' >/dev/null; then
-    echo "[pre-push] FAIL: $livemd reports ExUnit failures or TODO markers." >&2
-    echo "        Every AC cell must record 0 failures and the Solution" >&2
-    echo "        Critique must have no TODO items before push." >&2
+  # baseline.
+  RENDERED="$(playbill show "$livemd" 2>/dev/null || true)"
+  if grep -qE '[1-9][0-9]* failure' <<<"$RENDERED"; then
+    echo "[pre-push] FAIL: $livemd reports ExUnit failures." >&2
+    echo "        Every AC cell must record 0 failures before push." >&2
+    FAILED=1
+  fi
+
+  # TODO items block only inside the Solution Critique (pr-phase.md). The
+  # word may appear anywhere else, e.g. as a plan step's status label in
+  # helper code, without meaning the work is unfinished.
+  CRITIQUE="$(awk '/^## /{critique = ($0 ~ /^## Solution Critique/)} critique' <<<"$RENDERED")"
+  if grep -q 'TODO' <<<"$CRITIQUE"; then
+    echo "[pre-push] FAIL: $livemd has TODO items in its Solution Critique." >&2
+    echo "        Resolve or remove them before push." >&2
     FAILED=1
   fi
 done
