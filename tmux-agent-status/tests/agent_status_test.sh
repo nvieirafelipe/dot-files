@@ -490,6 +490,34 @@ panes=''
 assert_eq 'a window with no panes says the same' '' "$(agent_in_window '@1')"
 unset -f tmux
 
+section 'codex_pane: the TUI a hook from the shared daemon is about'
+# Every pane on the server, as list-panes -a gives them: id, command, path.
+us=$'\x1f'
+all_panes=''
+tmux() { [[ $1 == list-panes ]] || return 0; printf '%s\n' "$all_panes"; }
+cp_dir=$(mktemp -d)
+cp_dir=$(cd -P "$cp_dir" && pwd)
+mkdir "$cp_dir/repo"
+ln -s "$cp_dir/repo" "$cp_dir/link"
+all_panes="%1${us}zsh${us}$cp_dir"$'\n'"%2${us}nvim${us}$cp_dir/repo"
+all_panes+=$'\n'"%3${us}codex${us}$cp_dir/repo"$'\n'"%4${us}codex${us}$cp_dir/repo"
+all_panes+=$'\n'"%5${us}codex${us}$cp_dir"
+assert_eq 'the pane the daemon names, when it is codex in that directory' '%4' \
+  "$(codex_pane '%4' "$cp_dir/repo")"
+assert_eq 'otherwise the first codex in the directory, not an editor in it' '%3' \
+  "$(codex_pane '%1' "$cp_dir/repo")"
+assert_eq 'a directory reached through a link is the one it leads to' '%3' \
+  "$(codex_pane '%1' "$cp_dir/link")"
+assert_eq 'with no codex there, the pane named, if codex runs in it' '%5' \
+  "$(codex_pane '%5' "$cp_dir/gone")"
+codex_pane '%1' "$cp_dir/gone" >/dev/null
+assert_eq 'and nothing at all when it does not' 1 "$?"
+assert_eq 'a daemon outside tmux names no pane, and still finds the TUI' '%3' \
+  "$(codex_pane '' "$cp_dir/repo")"
+rm -rf "$cp_dir"
+unset -f tmux
+unset us all_panes cp_dir
+
 section 'clear_status: every option, in one invocation'
 calls=0
 tmux() { calls=$((calls + 1)); printf '%s\n' "$*"; }
@@ -984,7 +1012,10 @@ case $1 in
       @agent_state) printf '%s\n' "${STUB_STATE-}" ;;
       *) printf '\n' ;;
     esac ;;
-  list-panes) printf '%s\n' ${STUB_PANES-} ;;
+  list-panes)
+    if [[ $2 == -a ]]; then printf '%s\n' "${STUB_ALL_PANES-}"
+    else printf '%s\n' ${STUB_PANES-}
+    fi ;;
 esac
 STUB
 cat >"$stub_dir/terminal-notifier" <<'STUB'
@@ -1028,6 +1059,37 @@ STUB_STATE=working STUB_PANES='zsh claude' run_status clear-transient '%1'
 assert_eq 'but leaves a turn that is still running' 0 \
   "$(grep -c -- '-u @agent_status' "$STUB_LOG")"
 assert_match 'and reconciles on the way past' 'list-panes' "$(cat "$STUB_LOG")"
+
+section 'agent-status.sh: a Codex hook, run by the daemon every TUI shares'
+# The daemon keeps the environment of whatever started it: a pane of another
+# session, or no tmux at all. The pane comes from the payload's directory.
+codex_hook() {
+  local payload=$1
+  shift
+  : >"$STUB_LOG"
+  printf '%s' "$payload" | env -u TMUX -u TMUX_PANE "$@" PATH="$stub_dir:$PATH" \
+    AGENT_STATUS_DETACHED=1 "$plugin/scripts/agent-status.sh" --agent codex waiting \
+    >/dev/null 2>&1
+}
+export STUB_ALL_PANES=$'%2\x1fzsh\x1f/r/a\n%9\x1fcodex\x1f/r/b'
+in_other_pane=('TMUX=/tmp/fake,1,0' 'TMUX_PANE=%2')
+codex_hook '{"cwd":"/r/b"}' "${in_other_pane[@]}"
+assert_match 'the event lands on the TUI in its directory, not the pane named' \
+  'display-message -p -t %9 #\{window_id\}' "$(cat "$STUB_LOG")"
+assert_match 'and is drawn there' '@agent_state waiting' "$(cat "$STUB_LOG")"
+codex_hook '{"cwd":"/r/b"}'
+assert_match 'a daemon started outside tmux finds it all the same' \
+  'display-message -p -t %9 #\{window_id\}' "$(cat "$STUB_LOG")"
+codex_hook '{"cwd":"/r/a"}' "${in_other_pane[@]}"
+assert_eq 'a directory with no codex in it paints nothing' 0 \
+  "$(grep -c -e '^set-option -w' -e '^display-message' "$STUB_LOG")"
+unset in_other_pane
+# reconcile's call for an idle Codex names its pane and has no payload to read.
+run_status --agent codex idle '%1'
+assert_match 'with no payload the pane given is the one drawn on' \
+  'display-message -p -t %1 #\{window_id\}' "$(cat "$STUB_LOG")"
+unset -f codex_hook
+STUB_ALL_PANES=''
 
 section 'agent-status.sh: a turn starting and finishing'
 STUB_FACTS=$'#c0caf5\x1f/r/x\x1f'

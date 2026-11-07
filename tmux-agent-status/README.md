@@ -48,6 +48,16 @@ and the same for `Notification` → `waiting`, `Stop` → `done`, `SessionStart`
 `clear`. Codex takes the same commands in `~/.codex/hooks.json`, with
 `PermissionRequest` in place of `Notification`.
 
+Codex runs its hooks in an app-server daemon (`codex app-server
+--managed-daemon`) that every codex TUI shares. The daemon keeps the environment
+of whatever started it, so its `TMUX_PANE` names the pane that ran codex first,
+or nothing when it started outside tmux. A Codex event is drawn on the pane
+running `codex` in the `cwd` its payload carries instead. Two codex TUIs in one
+directory cannot be told apart, and the event goes to the first. An event from
+a directory with no codex pane draws nothing: a `SessionEnd` that arrives once
+the TUI has exited leaves the window's state until the window is looked at,
+when `reconcile` clears it.
+
 The plugin's own entry point binds four tmux hooks: selecting a window or a pane
 drops a `waiting` or `done` glyph that has now been looked at, and attaching or
 switching session re-derives any state that has drifted. State is only ever

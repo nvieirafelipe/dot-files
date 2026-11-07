@@ -245,6 +245,42 @@ agent_in_window() {
   return 0
 }
 
+# Which pane a Codex hook is about. Codex runs its hooks in an app-server daemon
+# that every codex TUI shares, and the daemon keeps the environment of whatever
+# started it: TMUX_PANE names the pane that ran codex first, whichever TUI the
+# event came from, and outside tmux there is none at all. The payload has no pid
+# or tty to trace the TUI by, but it has the directory the session runs in, and
+# the TUI runs there too.
+#
+# The pane given is kept when it is one of the codex panes in that directory,
+# and when no codex pane is there but it runs codex itself -- a TUI that has
+# moved since it started. Fails when no pane qualifies: a status on the wrong
+# window is worse than none.
+codex_pane() {
+  local given=$1 cwd id cmd path first='' given_runs=0
+  # pane_current_path comes from the kernel, already free of symlinks; a
+  # directory reached through one has to be resolved to compare equal.
+  cwd=$(cd -P "$2" 2>/dev/null && pwd) || cwd=$2
+  while IFS=$'\x1f' read -r id cmd path; do
+    [[ $cmd == codex ]] || continue
+    [[ $id == "$given" ]] && given_runs=1
+    [[ $path == "$cwd" ]] || continue
+    if [[ $id == "$given" ]]; then
+      printf '%s' "$id"
+      return 0
+    fi
+    [[ -n $first ]] || first=$id
+  done < <(tmux list-panes -a \
+    -F '#{pane_id}'$'\x1f''#{pane_current_command}'$'\x1f''#{pane_current_path}' 2>/dev/null)
+  if [[ -n $first ]]; then
+    printf '%s' "$first"
+  elif ((given_runs)); then
+    printf '%s' "$given"
+  else
+    return 1
+  fi
+}
+
 clear_status() {
   local opt
   local -a cmd=()
@@ -508,8 +544,18 @@ main() {
   state=$1
   pane=${2:-${TMUX_PANE:-}}
 
-  # Nothing to do outside tmux
-  [[ -n ${TMUX:-} && -n $pane ]] || exit 0
+  # A Codex hook's environment is the shared daemon's, not its TUI's, so the
+  # pane comes from the directory in the payload instead (see codex_pane). Only
+  # with a payload: reconcile's own call for an idle Codex names its pane and
+  # sends none.
+  local codex_cwd=''
+  [[ $agent == codex ]] && codex_cwd=$(field cwd)
+  if [[ -n $codex_cwd ]]; then
+    pane=$(codex_pane "$pane" "$codex_cwd") || exit 0
+  else
+    # Nothing to do outside tmux
+    [[ -n ${TMUX:-} && -n $pane ]] || exit 0
+  fi
 
   window=$(tmux display-message -p -t "$pane" '#{window_id}' 2>/dev/null) || exit 0
 

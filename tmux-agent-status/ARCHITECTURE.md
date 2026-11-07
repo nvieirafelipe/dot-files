@@ -70,6 +70,16 @@ The tmux hooks go in slot `[50]` of each hook array (`AGENT_STATUS_HOOK_SLOT`),
 so they leave a user's own `[0]` alone and a reload replaces rather than adds.
 Each runs with `run-shell -b`.
 
+Claude Code runs its hooks from the agent's own process, so `TMUX_PANE` is the
+agent's pane. Codex runs them in the app-server daemon every codex TUI shares,
+whose `TMUX_PANE` is that of the pane that started it, or unset. For
+`--agent codex` with a `cwd` in the payload, `codex_pane` picks the pane from
+one `list-panes -a`: a pane whose `pane_current_command` is `codex` and whose
+`pane_current_path` is that directory (resolved through symlinks), preferring
+the pane the environment named; failing that, the named pane if it runs codex;
+failing that, none, and nothing is drawn. Without a payload, as in
+`reconcile`'s call for an idle Codex, the pane given is used.
+
 ## The states
 
 ```mermaid
