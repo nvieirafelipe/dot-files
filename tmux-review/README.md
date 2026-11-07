@@ -106,6 +106,14 @@ than piped through a pager. A pager is a full-screen application, so tmux cannot
 see where inside it the reader is; scrollback exposes `#{scroll_position}` and
 `#{copy_cursor_y}`, which is what lets the list follow the diff at all.
 
+The diff marks where the reader is the way nvim's cursorline and cursorcolumn
+do. The row under the cursor takes nvim's CursorLine background (`#292e42` in
+Tokyo Night Storm), and the cursor is an orange block. The shade replaces each
+cell's background, so an added or removed row loses its red or green while the
+cursor is on it. tmux has no style for a column, so the column is the cursor's
+own cell, and its number sits after the position in copy-mode's indicator at
+the top right, as `col 34`.
+
 ## Keys
 
 In any pane:
@@ -174,7 +182,9 @@ input line to be read before it goes.
 
 ## Requirements
 
-- tmux 3.2 or newer (`display-popup`, user options in formats)
+- tmux 3.2 or newer (`display-popup`, user options in formats). The cursor's
+  shaded row, colour and column number were made on 3.8; an older tmux
+  opens the review without whichever of them it does not know.
 - bash 4.3 or newer — the macOS system bash is 3.2, so `brew install bash`
 - git, and [delta](https://github.com/dandavison/delta) for the diff itself
 - a Nerd Font, for the file and commit glyphs delta and the list draw

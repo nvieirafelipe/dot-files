@@ -180,6 +180,15 @@ open() {
   # to reserve it. Read by the toggle rather than recomputed there, so the two
   # can never disagree about what delta was told.
   tmux set-option -w -t "$diff_pane" @review_gutter_w "$gutter_w"
+  # The cursor's row and column, which variables.sh explains. The cursor is the
+  # diff pane's own; the row style and the indicator are window options, and a
+  # pane-level indicator is ignored. Oldest option first and errors dropped: a
+  # tmux too old for one stops the chain there and the review opens regardless.
+  tmux set-option -p -t "$diff_pane" cursor-style "$cursor_shape" ';' \
+    set-option -p -t "$diff_pane" cursor-colour "$cursor_colour" ';' \
+    set-option -w -t "$diff_pane" copy-mode-position-format "$position_format" ';' \
+    set-option -w -t "$diff_pane" copy-mode-current-line-style "$cursor_line_style" \
+    2>/dev/null || true
 }
 
 # kill-window on its own leaves the client on whichever window happens to be

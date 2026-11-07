@@ -32,7 +32,7 @@ flowchart LR
 |---|---|
 | `review.tmux` | Runs once when tmux loads its config. Binds `prefix g` (open a review) and `prefix G` (uncommitted changes in a popup), set with `@review-key` and `@review-wip-key`, and the copy-mode-vi keys that route into the review. Every binding goes out in a single `tmux` call. |
 | `scripts/review.sh` | Everything else, as subcommands of one script: `open`, `diff`, `header`, `gutter`, `sidebar`, `jump`, `nav`, `key`, `quit`, `retarget` (`main`). Sourced by the tests, so it dispatches only when run. |
-| `scripts/variables.sh` | The numbers and colours the window is drawn with: list width share and bounds, the diff's minimum width, the comments pane width, glyphs. Plain shell variables, not tmux options. |
+| `scripts/variables.sh` | The numbers and colours the window is drawn with: list width share and bounds, the diff's minimum width, the comments pane width, glyphs, the diff cursor's row style, colour and column readout. Plain shell variables, not tmux options. |
 | `bin/git-review` | A `git review` subcommand that prints a range's diff. `review.sh` sources it for `gr_resolve_range` and `gr_log_opts`; the popups run it. |
 
 ## The review window

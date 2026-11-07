@@ -167,3 +167,23 @@ c_off=$'\e[1;38;2;255;255;255m'
 # carries no bar behind it, so the glyph reads as itself and not as a notch cut
 # out of the amber. The same amber as a foreground, on the pane's own ground.
 c_read=$'\e[1;38;2;224;175;104m'
+
+# Where the diff's cursor is, the way nvim's cursorline and cursorcolumn show
+# it. tmux has a style for the cursor's row in copy-mode (3.8 and later) but
+# none for its column, so the column is carried by the cursor itself and by its
+# number in copy-mode's position indicator, counted from 1 as nvim counts it.
+#
+# The row takes Storm's CursorLine background, one shade off Storm's own, which
+# the terminal paints the pane with.
+# tmux keeps each cell's foreground and replaces its background, so on delta's
+# added and removed rows the red or green gives way to the shade while the
+# cursor is on them, as it does under nvim's cursorline. The cursor is a block
+# in Storm's orange, the colour nvim gives the cursor's line number.
+cursor_line_style='bg=#292e42'
+cursor_shape=block
+cursor_colour='#ff9e64'
+# tmux's own default indicator with the column added after the position.
+position_format='#[align=right]#{t/p:top_line_time}#{?#{e|>:#{top_line_time},0}, ,}'
+position_format+='[#{copy_position}/#{copy_position_limit}] col #{e|+:#{copy_cursor_x},1}'
+position_format+='#{?search_timed_out, (timed out),'
+position_format+='#{?search_count, (#{search_count}#{?search_count_partial,+,} results),}}'

@@ -3318,6 +3318,39 @@ assert_match 'q is told where to go back to' \
   'set-option -w -t %7 @review_return @1' "$open_calls"
 assert_match 'and nav is told which pane holds the diff' \
   '@review_diff_pane %7' "$open_calls"
+assert_match 'the diff cursor is an orange block' \
+  'set-option -p -t %7 cursor-style block ; set-option -p -t %7 cursor-colour #ff9e64' \
+  "$open_calls"
+assert_match 'the indicator gives its column, counted from 1' \
+  'set-option -w -t %7 copy-mode-position-format .*col #\{e\|\+:#\{copy_cursor_x\},1\}' \
+  "$open_calls"
+assert_match "and its row takes nvim's CursorLine shade, last in the chain" \
+  'copy-mode-current-line-style bg=#292e42\]$' "$open_calls"
+# A tmux too old for the cursor options fails that call; the review still opens.
+tmux() {
+  case $* in
+    'display-message -p'*) open_info; return 0 ;;
+    *cursor-style*) return 1 ;;
+  esac
+  [[ $1 == new-window ]] && printf '%%7'
+  [[ $1 == split-window && $* == *pane_tty* ]] && printf '%%8 /dev/ttys9'
+  [[ $1 == split-window && $* != *pane_tty* && $* == *-P* ]] && printf '%%9'
+  return 0
+}
+open_rc=0
+open '%0' >/dev/null || open_rc=$?
+cd "$open_cwd" || :
+assert_eq 'a tmux without the cursor options still opens the review' 0 "$open_rc"
+tmux() {
+  case $* in
+    'display-message -p'*) open_info; return 0 ;;
+  esac
+  printf '[%s]' "$*" >>"$open_log"
+  [[ $1 == new-window ]] && printf '%%7'
+  [[ $1 == split-window && $* == *pane_tty* ]] && printf '%%8 /dev/ttys9'
+  [[ $1 == split-window && $* != *pane_tty* && $* == *-P* ]] && printf '%%9'
+  return 0
+}
 # A retarget passes the window the first review was opened from.
 open '%0' 'HEAD~3..HEAD' '@4'; cd "$open_cwd" || :; calls
 assert_match 'a window passed in wins over the one the pane is in' \
