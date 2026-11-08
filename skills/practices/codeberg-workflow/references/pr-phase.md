@@ -101,6 +101,56 @@ same conventions from the implement phase (focused commit
 message, logical grouping). Update the worklog with what
 was fixed.
 
+## Guided review
+
+The `guided-pr-review` skill reviews the branch, and its report
+is the reviewer gate's artifact: the pre-push hook reads
+`{SNIPPETS_DIR}/guided-review/review.md`, as
+[reviewer-gate.md](reviewer-gate.md) describes. The skill reads
+the issue, the plan, and the standards before the code, checks
+every finding against evidence, and ends in a fix list. Run it
+once the two gates above pass; reviewing code that fails them
+wastes the review.
+
+1. Commit everything first, so the review covers the
+   committed tip and the skill makes no `-wip` snapshot.
+2. Run `guided-pr-review` in local mode with these inputs:
+   - **Base:** `origin/{BASE}`, the branch the worktree was
+     cut from. Pass it explicitly: the skill looks up a base
+     and fetches PRs with `gh`, which does not reach Codeberg.
+     In a resumed session, read it from the branch's upstream
+     while the branch is unpushed
+     (`git rev-parse --abbrev-ref '@{upstream}'`), otherwise
+     from `git symbolic-ref --short refs/remotes/origin/HEAD`.
+   - **Output directory:** `{SNIPPETS_DIR}/guided-review/`,
+     the path the gate reads.
+   - **Spec:** the issue, fetched as in
+     [plan-phase.md](plan-phase.md), and the acceptance
+     criteria in `plan.md`. The recorded outputs in
+     `plan.livemd` are evidence for the report's Tests and
+     verification section.
+   - **Standards:** `nvieirafelipe-elixir-xp` and the standards
+     checklist in [reviewer-gate.md](reviewer-gate.md), so each
+     item there ends up as a finding or under "Checked, no
+     issue found".
+   - **Mode:** `full`. For a diff of about 100 changed lines or
+     fewer, which guided-pr-review's size guidance says reads
+     in one sitting, offer `quick`, which skips the verifier
+     pass. In both modes, run the Spec and Standards readers as
+     fresh sub-agents: this session wrote the code.
+3. Show the user the verdict, the paths to `review.md` and
+   `review.html`, and the fix list. Apply only the fixes the
+   user names, and commit them by the implement-phase
+   conventions. The commit hooks run as usual.
+4. If code changed, run the solution verifier gate and the
+   project verification gate again. Then run the skill's
+   snapshot again, update the report's heads table, and record
+   each fix's outcome in its review log.
+5. Last, after the final commit, end the report with the
+   `## Status` section [reviewer-gate.md](reviewer-gate.md)
+   specifies, set from the verdict, and render it again. The
+   pre-push hook rejects a report older than HEAD.
+
 ## Create or detect PR
 
 First, check if a PR already exists for the current branch:

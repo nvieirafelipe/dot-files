@@ -123,11 +123,11 @@ hooks:
             else
               FAILED="$FAILED plan-livebook-missing"
             fi
-            REVIEW="$ROOT/.snippets/$ISSUE/review.md"
+            REVIEW="$ROOT/.snippets/$ISSUE/guided-review/review.md"
             if [ ! -f "$REVIEW" ]; then
               FAILED="$FAILED review-missing"
             else
-              STATUS=$(awk '/^## Status/{f=1;next} f && NF{print; exit}' "$REVIEW")
+              STATUS=$(awk '/^## Status$/{f=1; s=""; next} f && NF && s=="" {s=$0} END{print s}' "$REVIEW")
               [ "$STATUS" = "APPROVED" ] || FAILED="$FAILED review-not-approved"
               REVIEW_MTIME=$(stat -f %m "$REVIEW" 2>/dev/null || stat -c %Y "$REVIEW")
               HEAD_TIME=$(git log -1 --format=%ct HEAD 2>/dev/null)
@@ -235,6 +235,8 @@ This skill depends on the following skills being available:
 - `deciduous` (optional) — decision graph tracking
 - `mermaid-master` — diagram generation with type selection
   and preview
+- `guided-pr-review` — reviews the branch in the PR phase; its
+  report is the reviewer gate's artifact
 
 ## Setup
 
@@ -589,12 +591,16 @@ see [references/pr-phase.md](references/pr-phase.md).
   see [solution-verifier.md](references/solution-verifier.md)
   for the explanation of both conditions and how the baseline
   comparison works
-- Produce `{SNIPPETS_DIR}/review.md` via the
-  `nvieirafelipe-elixir-xp` pre-PR checklist or an Elixir
-  PR-review agent, resolve all
-  findings, and set `## Status` to `APPROVED`. The pre-push
-  hook blocks until this artifact exists and is not stale —
-  see [reviewer-gate.md](references/reviewer-gate.md).
+- Run the **guided review** once the gates above pass:
+  `guided-pr-review` in local mode against `origin/{BASE}`,
+  writing to `{SNIPPETS_DIR}/guided-review/`. Its `review.md`
+  is the reviewer gate's artifact. Apply the fixes the user
+  picks, then, after the final commit, end the report with a
+  `## Status` section set from its verdict, as
+  [pr-phase.md](references/pr-phase.md#guided-review) and
+  [reviewer-gate.md](references/reviewer-gate.md) describe.
+  The pre-push hook blocks until the report exists, its status
+  is `APPROVED`, and it is newer than HEAD.
 - **No slop in the PR description.** Treat the body as async
   chat with the reviewer, not an essay. Read
   [no-slop-pr.md](references/no-slop-pr.md) before drafting
@@ -619,7 +625,7 @@ the current `$PPID` is registered in `.claude/.codeberg-workflow`
 | PreToolUse Write/Edit/Bash | any | Inject first 40 lines of `plan.md` so goals stay in context |
 | PreToolUse Bash | `git commit` | Auto-run `mix format` on staged `.ex/.exs`, re-stage |
 | PreToolUse Bash | `git commit` | **Semantic lint** — regex scan for XP antipatterns. **Blocks on failure.** See [references/semantic-lint.md](references/semantic-lint.md). |
-| PreToolUse Bash | `git push codeberg`, `tea pulls create`, `gh pr create` | Full gate (compile + format-check + credo + test + dialyzer + `playbill verify` on `plan.livemd` + **zero recorded ExUnit failures** in the notebook + **reviewer gate** on `review.md`). Only `git push` to the **`codeberg`** remote is gated — pushes to other remotes (e.g. a github mirror) skip it. **Blocks on failure.** See [references/reviewer-gate.md](references/reviewer-gate.md). |
+| PreToolUse Bash | `git push codeberg`, `tea pulls create`, `gh pr create` | Full gate (compile + format-check + credo + test + dialyzer + `playbill verify` on `plan.livemd` + **zero recorded ExUnit failures** in the notebook + **reviewer gate** on `guided-review/review.md`). Only `git push` to the **`codeberg`** remote is gated — pushes to other remotes (e.g. a github mirror) skip it. **Blocks on failure.** See [references/reviewer-gate.md](references/reviewer-gate.md). |
 | PostToolUse Write/Edit | any | Nudge to update `worklog.md` |
 | PostToolUse Write/Edit | `*.livemd` touched | Nudge to re-run `playbill verify` |
 | PostToolUse Bash | `git commit` | Quality gate (compile + format-check + credo + test). **Blocks on failure** with "next priority: fix before any other work". Dialyzer excluded for speed. |

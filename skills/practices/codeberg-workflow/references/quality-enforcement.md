@@ -67,13 +67,14 @@ list, hook snippet, and override protocol.
 
 Before push/PR creation, the pre-push hook requires an
 **approved review artifact** at
-`{SNIPPETS_DIR}/review.md`. The artifact is produced by running
-the `nvieirafelipe-elixir-xp` pre-PR self-review (or spawning an
-Elixir PR-review agent on the branch diff)
-and recording findings + resolution + explicit `APPROVED` marker.
+`{SNIPPETS_DIR}/guided-review/review.md`: the report from the
+guided review step in [pr-phase.md](pr-phase.md#guided-review)
+(`guided-pr-review` in local mode). It records the findings,
+each fix's outcome in its review log, and a closing
+`## Status` section set to `APPROVED`.
 
-See [reviewer-gate.md](reviewer-gate.md) for the review.md
-template, approval semantics, and the full checklist source.
+See [reviewer-gate.md](reviewer-gate.md) for the status rules,
+the standards checklist, and the hook.
 
 ## Growing the enforcement set
 
