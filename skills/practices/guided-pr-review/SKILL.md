@@ -193,8 +193,10 @@ scripts/render-report.sh <out>/review.md
 `review.md` is the canonical artifact and reads fine offline, on GitHub, or in an
 editor. `review.html` adds a collapsible table of contents, rendered Mermaid, syntax
 colours on fenced code that names its language, copy buttons on comment drafts, and
-checkboxes that remember which drafts the reviewer picked. On a phone the contents move into a drawer behind a sticky bar that names the
-current section. It loads its renderers from a CDN; when they cannot load, it shows the
+checkboxes that remember which drafts the reviewer picked. On a wide screen a button hides
+the contents sidebar so the report takes the full width; the viewer remembers the choice.
+On a phone the contents move into a drawer behind a sticky bar that names the current
+section. It loads its renderers from a CDN; when they cannot load, it shows the
 raw Markdown instead.
 
 ### 6. Verify the report
