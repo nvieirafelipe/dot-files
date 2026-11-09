@@ -21,6 +21,18 @@
     --consider: #1a7f37;
     --nit: #59636e;
     --fyi: #0969da;
+    --syn-comment: #59636e;
+    --syn-constant: #0550ae;
+    --syn-entity: #6639ba;
+    --syn-tag: #0550ae;
+    --syn-keyword: #cf222e;
+    --syn-string: #0a3069;
+    --syn-variable: #953800;
+    --syn-list: #3b2300;
+    --syn-inserted: #116329;
+    --syn-inserted-bg: #dafbe1;
+    --syn-deleted: #82071e;
+    --syn-deleted-bg: #ffebe9;
     --bar-h: 0px;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color-scheme: light;
@@ -42,6 +54,18 @@
       --consider: #3fb950;
       --nit: #9198a1;
       --fyi: #4493f8;
+      --syn-comment: #9198a1;
+      --syn-constant: #79c0ff;
+      --syn-entity: #d2a8ff;
+      --syn-tag: #7ee787;
+      --syn-keyword: #ff7b72;
+      --syn-string: #a5d6ff;
+      --syn-variable: #ffa657;
+      --syn-list: #f2cc60;
+      --syn-inserted: #aff5b4;
+      --syn-inserted-bg: #033a16;
+      --syn-deleted: #ffdcd7;
+      --syn-deleted-bg: #67060c;
       color-scheme: dark;
     }
   }
@@ -200,6 +224,24 @@
     border-radius: 6px;
   }
   pre code { padding: 0; background: none; overflow-wrap: normal; }
+
+  /* highlight.js token classes, coloured with Primer's syntax palette. */
+  .hljs-comment, .hljs-code, .hljs-quote { color: var(--syn-comment); }
+  .hljs-keyword, .hljs-doctag, .hljs-type, .hljs-template-tag,
+  .hljs-variable.language_ { color: var(--syn-keyword); }
+  .hljs-title, .hljs-title.class_, .hljs-title.function_ { color: var(--syn-entity); }
+  .hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator,
+  .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id,
+  .hljs-section { color: var(--syn-constant); }
+  .hljs-string, .hljs-regexp, .hljs-meta .hljs-string { color: var(--syn-string); }
+  .hljs-built_in, .hljs-symbol { color: var(--syn-variable); }
+  .hljs-name, .hljs-selector-tag, .hljs-selector-pseudo { color: var(--syn-tag); }
+  .hljs-bullet { color: var(--syn-list); }
+  .hljs-subst { color: var(--fg); }
+  .hljs-section, .hljs-strong { font-weight: 600; }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-addition { color: var(--syn-inserted); background: var(--syn-inserted-bg); }
+  .hljs-deletion { color: var(--syn-deleted); background: var(--syn-deleted-bg); }
   kbd {
     font: 0.85em var(--mono);
     padding: 0.1em 0.4em;
@@ -370,6 +412,12 @@
         crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
         integrity="sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/highlight.min.js"
+        integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/languages/elixir.min.js"
+        integrity="sha384-MQHNkCaYRX2k6cd21j3k/t+rRxhTX1gZsd1ZqCVnfN9XePT+6gN6C5m01hPN0+0n"
         crossorigin="anonymous"></script>
 <script>
 (function () {
@@ -609,6 +657,16 @@
     code.parentElement.replaceWith(div);
     diagrams.push(div);
   });
+
+  // Colour fenced blocks whose language highlight.js knows; the rest stay plain.
+  if (window.hljs) {
+    content.querySelectorAll('pre > code[class*="language-"]').forEach(function (code) {
+      var lang = /language-(\S+)/.exec(code.className)[1];
+      if (!hljs.getLanguage(lang)) return;
+      var html = hljs.highlight(code.textContent, { language: lang, ignoreIllegals: true }).value;
+      code.innerHTML = DOMPurify.sanitize(html);
+    });
+  }
 
   function copy(text, button) {
     function done() {

@@ -72,12 +72,22 @@ Pocock skill's selection of twelve.
 
 ## Viewer dependencies
 
-`assets/report-viewer.html` loads three libraries from jsDelivr, pinned by version and
+`assets/report-viewer.html` loads four libraries from jsDelivr, pinned by version and
 by Subresource Integrity hash:
 
 - [marked 12.0.2](https://github.com/markedjs/marked): MIT.
 - [DOMPurify 3.1.6](https://github.com/cure53/DOMPurify): Apache-2.0 or MPL-2.0.
 - [Mermaid 11.4.1](https://github.com/mermaid-js/mermaid): MIT.
+- [highlight.js 11.11.1](https://github.com/highlightjs/highlight.js): BSD-3-Clause. The
+  viewer loads the common bundle from `@highlightjs/cdn-assets` plus
+  `languages/elixir.min.js`, which the bundle lacks. To add a language, load its file
+  from the same `languages/` directory. A fence whose language is not loaded stays
+  plain.
+
+The token colours are the viewer's own CSS. They take their values from the
+`--color-prettylights-syntax-*` tokens in [Primer Primitives][primer-primitives] 10.7.0
+(MIT), the palette GitHub uses for code, so the light and dark themes match the rest
+of the page.
 
 To upgrade one, change the URL and recompute its hash:
 `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`.
@@ -133,3 +143,4 @@ The viewer's layout follows these patterns. It reuses no code from them, so
 [docusaurus-toc]: https://github.com/facebook/docusaurus/blob/main/packages/docusaurus-theme-classic/src/theme/TOCCollapsible/index.tsx
 [primer-tree]: https://primer.style/product/components/tree-view/guidelines
 [apg-disclosure]: https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/examples/disclosure-navigation/
+[primer-primitives]: https://github.com/primer/primitives
