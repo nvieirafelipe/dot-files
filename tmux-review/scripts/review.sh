@@ -859,7 +859,16 @@ diff_pane_cmd() {
   tmux set-option -w -t "$TMUX_PANE" @review_loaded 1 ';' \
     set-option -p -t "$TMUX_PANE" @review_render_w "$diff_w" ';' \
     send-keys -t '{bottom-left}' z
-  read -r || true
+  # Held open until the pane goes, not until a line arrives. Anything typed here
+  # lands while the diff is out of copy-mode -- tmux-open's C-o cancels it and
+  # types a line and Enter -- and read as a dismissal that closed the review in
+  # the middle of a read. q closes it, from the list's loop. -s so what is
+  # typed is not echoed into the bottom of the diff either. -icanon and -isig so
+  # C-d and C-c, which copy-mode means as half a page down and cancel, arrive
+  # here as two more keys to drop rather than as an end of input or an
+  # interrupt that take the pane down.
+  stty -icanon -isig min 1 time 0 2>/dev/null || true
+  while IFS= read -rs _; do :; done
   quit "$TMUX_PANE"
 }
 

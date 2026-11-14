@@ -3523,6 +3523,16 @@ assert_eq 'and the view is settled once, after the last chunk' 1 \
 assert_match 'the list is told the diff has landed' '@review_loaded 1' "$diff_events"
 assert_match 'and woken, in the same invocation' 'send-keys -t {bottom-left} z' "$diff_events"
 assert_match 'the pane closes the review when it is dismissed' 'quit %7' "$diff_events"
+# tmux-open's C-o drops the diff out of copy-mode and types a line and Enter
+# into the pane. Read as a dismissal, that closed the review mid-read.
+quit() { local left=''; IFS= read -r -t 0.1 left || true; diff_events+="[quit $1 left=$left]"; }
+diff_chunks=(c1); diff_events=''
+
+diff_pane_cmd 'base..HEAD' 142 < <(printf 'nvim -- "x"\nnvim -- "y"\n')
+
+assert_match 'a line typed into the pane does not close the review, only its end does' \
+  '\[quit %7 left=\]$' "$diff_events"
+quit() { diff_events+="[quit $1]"; }
 # The last two arguments, which for a chunk handed over whole would be the
 # stat width and the chunk.
 diff_chunks=(c1 'c1..HEAD ^base'); diff_events=''
@@ -5297,6 +5307,31 @@ else
       assert_match 'and counts what the range comes to' '\+[0-9]+.*1 commit' "$hdr_text"
       assert_eq 'and never draws the count without the range above it' 0 "$hdr_cut"
     fi
+    # What tmux-open's C-o does to the diff: out of copy-mode, then a line and
+    # Enter typed into the pane. Both in one invocation, so the list's loop has
+    # no turn in between to put copy-mode back first. The word typed is made up
+    # here: the diff under review is this repository's last commit, and a word
+    # written into this file would be found in it.
+    stray_word="stray-$$-$RANDOM"
+    tmux -L "$socket" send-keys -X -t "$dpane" cancel ';' \
+      send-keys -t "$dpane" "nvim -- \"$stray_word\"" Enter
+    sleep 0.5
+
+    stray_win=$(tmux -L "$socket" list-windows -F '#{window_id}' | grep -c "^$win$")
+    stray_text=$(tmux -L "$socket" capture-pane -p -t "$dpane" 2>/dev/null |
+      grep -c -- "$stray_word")
+
+    assert_eq 'a line typed into the diff does not close the review' 1 "$stray_win"
+    assert_eq 'and is not echoed into the bottom of the diff' 0 "$stray_text"
+    # C-d and C-c are everyday copy-mode keys, pressed in the moment a yank has
+    # the diff out of copy-mode: an end of input and an interrupt to the pane.
+    tmux -L "$socket" send-keys -X -t "$dpane" cancel ';' send-keys -t "$dpane" C-d C-c
+    sleep 0.5
+
+    stray_panes=$(tmux -L "$socket" list-panes -t "$win" -F '#{pane_id}' 2>/dev/null |
+      grep -c "^$dpane$")
+
+    assert_eq 'nor does C-d or C-c, which leave the diff where it is' 1 "$stray_panes"
   fi
   tmux -L "$socket" kill-server 2>/dev/null
 fi
