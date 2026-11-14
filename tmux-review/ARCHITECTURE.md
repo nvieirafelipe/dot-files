@@ -249,7 +249,7 @@ flowchart TD
 flowchart LR
     diffKey["key in the diff<br/>copy-mode-vi"]
     native["j, k, search, selection<br/>tmux copy-mode itself"]
-    routed["] [ } { c s a C R E = #lt; #gt; q<br/>if-shell routes_left"]
+    routed["] [ } { c s a C R E = #lt; #gt; q C-o Tab<br/>if-shell routes_left"]
     whichkey["which-key menu<br/>review.sh key WIN KEY"]
     gutterKey["key in the comments pane<br/>gutter_key"]
     listIn["list pane's stdin<br/>send-keys -t bottom-left"]
@@ -257,6 +257,7 @@ flowchart LR
     steer["steer, jump<br/>pending_row"]
     fold["fold_key"]
     comments["add_comment, send_comments,<br/>clear_comments, pickers"]
+    jumps["jump_back, jump_forward<br/>@review_jumps"]
     nav["which-key navigate<br/>review.sh nav"]
     rows[("@review_*_rows")]
     view["diff view moves<br/>place, send-keys -X goto-line"]
@@ -269,6 +270,8 @@ flowchart LR
     readKey --> steer
     readKey --> fold
     readKey --> comments
+    readKey --> jumps
+    jumps -->|"jump_restore"| view
     steer -->|"flush_pending"| view
     nav -->|"reads"| rows
     nav -->|"jump"| view
@@ -284,9 +287,57 @@ flowchart LR
 - `n` and `N` search again when a search is active and route otherwise; `y`
   routes only while the list is asking a yes/no question (`@review_asking`);
   `Enter` copies without leaving copy-mode.
+- `C-o` and `Tab` (`C-i`) route like the others, but in a review they never fall
+  back to what they displaced: `C-o` is tmux-open's open-in-editor, which left
+  copy-mode and typed a line and Enter into the pane. Outside a review both keep
+  the binding `displaced` read back at load, as `y` does. The list's and the
+  comments pane's ttys have `discard` undefined, or macOS's driver swallows
+  `C-o` before `read` sees it.
+- `/`, `?` and the search branch of `n`/`N` write a jump mark before searching;
+  see "The jump list".
 - `read_key` turns arrows, page keys, Home, End and `gg` into names (`j`, `k`,
   `page_up`, `first`, ...), so every caller sees the same key whichever way it
   was typed.
+
+## The jump list
+
+`C-o` and `C-i` move through the diff's jump list, which is one pane option,
+`@review_jumps`: space-separated `row:cy:cx` entries, oldest first. `row` counts
+from the oldest scrollback row, so an entry survives copy-mode being entered
+again on a grown grid.
+
+```mermaid
+flowchart LR
+    search["/ ? and n N after a search<br/>review.tmux bindings"]
+    place["place<br/>stops, files, commits, list, comments"]
+    store[("@review_jumps<br/>diff pane")]
+    back["jump_back<br/>C-o"]
+    ahead["jumps_ahead<br/>list loop"]
+    fwd["jump_forward<br/>Tab"]
+    clear["fold_swap, fold_swap_early,<br/>redraw"]
+
+    search -->|"set-option -a -F jump_mark"| store
+    place -->|"same, in the move's invocation"| store
+    store -->|"jumps_pop"| back
+    back -->|"where it left from"| ahead
+    ahead --> fwd
+    fwd -->|"where it left from"| store
+    clear -->|"set-option -u"| store
+```
+
+- Every entry is written by tmux itself with `set-option -p -a -F` and the
+  format `jump_mark`, so the position is read at the moment of the jump with no
+  round trip. `review.sh` and `review.tmux` each hold the format; a test holds
+  the two to the same text.
+- `jump_back` reads the list and the current position in one ask, drops entries
+  on the reader's own row and marks written outside copy-mode (no screen row),
+  goes to the last one left with `jump_restore`, and writes the rest back.
+- `jumps_ahead` is the list loop's own: what `Tab` retraces. The loop remembers
+  the list as it last wrote it (`jumps_written`); a list that differs has had a
+  jump added since, and what lay ahead is dropped.
+- A fold or a redraw moves every row below it, so `fold_swap`,
+  `fold_swap_early` and `redraw` unset the list, and `fold_key` and
+  `redraw_settled` empty `jumps_ahead`.
 
 ## The row map
 
@@ -554,6 +605,7 @@ Options on tmux objects:
 | `@review_hdr_sel`, `@review_hdr_open` | window | `header_key` | the list, through `state_format` |
 | `@review_agent_pane`, `@review_agent_label`, `@review_agent_guessed` | window | `preselect_agent`, `apply_pick_session` | `sidebar` at start, so a retarget keeps the agent |
 | `@review_asking` | window | `clear_comments` | the `y` routing in `review.tmux` |
+| `@review_jumps` | diff pane | `place`, the `/` `?` `n` `N` bindings, `jump_back`, `jump_forward`; unset by `fold_swap`, `fold_swap_early`, `redraw` | `jump_back`, `jump_forward` |
 
 Files under `${TMPDIR}/tmux-review/`:
 

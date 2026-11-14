@@ -341,7 +341,8 @@ header_key() {
 # the pane can be killed and split again with nothing to restore.
 gutter() {
   local dpane=${1-} list key
-  stty -echo 2>/dev/null || true
+  # discard undef so C-o reaches the loop, as in the list.
+  stty -echo discard undef 2>/dev/null || true
   printf '\e[?25l'
   # Each half guarded, for the reason header gives: stty fails where there is
   # no tty, and set -e would take the trap down before it put the cursor back.
@@ -381,6 +382,8 @@ gutter_key() {
     last) send=End ;;
     page_up) send=PageUp ;;
     page_down) send=PageDown ;;
+    back) send=C-o ;;
+    forward) send=Tab ;;
     *) return 0 ;;
   esac
   # C closes this very pane, so the send can fail on the way out. It is not an
@@ -574,6 +577,8 @@ redraw_settled() {
   list_drawn=$list
   row_of=()
   folded=()
+  jumps_ahead=''
+  jumps_written=''
   mapped=0
   ask_next=1
 }
@@ -584,9 +589,12 @@ redraw_settled() {
 # scrollback too, so the old render is cleared in the same command list, before
 # the server has read anything the new process wrote. @review_loaded goes to 0
 # first, so the list holds its placeholder until the new render says it is done.
+# It keeps the pane's options as well, so the jump list is let go explicitly:
+# every row it names is about to move.
 redraw() {
   local dpane=$1 range=$2 width=$3 gutter=$4
-  tmux set-option -w -t "$dpane" @review_loaded 0 ';' \
+  tmux set-option -p -t "$dpane" -u @review_jumps ';' \
+    set-option -w -t "$dpane" @review_loaded 0 ';' \
     set-option -w -t "$dpane" @review_gutter_w "$gutter" ';' \
     respawn-pane -k -t "$dpane" "$self diff $(printf '%q' "$range") $width" ';' \
     clear-history -t "$dpane"
@@ -1032,6 +1040,16 @@ file_row_regex() {
 # the last line of the first commit rather than its first.
 hist_base='#{?#{==:#{@review_hist_base},},#{history_size},#{@review_hist_base}}'
 
+# Where the reader is, as one entry of the diff's jump list: the scrollback row
+# counted from the oldest, then the screen row and column the cursor is on. The
+# row from the oldest rather than the scroll, so an entry still names the same
+# line after copy-mode is entered again on a grid that has grown. Appended by
+# tmux with set-option -a -F as a jump is made, so it is read at that moment
+# without a round trip; the leading space is what separates the entries.
+# review.tmux writes the same mark from the search keys, and a test holds the
+# two to the same text.
+jump_mark=" #{e|+:#{e|-:$hist_base,#{scroll_position}},#{copy_cursor_y}}:#{copy_cursor_y}:#{copy_cursor_x}"
+
 state_format='#{pane_in_mode}'$'\x1f'"$hist_base"$'\x1f''#{scroll_position}'$'\x1f''#{copy_cursor_y}'$'\x1f''#{pane_width}'$'\x1f''#{window_width}'$'\x1f''#{pane_height}'$'\x1f''#{window_zoomed_flag}'$'\x1f''#{pane_active}'$'\x1f''#{!=:#{pane_search_string},}'$'\x1f''#{@review_loaded}'$'\x1f''#{history_size}'$'\x1f''#{@review_hdr_sel}'$'\x1f''#{@review_hdr_open}'$'\x1f''#{P:#{?pane_active,#{pane_id},}}'$'\x1f''#{window_active}'$'\x1f''#{window_height}'
 
 # A control-mode client, subscribed to that format. tmux pushes the value every
@@ -1223,7 +1241,11 @@ sidebar() {
   # is actually reading, so a key pressed while this loop was rendering or
   # waiting on tmux got echoed into the list by the terminal itself -- and the
   # cursor it left behind marks nothing worth pointing at.
-  stty -echo 2>/dev/null || true
+  #
+  # discard undef because C-o is a key here -- back through the jump list --
+  # and macOS's terminal driver keeps it as DISCARD otherwise, swallowing it
+  # before read sees it, whether it was pressed here or routed from the diff.
+  stty -echo discard undef 2>/dev/null || true
   printf '\e[?25l'
   # The control client is a process of ours and has to go with us; left behind
   # it would sit attached to the session for good.
@@ -1261,6 +1283,9 @@ sidebar() {
   # Where the reader was, and whether the diff has ever been in copy-mode, so a
   # cancelled copy can be undone -- see the restore below.
   local last_pos=-1 last_scroll=0 last_cy=0 seen_mode=0
+  # What Tab retraces, in the jump list's own form, and the jump list as this
+  # loop last wrote it -- see jumps_ask.
+  local jumps_ahead='' jumps_written=''
   local window_seen=0 want_sha=0 want_subject=0 want_date=0 want_author=0 spin=0
   local rule_dashes=''
   local needs_clear=0 shown_focus='' shown_searching=-1
@@ -1286,6 +1311,9 @@ sidebar() {
   local idle_turns=0
   # Where the keys have asked the diff to go, still to be sent.
   local pending_row=-1
+  # How the move held in pending_row is made: place for a reader's jump, which
+  # C-o can come back from, or move_to for one the list makes for them.
+  local pending_move=place
   local -a agent_pane=() agent_label=() agent_kind=() agent_state=() agent_cwd=()
   local -a agent_session=()
   local comments=0 shown_comments=-1
@@ -1801,6 +1829,7 @@ sidebar() {
     # reader goes back to the commit they were reading when they dragged.
     if ((redraw_at >= 0 && mapped)); then
       select_index "$redraw_at"
+      pending_move=move_to
       redraw_at=-1
     fi
 
@@ -2149,6 +2178,14 @@ sidebar() {
         fold_key "$pane" "$key" "$focus" "$cur"
         continue
         ;;
+      back)
+        jump_back "$pane" "$hist"
+        continue
+        ;;
+      forward)
+        jump_forward "$pane" "$hist"
+        continue
+        ;;
     esac
     steer "$pane" "$key" "$cur" "$hist" "$scroll" "$cy"
   done
@@ -2256,6 +2293,10 @@ read_key() {
       if [[ $c == g ]]; then key=first; else key=''; fi
       ;;
     G) key=last ;;
+    # C-o, back to where the reader was before their last jump, as in vim, and
+    # C-i -- which a terminal sends as Tab -- forward again.
+    $'\x0f') key=back ;;
+    $'\t') key=forward ;;
     # z is the key this plugin wakes a pane with -- the diff sends it to the
     # list when it has finished, and the list sends it to the header when what
     # is drawn there has changed. It means nothing in the list's own loop.
@@ -2318,7 +2359,7 @@ steer() {
 # follow.
 # shellcheck disable=SC2034
 legend_diff_tiers=(
-  'jk=line|n/N=any|][=file|}{=commit|=<>=fold|c=comment|s=send'
+  'jk=line|n/N=any|][=file|}{=commit|^o/^i=back/fwd|=<>=fold|c=comment|s=send'
   'jk=line|n/N=any|}{=commit|=<>=fold|c=comment'
   'n/N=any|}{=commit|c=comment'
   'n/N=any|c=comment'
@@ -2337,7 +2378,7 @@ legend_list_tiers=(
 # narrow is the whole point of a tier and that ordering is not derivable.
 # shellcheck disable=SC2034
 legend_diff_c_tiers=(
-  'jk=line|][=file|}{=commit|=<>=fold|c=comment|C=toggle comments|R=clear|s=send'
+  'jk=line|][=file|}{=commit|^o/^i=back/fwd|=<>=fold|c=comment|C=toggle comments|R=clear|s=send'
   'jk=line|}{=commit|c=comment|C=comments|R=clear|s=send'
   '}{=commit|c=comment|C=comments|R=clear'
   'c=comment|C=comments|R=clear'
@@ -2374,11 +2415,12 @@ legend_gutter_sel_tiers=(
 )
 # Once / or ? has been used the diff's own stops step aside: n and N follow the
 # match, as they do in vim and in less. Files and commits keep ][ and }{, so
-# nothing is lost by searching. See the binding in .tmux.conf.
+# nothing is lost by searching. See the binding in .tmux.conf. C-o and C-i are
+# listed next to them, because a search is the jump most often gone back from.
 # shellcheck disable=SC2034
 legend_diff_search_tiers=(
-  'jk=line|n/N=match|][=file|}{=commit|=<>=fold|c=comment|s=send'
-  'jk=line|n/N=match|}{=commit|c=comment'
+  'jk=line|n/N=match|^o/^i=back/fwd|][=file|}{=commit|=<>=fold|c=comment|s=send'
+  'jk=line|n/N=match|^o/^i=back/fwd|}{=commit|c=comment'
   'n/N=match|}{=commit|c=comment'
   'n/N=match|c=comment'
 )
@@ -4991,7 +5033,8 @@ flush_pending() {
   local pane=$1
   ((pending_row >= 0)) || return 0
   ((expect_row < 0)) || return 0
-  place "$pane" "$hist" "$cy" "$pending_row"
+  "${pending_move:-place}" "$pane" "$hist" "$cy" "$pending_row"
+  pending_move=place
   expect_row=$pending_row
   expect_turns=0
   pending_row=-1
@@ -5013,12 +5056,22 @@ select_index() {
 
 # Puts scrollback row <target> under the cursor without moving the cursor off
 # its screen row, which is what makes a jump land where the reader was looking.
+# A reader's jump, so where they leave from rides along in the same invocation,
+# for C-o to come back to. move_to is the move alone.
+place() {
+  move_to "$@" set-option -p -t "$1" -a -F @review_jumps "$jump_mark" ';'
+}
+
+# The move place makes, for the one the list makes on the reader's behalf --
+# putting them back in their commit after a redraw -- which is not a jump of
+# theirs. Anything after <target> goes ahead of the move in its invocation.
 #
 # goto-line n is really "set scroll_position to n", and it leaves copy_cursor_y
 # alone. It is also far cheaper than scrolling, whose repeat count is paid per
 # row: 130ms for a 129-row scroll-down against 15ms for a goto-line.
-place() {
+move_to() {
   local pane=$1 hist=$2 cy=$3 target=$4
+  shift 4
   local n=$((hist + cy - target))
   ((n > hist)) && n=$hist
   ((n < 0)) && n=0
@@ -5029,13 +5082,13 @@ place() {
   # work it carries.
   local residual=$((target - (hist - n) - cy))
   if ((residual > 0)); then
-    tmux send-keys -X -t "$pane" goto-line "$n" ';' \
+    tmux "$@" send-keys -X -t "$pane" goto-line "$n" ';' \
       send-keys -X -N "$residual" -t "$pane" cursor-down
   elif ((residual < 0)); then
-    tmux send-keys -X -t "$pane" goto-line "$n" ';' \
+    tmux "$@" send-keys -X -t "$pane" goto-line "$n" ';' \
       send-keys -X -N "$((-residual))" -t "$pane" cursor-up
   else
-    tmux send-keys -X -t "$pane" goto-line "$n"
+    tmux "$@" send-keys -X -t "$pane" goto-line "$n"
   fi
   return 0
 }
@@ -5084,6 +5137,108 @@ jump() {
     return 0
   fi
   place "$pane" "$hist" "$cy" "$target"
+  return 0
+}
+
+# The diff's jump list and where the reader is now, as one entry of it: in
+# REPLY and REPLY_HERE. Down the control client when there is one, like every
+# other question this loop asks mid-turn. A jump list the loop did not write
+# itself has had a jump added since the last C-o or Tab, which makes what Tab
+# would retrace a different path, so that is dropped here.
+jumps_ask() {
+  local pane=$1 raw list here
+  local format="#{@review_jumps}"$'\x1f'"$jump_mark"
+  if ctl_ask "$pane" "$format"; then
+    raw=$REPLY
+  else
+    raw=$(tmux display-message -p -t "$pane" "$format" 2>/dev/null) || raw=''
+  fi
+  IFS=$'\x1f' read -r list here <<<"$raw"
+  [[ $list == "$jumps_written" ]] || jumps_ahead=''
+  REPLY=$list
+  REPLY_HERE=${here# }
+}
+
+# C-o: back to where the reader was before their last jump. Where they leave
+# from goes onto jumps_ahead, which Tab retraces; the list left behind is
+# written back, and remembered as written, so the next C-o or Tab can tell
+# whether a jump has been added to it since.
+jump_back() {
+  local pane=$1 hist=$2 here target
+  jumps_ask "$pane"
+  here=$REPLY_HERE
+  if ! jumps_pop "$REPLY" "${here%%:*}"; then
+    tmux display-message 'review: no earlier position'
+    return 0
+  fi
+  target=$REPLY
+  jumps_ahead+=" $here"
+  jumps_written=$REPLY_REST
+  tmux set-option -p -t "$pane" @review_jumps "$REPLY_REST"
+  jump_restore "$pane" "$hist" "$target"
+  expect_row=${target%%:*}
+  expect_turns=0
+}
+
+# Tab: forward again, retracing a C-o. Where the reader leaves from is a jump
+# like any other, so it goes back onto the list C-o reads.
+jump_forward() {
+  local pane=$1 hist=$2 here list target
+  jumps_ask "$pane"
+  list=$REPLY
+  here=$REPLY_HERE
+  if ! jumps_pop "$jumps_ahead" "${here%%:*}"; then
+    tmux display-message 'review: no later position'
+    return 0
+  fi
+  target=$REPLY
+  jumps_ahead=$REPLY_REST
+  jumps_written="$list $here"
+  tmux set-option -p -t "$pane" @review_jumps "$jumps_written"
+  jump_restore "$pane" "$hist" "$target"
+  expect_row=${target%%:*}
+  expect_turns=0
+}
+
+# Puts the reader back on a jump list entry: its row on the screen row it was
+# read at, the cursor on the column. goto-line sets the view's distance from
+# the bottom of the history copy-mode was entered on, which is the basis the
+# entry's row was counted against; top-line then walks the cursor down from
+# the top of that view, so it lands right whatever row it started on. Near
+# either end of the history the view cannot sit where it did, and the walk
+# covers the difference. One invocation.
+jump_restore() {
+  local pane=$1 hist=$2 row cy cx n down
+  IFS=: read -r row cy cx <<<"$3"
+  n=$((hist + cy - row))
+  ((n > hist)) && n=$hist
+  ((n < 0)) && n=0
+  down=$((row - (hist - n)))
+  local -a cmd=(send-keys -X -t "$pane" goto-line "$n" ';' send-keys -X -t "$pane" top-line)
+  ((down > 0)) && cmd+=(';' send-keys -X -N "$down" -t "$pane" cursor-down)
+  ((cx > 0)) && cmd+=(';' send-keys -X -N "$cx" -t "$pane" cursor-right)
+  tmux "${cmd[@]}"
+}
+
+# The position C-o goes back to: the latest entry of a jump list, as the
+# diff's @review_jumps holds it -- " row:cy:cx" per jump, oldest first. Entries
+# on the reader's own row are passed over, so the key always moves, and so are
+# marks written while the diff was out of copy-mode, which carry no screen row.
+# Answers the entry in REPLY and what is left of the list in REPLY_REST, in the
+# list's own form; fails when nothing is left to go back to.
+jumps_pop() {
+  local -a entries=()
+  read -ra entries <<<"$1"
+  while ((${#entries[@]})) &&
+    [[ ${entries[-1]%%:*} == "$2" || ! ${entries[-1]} =~ ^[0-9]+:[0-9]+:[0-9]+$ ]]; do
+    unset 'entries[-1]'
+  done
+  REPLY=''
+  REPLY_REST=''
+  ((${#entries[@]})) || return 1
+  REPLY=${entries[-1]}
+  unset 'entries[-1]'
+  ((${#entries[@]})) && printf -v REPLY_REST ' %s' "${entries[@]}"
   return 0
 }
 
@@ -5515,8 +5670,9 @@ fold_wait() {
 # Puts the reader on the new grid: out of copy-mode and back in, the view placed
 # and the cursor walked down it, the title the token replaced put back, and the
 # basis the sidebar measures rows from reset to the grid copy-mode was just
-# entered on. One invocation, so nothing sees the pane out of copy-mode, and
-# the same moves settle_view makes after the diff has finished arriving.
+# entered on. The jump list is let go: the fold moved the rows it names. One
+# invocation, so nothing sees the pane out of copy-mode, and the same moves
+# settle_view makes after the diff has finished arriving.
 #
 # The title goes back with every # doubled: select-pane -T expands formats in
 # what it is given, so a # in it would be read as the start of one.
@@ -5527,7 +5683,8 @@ fold_wait() {
 # this has been done.
 fold_swap() {
   local pane=$1 n=$2 down=$3 title=$4
-  local -a cmd=(send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
+  local -a cmd=(set-option -p -t "$pane" -u @review_jumps ';'
+    send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
     send-keys -X -t "$pane" goto-line "$n" ';' send-keys -X -t "$pane" top-line ';')
   ((down > 0)) && cmd+=(send-keys -X -N "$down" -t "$pane" cursor-down ';')
   cmd+=(select-pane -t "$pane" -T "${title//#/##}" ';'
@@ -5555,7 +5712,8 @@ fold_swap() {
 # The title is left alone; it is still waiting for the token at the end.
 fold_swap_early() {
   local pane=$1 top=$2 down=$3
-  local -a cmd=(send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
+  local -a cmd=(set-option -p -t "$pane" -u @review_jumps ';'
+    send-keys -X -t "$pane" cancel ';' copy-mode -t "$pane" ';'
     send-keys -X -t "$pane" history-top ';'
     set-option -p -t "$pane" -F @review_hist_base '#{scroll_position}' ';'
     run-shell -C -t "$pane" "send-keys -X -t $pane goto-line #{e|-:#{scroll_position},$top}" ';'
@@ -5747,10 +5905,13 @@ fold_key() {
 
   # Every row below the fold has moved, so the map is built again -- which moves
   # map_gen on, and that re-anchors the comments -- and the moves the keys had
-  # queued against the old rows are dropped.
+  # queued against the old rows are dropped, with the positions Tab would have
+  # retraced. fold_swap has let the jump list go for the same reason.
   mapped=0
   pending_row=-1
   expect_row=-1
+  jumps_ahead=''
+  jumps_written=''
   shown=-2
   ask_next=1
   # Built here rather than on the next turn. The swap has only been sent, and

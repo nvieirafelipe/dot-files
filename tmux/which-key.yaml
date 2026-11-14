@@ -115,6 +115,13 @@ items:
             key: 'G'
             command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh nav #{window_id} last commit"'
           - separator: true
+          - name: Back to where the last jump left from
+            key: 'o'
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} C-o"'
+          - name: Forward again
+            key: 'i'
+            command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} Tab"'
+          - separator: true
           - name: Collapse or open what the cursor is in
             key: '='
             command: 'run-shell "~/.tmux/plugins/tmux-review/scripts/review.sh key #{window_id} ="'

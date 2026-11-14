@@ -130,6 +130,8 @@ In the diff, which is always in copy-mode:
 | `n` / `N` | next / previous stop point — or search match, after `/`    |
 | `]` / `[` | next / previous file                                      |
 | `}` / `{` | next / previous commit                                    |
+| `C-o`     | back to where the last jump left from, as in vim          |
+| `C-i` / `Tab` | forward again, after `C-o`                            |
 | `=`       | collapse or open the hunk, file or commit the cursor is in |
 | `<`       | collapse it; on one already collapsed, the one around it  |
 | `>`       | open it                                                   |
@@ -141,6 +143,20 @@ In the diff, which is always in copy-mode:
 | `s`       | send everything queued to that agent                      |
 | `q`       | close the review, back to where it was opened from        |
 
+A jump is a search (`/`, `?`, and `n`/`N` after one), a stop, file or commit
+step (`n`/`N`, `]`/`[`, `}`/`{`), a step on the commit list, or a step between
+comments. Scrolling is not a jump, and neither are `g`, `G` and `:` in the
+diff, which are tmux's own. `C-o` passes over jumps made from the line the
+cursor is on, so it always moves. Collapsing or opening anything with
+`=`/`<`/`>`, and the redraw after a dragged border, move every row below them,
+so both start the jump list again. `C-i` only retraces `C-o`: a jump made after
+going back drops what was ahead.
+
+`C-o` is tmux-open's "open in the editor" everywhere else, and a review takes it
+over in all of its panes. Bound to tmux-open there, it left copy-mode and typed
+`nvim -- "<selection>"` and Enter into the pane. The diff no longer closes on
+anything typed into it either; `q` is the way out.
+
 `C` and `R` are only listed once something is queued, because until then there
 is nothing to widen or to throw away. The column appears on its own when the
 first comment is written and goes when the queue empties -- whether that is `s`
@@ -149,8 +165,8 @@ repository and the range rather than by the window, so reopening the review
 will not bring it back.
 
 On the commit list: `j`/`k` step commits, `PgUp`/`PgDn` a page, `gg`/`G` the
-ends, `=`/`<`/`>` collapse and open the selected commit, and `c`/`s`/`a`/`E`/`q`
-mean what they do in the diff.
+ends, `=`/`<`/`>` collapse and open the selected commit, and
+`c`/`s`/`a`/`E`/`q`/`C-o`/`C-i` mean what they do in the diff.
 
 The header is a pane, so it is reached the way any pane is — `prefix + k` from
 the list. The list cannot be walked up out of into it: `k` on the first commit
@@ -175,6 +191,7 @@ anywhere else.
 | `C`       | narrow it back to the marks                               |
 | `c` `s` `R` `q` | what they do everywhere else                        |
 | `=` `<` `>` | collapse and open what the diff cursor is in            |
+| `C-o` `C-i` | back and forward through the diff's jumps               |
 
 `s` hands the queue to the chosen agent and brings that window forward with it —
 the comments are pasted, not run, so the agent is left with the prompt on its

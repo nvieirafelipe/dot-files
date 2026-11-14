@@ -66,12 +66,29 @@ routes_left="#{&&:$in_review,#{==:#{pane_at_left},0}}"
 # so that a zoomed review answers the key rather than swallowing it.
 zoomed_review="#{&&:$in_review,#{window_zoomed_flag}}"
 
+# Where the reader is, as one entry of the diff's jump list, which C-o goes back
+# through. The same text as review.sh's jump_mark -- the search keys write it
+# from here, every other jump from there -- and a test holds the two together.
+jump_mark=' #{e|+:#{e|-:#{?#{==:#{@review_hist_base},},#{history_size},#{@review_hist_base}},#{scroll_position}},#{copy_cursor_y}}:#{copy_cursor_y}:#{copy_cursor_x}'
+mark_jump="set-option -p -a -F @review_jumps '$jump_mark'"
+
 # Collected and sent in one invocation. Bound one call at a time this is a
 # dozen execs every time the configuration is reloaded, and on a machine whose
 # endpoint agent inspects each one that is measurable at every tmux start. A
 # bare ';' argument is what separates two commands within the one call.
 cmds=()
 bind() { cmds+=(bind-key "$@" ';'); }
+
+# What a copy-mode-vi key was bound to before this file binds it, so a key a
+# review takes over can fall back to it everywhere else. list-keys prints a
+# bind-key command so its output can be fed back in; what is wanted is the
+# command on the end of it. Empty for a key nothing was bound to.
+displaced() {
+  local key=$1 bound
+  bound=$(tmux list-keys -T copy-mode-vi "$key" 2>/dev/null) || bound=''
+  bound=${bound#*-T copy-mode-vi }
+  printf '%s' "${bound#"$key" }"
+}
 
 # Opens a review window: the diff on the right, a narrow commit list on the
 # left that highlights whichever commit the diff cursor is sitting in. In the
@@ -177,11 +194,7 @@ done
 # safe here for the same reason Enter is bound here at all: the copy-mode-vi
 # table is already settled by the time this runs.
 answers_question="#{&&:$routes_left,#{@review_asking}}"
-yank_y=$(tmux list-keys -T copy-mode-vi y 2>/dev/null) || yank_y=''
-# list-keys prints a bind-key command so its output can be fed back in; what is
-# wanted is the command on the end of it.
-yank_y=${yank_y#*-T copy-mode-vi }
-yank_y=${yank_y#y }
+yank_y=$(displaced y)
 # Sourced again without tpm having re-bound y first -- reloading this file on
 # its own does that -- would capture the binding written here and nest it
 # inside itself. The one already in place still answers, and still falls back
@@ -195,6 +208,36 @@ if [[ $yank_y != *@review_asking* ]]; then
   bind "${answer[@]}"
 fi
 
+# C-o jumps back to where the reader was before their last jump, as in vim --
+# a search, n, ][ and the rest -- and C-i, which a terminal sends as Tab, goes
+# forward again. tmux-open binds C-o to its open-in-editor, which cancels
+# copy-mode and types `nvim -- "<selection>"` and Enter into the pane: in a
+# review that closed the window, and in the list or the header it would type
+# into a loop reading keys. So in a review neither key falls back to what it
+# displaced. The diff routes it to the list, where the jumps are kept; a zoomed
+# diff unzooms first, like the other routed keys; the left panes do nothing.
+# Everywhere else each keeps the binding it displaced, and is left alone when
+# that binding is already this one.
+for key in C-o Tab; do
+  displaced_key=$(displaced "$key")
+  [[ $displaced_key == *@review* ]] && continue
+  jump=(-T copy-mode-vi "$key" if-shell -F "$in_review"
+    "if-shell -F '#{==:#{pane_at_left},0}' \"send-keys -t '{bottom-left}' $key\" \"if-shell -F '#{window_zoomed_flag}' 'resize-pane -Z'\"")
+  [[ -n $displaced_key ]] && jump+=("$displaced_key")
+  bind "${jump[@]}"
+done
+
+# A search is a jump, so / and ? mark where the reader leaves from, then put up
+# the prompt they were bound to -- the mark goes in as the key is pressed, so a
+# prompt dismissed unanswered leaves one on the row the reader is still on,
+# which C-o passes over. Outside a review they are only that prompt. A key
+# nothing was bound to is left that way, and one already wrapped is left alone.
+for key in / '?'; do
+  displaced_key=$(displaced "$key")
+  [[ -z $displaced_key || $displaced_key == *@review* ]] && continue
+  bind -T copy-mode-vi "$key" if-shell -F "$in_review" "$mark_jump ; $displaced_key" "$displaced_key"
+done
+
 # n and N have to keep meaning search-again everywhere else, so they fall back
 # to it. if-shell -F spawns nothing, so search outside a review stays instant.
 #
@@ -205,11 +248,15 @@ fi
 # for the review the search was made in. ][ and }{ still step files and commits,
 # so searching costs no navigation.
 search_again="if-shell -F '#{!=:#{pane_search_string},}'"
+#
+# A match is a jump, so it marks where the reader leaves from for C-o first. The
+# branches are tmux's own { } blocks rather than quoted strings, which would be
+# a third level of quoting around a mark that has quotes of its own.
 bind -T copy-mode-vi n if-shell -F "$routes_left" \
-  "$search_again 'send-keys -X search-again' \"send-keys -t '{bottom-left}' n\"" \
+  "$search_again { $mark_jump ; send-keys -X search-again } { send-keys -t '{bottom-left}' n }" \
   'send-keys -X search-again'
 bind -T copy-mode-vi N if-shell -F "$routes_left" \
-  "$search_again 'send-keys -X search-reverse' \"send-keys -t '{bottom-left}' N\"" \
+  "$search_again { $mark_jump ; send-keys -X search-reverse } { send-keys -t '{bottom-left}' N }" \
   'send-keys -X search-reverse'
 
 # q closes the review window and goes back to where it was opened from, but only

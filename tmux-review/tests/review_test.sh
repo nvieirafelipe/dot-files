@@ -264,7 +264,7 @@ tmux() { redraw_calls+="[$*]"; return 0; }
 self='/plugin/review.sh'
 redraw '%7' 'base..HEAD' 177 40
 assert_eq 'the diff is respawned at the new width, its old render cleared' \
-  '[set-option -w -t %7 @review_loaded 0 ; set-option -w -t %7 @review_gutter_w 40 ; respawn-pane -k -t %7 /plugin/review.sh diff base..HEAD 177 ; clear-history -t %7]' \
+  '[set-option -p -t %7 -u @review_jumps ; set-option -w -t %7 @review_loaded 0 ; set-option -w -t %7 @review_gutter_w 40 ; respawn-pane -k -t %7 /plugin/review.sh diff base..HEAD 177 ; clear-history -t %7]' \
   "$redraw_calls"
 unset -f tmux; restore_review; unset redraw_calls
 
@@ -273,14 +273,15 @@ section 'redraw_settled: the diff drawn again for a drag that has stopped'
 # diff at 140 for a list of 77, and the reader has since dragged the list to 39.
 declare -A row_of=() folded=()
 rk_state() {
-  printf 'drawn=%s reserved=%s list_drawn=%s mapped=%s map=%s folded=%s ask=%s' \
+  printf 'drawn=%s reserved=%s list_drawn=%s mapped=%s map=%s folded=%s ask=%s ahead=%s written=%s' \
     "$drawn_w" "$gutter_reserved" "$list_drawn" "$mapped" "${#row_of[@]}" "${#folded[@]}" \
-    "$ask_next"
+    "$ask_next" "$jumps_ahead" "$jumps_written"
 }
 rk_reset() {
   drawn_w=140 gutter_reserved=40 list_drawn=0 mapped=1 ask_next=0 gutter_expanded=0
   row_of=([c0]=5 [c1]=40)
   folded=([c0]=1)
+  jumps_ahead=' 300:1:5' jumps_written=' 40:10:2'
   rk_calls=''
 }
 redraw() { rk_calls+="[redraw $*]"; }
@@ -294,7 +295,8 @@ assert_eq 'a dragged list has the diff drawn again at the width it left' \
 # the map and the folds go with the old one; and the width it was drawn for is
 # what the clamp and the comments pane measure from from now on.
 assert_eq 'and everything measured off the old render is let go' \
-  'drawn=178 reserved=40 list_drawn=39 mapped=0 map=0 folded=0 ask=1' "$(rk_state)"
+  'drawn=178 reserved=40 list_drawn=39 mapped=0 map=0 folded=0 ask=1 ahead= written=' \
+  "$(rk_state)"
 unset -f tmux redraw rk_state rk_reset; restore_review
 unset drawn_w gutter_reserved list_drawn mapped ask_next gutter_expanded rk_calls
 row_of=(); folded=()
@@ -357,7 +359,19 @@ assert_eq 'and truncated by column, not by character' 5 "$REPLY"
 section 'render_legend: takes the widest form that fits'
 render_legend 101 diff legend_diff_tiers
 assert_eq 'widest diff form at 101' \
-  'diff  jk line  n/N any  ][ file  }{ commit  =<> fold  c comment  s send' "$(strip <<<"$REPLY")"
+  'diff  jk line  n/N any  ][ file  }{ commit  ^o/^i back/fwd  =<> fold  c comment  s send' \
+  "$(strip <<<"$REPLY")"
+render_legend 101 diff legend_diff_search_tiers
+assert_eq 'after a search, going back comes straight after the match keys' \
+  'diff  jk line  n/N match  ^o/^i back/fwd  ][ file  }{ commit  =<> fold  c comment  s send' \
+  "$REPLY_PLAIN"
+render_legend 70 diff legend_diff_search_tiers
+assert_eq 'and stays when the legend has to give way' \
+  'diff  jk line  n/N match  ^o/^i back/fwd  }{ commit  c comment' "$REPLY_PLAIN"
+render_legend 120 diff legend_diff_c_tiers
+assert_eq 'with something queued too, while there is room' \
+  'diff  jk line  ][ file  }{ commit  ^o/^i back/fwd  =<> fold  c comment  C toggle comments  R clear  s send' \
+  "$REPLY_PLAIN"
 render_legend 30 diff legend_diff_tiers
 assert_eq 'narrowest diff form at 30' 'diff  n/N any  c comment' "$(strip <<<"$REPLY")"
 render_legend 101 agent legend_session_tiers
@@ -396,7 +410,7 @@ assert_ok "$dimmed" 'labels are dim'
 # width, not just at the ones the tiers were written for.
 # REPLY_PLAIN rather than stripping the escapes back out: 200 widths across
 # three sets is 600 iterations, and a sed for each of them made the suite crawl.
-for tiers in legend_diff_tiers legend_list_tiers legend_range_tiers; do
+for tiers in legend_diff_tiers legend_diff_search_tiers legend_diff_c_tiers legend_list_tiers legend_range_tiers; do
   wrapped=0
   for w in $(seq 8 200); do
     render_legend "$w" xx "$tiers"
@@ -429,6 +443,128 @@ pick_target next 0 '7'
 assert_eq 'a single stop still answers' 7 "$REPLY"
 pick_target next 0 ''
 assert_eq 'no stops at all is empty' '' "$REPLY"
+
+section 'jumps_pop: the position C-o goes back to'
+jp() { jumps_pop "$1" "$2"; printf '%s|%s|%s' "$?" "${REPLY-}" "${REPLY_REST-}"; }
+assert_eq 'the one position kept is the one gone back to' '0|120:4:7|' "$(jp ' 120:4:7' 300)"
+assert_eq 'of several, the latest, and the earlier ones are kept for the next C-o' \
+  '0|900:0:0| 120:4:7 40:10:2' "$(jp ' 120:4:7 40:10:2 900:0:0' 300)"
+assert_eq 'a position on the row the reader is on is passed over, so C-o always moves' \
+  '0|40:10:2| 120:4:7' "$(jp ' 120:4:7 40:10:2 300:1:5 300:2:0' 300)"
+assert_eq 'with nothing kept there is nowhere to go back to' '1||' "$(jp '' 300)"
+assert_eq 'nor when everything kept is the row the reader is on' '1||' "$(jp ' 300:1:5 300:2:0' 300)"
+# A place made while the diff was out of copy-mode writes the mark with nothing
+# in it: no position to go back to.
+assert_eq 'a mark written outside copy-mode is passed over' \
+  '0|120:4:7|' "$(jp ' 120:4:7 81:: 300:1:5' 300)"
+
+section 'jump_restore: the reader put back where a jump left from'
+tmux() { restore_calls+="[$*]"; return 0; }
+restore_calls=''
+
+jump_restore %7 1000 300:4:7
+
+assert_eq 'the row goes back on the screen row and column it was read at, in one call' \
+  '[send-keys -X -t %7 goto-line 704 ; send-keys -X -t %7 top-line ; send-keys -X -N 4 -t %7 cursor-down ; send-keys -X -N 7 -t %7 cursor-right]' \
+  "$restore_calls"
+restore_calls=''
+
+jump_restore %7 1000 300:0:0
+
+assert_eq 'a position at the top left of the view needs no walk' \
+  '[send-keys -X -t %7 goto-line 700 ; send-keys -X -t %7 top-line]' "$restore_calls"
+restore_calls=''
+
+jump_restore %7 1000 2:10:0
+
+assert_eq 'a row too near the top to sit that far down the view is walked to from the top' \
+  '[send-keys -X -t %7 goto-line 1000 ; send-keys -X -t %7 top-line ; send-keys -X -N 2 -t %7 cursor-down]' \
+  "$restore_calls"
+restore_calls=''
+
+jump_restore %7 1000 1010:4:0
+
+assert_eq 'and one on the last screen, below the history, from the top of that screen' \
+  '[send-keys -X -t %7 goto-line 0 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down]' \
+  "$restore_calls"
+unset -f tmux; unset restore_calls
+
+section 'jump_back: C-o, from the list loop'
+tmux() { jb_calls+="[$*]"; return 0; }
+ctl_ask() { REPLY=$jb_state; return 0; }
+jb_state=$' 120:4:7 40:10:2\x1f 300:1:5'
+jb_calls=''; jumps_ahead=''; jumps_written=''; expect_row=-1; expect_turns=3
+
+jump_back %7 1000
+
+assert_eq 'back to the last jump, the rest kept, where it left from kept for Tab' \
+  '[set-option -p -t %7 @review_jumps  120:4:7][send-keys -X -t %7 goto-line 970 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; send-keys -X -N 2 -t %7 cursor-right]| 300:1:5| 120:4:7|40|0' \
+  "$jb_calls|$jumps_ahead|$jumps_written|$expect_row|$expect_turns"
+jb_state=$' 40:10:2 300:2:0\x1f 300:1:5'
+jb_calls=''; jumps_ahead=''; jumps_written=' 40:10:2 300:2:0'
+
+jump_back %7 1000
+
+assert_eq 'a jump that left from the row the reader is on is passed over' \
+  '[set-option -p -t %7 @review_jumps ][send-keys -X -t %7 goto-line 970 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; send-keys -X -N 2 -t %7 cursor-right]| 300:1:5|' \
+  "$jb_calls|$jumps_ahead|$jumps_written"
+jb_state=$'\x1f 300:1:5'
+jb_calls=''; jumps_ahead=' 500:0:0'; jumps_written=''; expect_row=-1
+
+jump_back %7 1000
+
+assert_eq 'with nowhere to go back to, it says so and moves nothing' \
+  '[display-message review: no earlier position]| 500:0:0||-1' \
+  "$jb_calls|$jumps_ahead|$jumps_written|$expect_row"
+# Tab only retraces C-o. Once the reader has jumped somewhere new since, what
+# lay ahead is a different path, and is dropped -- the way a browser drops it.
+jb_state=$' 40:10:2 120:4:7\x1f 300:1:5'
+jb_calls=''; jumps_ahead=' 500:0:0'; jumps_written=' 40:10:2'
+
+jump_back %7 1000
+
+assert_eq 'a jump made since the last C-o drops what Tab would have retraced' \
+  ' 300:1:5| 40:10:2' "$jumps_ahead|$jumps_written"
+ctl_ask() { return 1; }
+tmux() {
+  [[ $1 == display-message ]] && { printf '%s\n' "$jb_state"; return 0; }
+  jb_calls+="[$*]"
+}
+jb_state=$' 40:10:2\x1f 300:1:5'
+jb_calls=''; jumps_ahead=''; jumps_written=''
+
+jump_back %7 1000
+
+assert_eq 'without the control client the server is asked by a tmux of its own' \
+  '[set-option -p -t %7 @review_jumps ][send-keys -X -t %7 goto-line 970 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; send-keys -X -N 2 -t %7 cursor-right]' \
+  "$jb_calls"
+unset -f tmux; restore_review; unset jb_calls jb_state jumps_ahead jumps_written
+
+section 'jump_forward: Tab, retracing C-o'
+tmux() { jf_calls+="[$*]"; return 0; }
+ctl_ask() { REPLY=$jf_state; return 0; }
+jf_state=$' 120:4:7\x1f 40:10:2'
+jf_calls=''; jumps_ahead=' 300:1:5'; jumps_written=' 120:4:7'; expect_row=-1; expect_turns=3
+
+jump_forward %7 1000
+
+assert_eq 'forward to where C-o left from, and where it leaves from is a jump again' \
+  '[set-option -p -t %7 @review_jumps  120:4:7 40:10:2][send-keys -X -t %7 goto-line 701 ; send-keys -X -t %7 top-line ; send-keys -X -N 1 -t %7 cursor-down ; send-keys -X -N 5 -t %7 cursor-right]|| 120:4:7 40:10:2|300|0' \
+  "$jf_calls|$jumps_ahead|$jumps_written|$expect_row|$expect_turns"
+jf_calls=''; jumps_ahead=''; jumps_written=' 120:4:7'; expect_row=-1
+
+jump_forward %7 1000
+
+assert_eq 'with no C-o to retrace, it says so and moves nothing' \
+  '[display-message review: no later position]| 120:4:7|-1' \
+  "$jf_calls|$jumps_written|$expect_row"
+jf_calls=''; jumps_ahead=' 300:1:5'; jumps_written=' 120:4:7 900:0:0'
+
+jump_forward %7 1000
+
+assert_eq 'nor once the reader has jumped somewhere new since' \
+  '[display-message review: no later position]|' "$jf_calls|$jumps_ahead"
+unset -f tmux; restore_review; unset jf_calls jf_state jumps_ahead jumps_written
 
 section 'current_index: the commit whose header is last at or above the cursor'
 shas=(c0 c1 c2)
@@ -468,6 +604,8 @@ assert_eq 'close bracket' ']'      "$(key_of ']')"
 assert_eq 'open bracket'  '['      "$(key_of '[')"
 assert_eq 'G is the last commit' last "$(key_of 'G')"
 assert_eq 'gg is the first commit' first "$(key_of 'gg')"
+assert_eq 'C-o is back to where the last jump left from' back "$(key_of '\x0f')"
+assert_eq 'Tab, which is C-i, is forward again' forward "$(key_of '\t')"
 assert_eq 'a lone g does nothing' '' "$(key_of 'g')"
 assert_eq 'up arrow'     k         "$(key_of '\e[A')"
 assert_eq 'down arrow'   j         "$(key_of '\e[B')"
@@ -967,6 +1105,9 @@ sent=''; gutter_key %9 '<'
 assert_eq 'all three of them' '[send-keys -t %9 <]' "$sent"
 sent=''; gutter_key %9 '>'
 assert_eq 'all three, not two' '[send-keys -t %9 >]' "$sent"
+sent=''; gutter_key %9 back; gutter_key %9 forward
+assert_eq 'C-o and Tab go over as the keys they were' \
+  '[send-keys -t %9 C-o][send-keys -t %9 Tab]' "$sent"
 sent=''; gutter_key %9 cancel
 assert_eq 'a bare escape is not a key the list knows' '' "$sent"
 sent=''; gutter_key %9 z
@@ -2389,13 +2530,13 @@ section 'fold_swap: the new grid in one invocation'
 fs_args=''
 tmux() { fs_args+="[$*]"; }
 fold_swap %7 520 10 host
-assert_eq 'out of copy-mode and back, the view and the cursor placed, the title put back' \
-  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
+assert_eq 'out of copy-mode and back, the view and the cursor placed, the title put back, C-o reset' \
+  '[set-option -p -t %7 -u @review_jumps ; send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
   "$fs_args"
 fs_args=''
 fold_swap %7 0 0 host
 assert_eq 'with the cursor wanted on the top row there is no walk' \
-  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 0 ; send-keys -X -t %7 top-line ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
+  '[set-option -p -t %7 -u @review_jumps ; send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 0 ; send-keys -X -t %7 top-line ; select-pane -t %7 -T host ; set-option -p -t %7 -F @review_hist_base #{history_size}]' \
   "$fs_args"
 # select-pane -T expands formats in the title it is given, so a # in the title
 # being put back would be read as the start of one.
@@ -2415,7 +2556,7 @@ fs_args=''
 fold_swap %7 520 10 'host #1'
 exec {fs_wfd}>&-
 assert_eq 'one line down the control client, quoted where tmux would split it' \
-  'send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T "host ##1" ; set-option -p -t %7 -F @review_hist_base "#{history_size}"' \
+  'set-option -p -t %7 -u @review_jumps ; send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 goto-line 520 ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down ; select-pane -t %7 -T "host ##1" ; set-option -p -t %7 -F @review_hist_base "#{history_size}"' \
   "$(/bin/cat "$fs_w")"
 assert_eq 'and no tmux of its own' '' "$fs_args"
 sub_out=-1
@@ -2436,7 +2577,7 @@ fe_args=''
 tmux() { fe_args+="[$*]"; }
 fold_swap_early %7 380 10
 assert_eq 'the view placed from the grid copy-mode was entered on, the cursor walked down it' \
-  '[send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base #{scroll_position} ; run-shell -C -t %7 send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380} ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down]' \
+  '[set-option -p -t %7 -u @review_jumps ; send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base #{scroll_position} ; run-shell -C -t %7 send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380} ; send-keys -X -t %7 top-line ; send-keys -X -N 10 -t %7 cursor-down]' \
   "$fe_args"
 fe_w=$(mktemp)
 exec {fe_wfd}>"$fe_w"
@@ -2446,7 +2587,7 @@ fe_args=''
 fold_swap_early %7 380 0
 exec {fe_wfd}>&-
 assert_eq 'and down the control client when there is one, with no walk for a cursor at the top' \
-  'send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base "#{scroll_position}" ; run-shell -C -t %7 "send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380}" ; send-keys -X -t %7 top-line' \
+  'set-option -p -t %7 -u @review_jumps ; send-keys -X -t %7 cancel ; copy-mode -t %7 ; send-keys -X -t %7 history-top ; set-option -p -t %7 -F @review_hist_base "#{scroll_position}" ; run-shell -C -t %7 "send-keys -X -t %7 goto-line #{e|-:#{scroll_position},380}" ; send-keys -X -t %7 top-line' \
   "$(/bin/cat "$fe_w")"
 sub_out=-1
 sub_in=-1
@@ -2531,6 +2672,8 @@ fk_reset() {
   mapped=1
   pending_row=7
   expect_row=7
+  jumps_ahead=' 300:1:5'
+  jumps_written=' 40:10:2'
   fold_gen=0
 }
 
@@ -2544,8 +2687,8 @@ assert_eq '= in a hunk collapses the hunk, the cursor goes to its box, and the m
   "[start /dev/ttys9 $fk_cache 21db538/1/2 160 review-fold-1 60 review-fold-1-view][wait %7 review-fold-1][swap %7 40 23 host][map %7 $fk_cache.map]" \
   "$fk_calls"
 assert_eq 'the hunk is what is collapsed now' '21db538/1/2' "${!folded[*]}"
-assert_eq 'and no move is left in flight against the old rows' '-1 -1' \
-  "$pending_row $expect_row"
+assert_eq 'and no move is left in flight against the old rows, nor a Tab to retrace' \
+  '-1 -1||' "$pending_row $expect_row|$jumps_ahead|$jumps_written"
 
 fk_reset
 fk_cy_after=9
@@ -3035,8 +3178,11 @@ section 'place: the scrollback row asked for, under the cursor where it was'
 place_args=''
 tmux() { place_args+="[$*]"; }
 place_args=''; place '%1' 100 10 90
-assert_eq 'a row the view can reach needs only the scroll' \
-  '[send-keys -X -t %1 goto-line 20]' "$place_args"
+# Every place is a reader's jump -- a stop, a file, a commit, a comment -- so
+# where it leaves from is kept for C-o, read by tmux as the move is made.
+assert_eq 'a row the view can reach needs only the scroll, and C-o can come back' \
+  "[set-option -p -t %1 -a -F @review_jumps $jump_mark ; send-keys -X -t %1 goto-line 20]" \
+  "$place_args"
 # hist + cy - target = 100 + 10 - 5 = 105, past the end of history, so the
 # scroll stops at hist and the cursor covers what is left.
 place_args=''; place '%1' 100 10 5
@@ -3841,7 +3987,12 @@ if [[ $1 == show-option ]]; then
   exit 0
 fi
 if [[ $1 == list-keys ]]; then
-  printf '%s\n' "${YANK_Y-}"
+  case $4 in
+    y) printf '%s\n' "${YANK_Y-}" ;;
+    C-o) printf '%s\n' "${OPEN_CO-}" ;;
+    /) printf '%s\n' "${SEARCH_DOWN-}" ;;
+    \?) printf '%s\n' "${SEARCH_UP-}" ;;
+  esac
   exit 0
 fi
 printf '%s\n' "$*" >>"$TMUX_LOG"
@@ -3858,12 +4009,12 @@ assert_match 'prefix+g opens a review, in the background' \
   'bind-key g run-shell -b .*/scripts/review\.sh open #\{pane_id\}' "$bound"
 assert_match 'prefix+G is the working tree, in a popup' \
   'bind-key G display-popup .*/bin/git-review --wip' "$bound"
-assert_eq 'eighteen keys are bound in copy-mode' 18 \
+assert_eq 'twenty keys are bound in copy-mode' 20 \
   "$(grep -o 'bind-key -T copy-mode-vi' <<<"$bound" | grep -c .)"
 # C and R are bound from the start even though the legend only offers them once
 # there is something queued: a binding that came and went would mean reloading
 # the configuration mid-review, which takes the review's own bindings with it.
-for k in ']' '\[' '}' '{' c C R E s a n N q y Enter '=' '<' '>'; do
+for k in ']' '\[' '}' '{' c C R E s a n N q y Enter '=' '<' '>' C-o Tab; do
   matched=0; grep -q -- "bind-key -T copy-mode-vi $k " <<<"$bound" || matched=1
   assert_ok "$matched" "copy-mode $k is bound"
 done
@@ -3926,6 +4077,98 @@ YANK_Y="bind-key -T copy-mode-vi y $ybound" TMUX_LOG=$tmux_log \
   PATH="$fake_bin:$PATH" "$plugin/review.tmux"
 assert_eq 'the one already in place is left exactly as it is' 0 \
   "$(grep -c -- 'bind-key -T copy-mode-vi y ' "$tmux_log")"
+# tmux-open's C-o cancels copy-mode and types a line and Enter into the pane,
+# which is what closed a review mid-read. A review takes the key over in every
+# one of its panes; everywhere else keeps the editor it opens.
+open_co_binding=$(cat <<'EOF'
+bind-key -T copy-mode-vi C-o send-keys -X copy-pipe-and-cancel "sed s/##/####/g | xargs -I {} tmux send-keys 'nvim -- \"{}\"'; tmux send-keys 'C-m'"
+EOF
+)
+: >"$tmux_log"
+
+OPEN_CO=$open_co_binding TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+
+cobound=$(cat "$tmux_log")
+cobound=${cobound#*bind-key -T copy-mode-vi C-o }
+cobound=${cobound%% ; *}
+assert_eq 'C-o goes to the list in a review, unzooms short of it, and opens the editor elsewhere' \
+  "if-shell -F #{&&:#{@review},#{==:#{pane_mode},copy-mode}} if-shell -F '#{==:#{pane_at_left},0}' \"send-keys -t '{bottom-left}' C-o\" \"if-shell -F '#{window_zoomed_flag}' 'resize-pane -Z'\" ${open_co_binding#*copy-mode-vi C-o }" \
+  "$cobound"
+: >"$tmux_log"
+
+OPEN_CO='' TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+
+cobound=$(cat "$tmux_log")
+cobound=${cobound#*bind-key -T copy-mode-vi C-o }
+cobound=${cobound%% ; *}
+assert_eq 'a C-o that was never bound jumps back in a review and does nothing elsewhere' \
+  "if-shell -F #{&&:#{@review},#{==:#{pane_mode},copy-mode}} if-shell -F '#{==:#{pane_at_left},0}' \"send-keys -t '{bottom-left}' C-o\" \"if-shell -F '#{window_zoomed_flag}' 'resize-pane -Z'\"" \
+  "$cobound"
+: >"$tmux_log"
+
+OPEN_CO="bind-key -T copy-mode-vi C-o $cobound" TMUX_LOG=$tmux_log \
+  PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+
+assert_eq 'reloaded on its own, the C-o already in place is not wrapped again' 0 \
+  "$(grep -c -- 'bind-key -T copy-mode-vi C-o ' "$tmux_log")"
+# The search keys write the jump list from review.tmux and every other jump
+# writes it from review.sh, so the two have to write the same entry. Read out
+# of review.tmux the way the guards are, in a subshell with review.sh's own
+# unset, so a line that is not there cannot pass by leaving that one behind.
+assert_eq 'review.tmux marks a jump with the same entry review.sh does' "$jump_mark" \
+  "$(unset jump_mark; eval "$(grep -E '^jump_mark=' "$plugin/review.tmux")"; printf '%s' "${jump_mark-}")"
+# A search is a jump, so / and ? mark where the reader leaves from before the
+# prompt they were bound to is put up -- in a review; elsewhere they are only
+# that prompt, as before.
+search_down='bind-key -T copy-mode-vi / command-prompt -P -T search -p "(search down)" { send-keys -X search-forward -- "%%" }'
+search_up='bind-key -T copy-mode-vi ? command-prompt -P -T search -p "(search up)" { send-keys -X search-backward -- "%%" }'
+: >"$tmux_log"
+
+SEARCH_DOWN=$search_down SEARCH_UP=$search_up TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" \
+  "$plugin/review.tmux"
+
+sbound=$(cat "$tmux_log")
+down=${sbound#*bind-key -T copy-mode-vi / }
+down=${down%% ; bind-key *}
+up=${sbound#*"bind-key -T copy-mode-vi ? "}
+up=${up%% ; bind-key *}
+assert_eq '/ marks the jump in a review, then searches down as it did' \
+  "if-shell -F #{&&:#{@review},#{==:#{pane_mode},copy-mode}} set-option -p -a -F @review_jumps '$jump_mark' ; ${search_down#*copy-mode-vi / } ${search_down#*copy-mode-vi / }" \
+  "$down"
+assert_eq '? the same, searching up' \
+  "if-shell -F #{&&:#{@review},#{==:#{pane_mode},copy-mode}} set-option -p -a -F @review_jumps '$jump_mark' ; ${search_up#*"copy-mode-vi ? "} ${search_up#*"copy-mode-vi ? "}" \
+  "$up"
+# n and N after a search are tmux's own search-again, which never reaches the
+# list's loop, so they mark the jump themselves; before a search they go to the
+# loop, which marks its own.
+nbound=${sbound#*bind-key -T copy-mode-vi n }
+nbound=${nbound%% ; bind-key *}
+assert_eq 'n after a search marks the jump, then finds the next match' \
+  "if-shell -F #{&&:#{&&:#{@review},#{==:#{pane_mode},copy-mode}},#{==:#{pane_at_left},0}} if-shell -F '#{!=:#{pane_search_string},}' { set-option -p -a -F @review_jumps '$jump_mark' ; send-keys -X search-again } { send-keys -t '{bottom-left}' n } send-keys -X search-again" \
+  "$nbound"
+nbound=${sbound#*bind-key -T copy-mode-vi N }
+nbound=${nbound%% ; bind-key *}
+assert_eq 'and N the one before' \
+  "if-shell -F #{&&:#{&&:#{@review},#{==:#{pane_mode},copy-mode}},#{==:#{pane_at_left},0}} if-shell -F '#{!=:#{pane_search_string},}' { set-option -p -a -F @review_jumps '$jump_mark' ; send-keys -X search-reverse } { send-keys -t '{bottom-left}' N } send-keys -X search-reverse" \
+  "$nbound"
+: >"$tmux_log"
+
+SEARCH_DOWN="bind-key -T copy-mode-vi / $down" TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" \
+  "$plugin/review.tmux"
+
+assert_eq 'reloaded on its own, a / already marking jumps is not wrapped again' 0 \
+  "$(grep -c -- 'bind-key -T copy-mode-vi / ' "$tmux_log")"
+# Tab, which is C-i, retraces C-o. Nothing binds it in copy-mode-vi by default.
+: >"$tmux_log"
+
+TMUX_LOG=$tmux_log PATH="$fake_bin:$PATH" "$plugin/review.tmux"
+
+tabbound=$(cat "$tmux_log")
+tabbound=${tabbound#*bind-key -T copy-mode-vi Tab }
+tabbound=${tabbound%% ; *}
+assert_eq 'Tab goes forward again in a review, the same way C-o goes back' \
+  "if-shell -F #{&&:#{@review},#{==:#{pane_mode},copy-mode}} if-shell -F '#{==:#{pane_at_left},0}' \"send-keys -t '{bottom-left}' Tab\" \"if-shell -F '#{window_zoomed_flag}' 'resize-pane -Z'\"" \
+  "$tabbound"
 # The two keys that can be moved.
 : >"$tmux_log"
 cat >"$fake_bin/tmux" <<'FAKE'
@@ -3938,7 +4181,12 @@ if [[ $1 == show-option ]]; then
   exit 0
 fi
 if [[ $1 == list-keys ]]; then
-  printf '%s\n' "${YANK_Y-}"
+  case $4 in
+    y) printf '%s\n' "${YANK_Y-}" ;;
+    C-o) printf '%s\n' "${OPEN_CO-}" ;;
+    /) printf '%s\n' "${SEARCH_DOWN-}" ;;
+    \?) printf '%s\n' "${SEARCH_UP-}" ;;
+  esac
   exit 0
 fi
 printf '%s\n' "$*" >>"$TMUX_LOG"
@@ -4607,7 +4855,9 @@ sidebar_run() {
           sed -n "$((n + 1))p" "$sb_ticks"
           return 0 ;;
         # The one-field query the copy-mode re-entry path makes on its own.
-        *copy_cursor_y*) printf '0'; return 0 ;;
+        # display-message only: a move carries #{copy_cursor_y} too, in the
+        # mark it leaves for C-o, and is logged like any other command.
+        display-message*copy_cursor_y*) printf '0'; return 0 ;;
         'capture-pane'*)
           # A commit header every twenty rows, which is what the row map reads.
           printf 'commit %s\n' "${shas[@]}"
@@ -4745,6 +4995,10 @@ sidebar_run '' "$sb_in_c1" "$sb_in_c1" "$sb_dragged_c1" "$sb_dragged_c1" "$sb_re
   "$sb_redrawn" "$sb_redrawn"
 assert_match 'and puts the reader back in the commit they were reading' \
   'goto-line' "${sb_seen#*REDRAW}"
+# Put back by the list, not moved by the reader: the redraw let the jump list
+# go, and a mark from the top of the new render would send C-o there.
+assert_eq 'which is not a jump C-o goes back from' 0 \
+  "$(grep -c '@review_jumps' <<<"${sb_seen#*REDRAW}")"
 
 # Where the list opened the diff already fills its pane: nothing is drawn again,
 # and the reader is left exactly where they are rather than sent back to the
@@ -4759,6 +5013,21 @@ unset sb_settle
 # E hands the line under the diff's cursor to the editor beside the review.
 sidebar_run 'E' "$sb_normal" "$sb_normal" "$sb_normal"
 assert_match 'E opens the line under the cursor in the editor' 'OPEN %7' "$sb_seen"
+
+# C-o and Tab, routed from the diff, move it from the basis the turn read.
+jump_back() { printf 'BACK %s\n' "$*" >>"$sb_log"; }
+jump_forward() { printf 'AHEAD %s\n' "$*" >>"$sb_log"; }
+
+sidebar_run $'\x0f\t' "$sb_normal" "$sb_normal" "$sb_normal" "$sb_normal"
+
+assert_eq 'C-o goes back and Tab forward, in the diff, from its basis' \
+  $'BACK %7 100\nAHEAD %7 100' "$(grep -e '^BACK' -e '^AHEAD' <<<"$sb_seen")"
+restore_review
+
+sidebar_run $'\x0f' "$sb_normal" "$sb_normal" "$sb_normal"
+
+assert_match 'a review with no jumps yet answers C-o rather than falling over' \
+  'TMUX display-message review: no earlier position' "$sb_seen"
 
 # a reaches the agent picker without having to walk the selection to its row.
 sidebar_run 'a' "$sb_normal" "$sb_normal" "$sb_normal"
@@ -5307,6 +5576,26 @@ else
       assert_match 'and counts what the range comes to' '\+[0-9]+.*1 commit' "$hdr_text"
       assert_eq 'and never draws the count without the range above it' 0 "$hdr_cut"
     fi
+    # C-o and Tab, sent to the list the way the diff's bindings route them. n
+    # steps to the next stop from there, which is a jump; C-o comes back to
+    # where it left from, and Tab goes there again. Through the list's tty, so
+    # a terminal that keeps C-o for itself -- macOS's DISCARD -- fails here.
+    mark_at() { tmux -L "$socket" display-message -p -t "$dpane" "${jump_mark# }"; }
+    jl_from=$(mark_at)
+    tmux -L "$socket" send-keys -t "$sb" n
+    sleep 1.5
+    jl_to=$(mark_at)
+    tmux -L "$socket" send-keys -t "$sb" C-o
+    sleep 1.5
+    jl_back=$(mark_at)
+    tmux -L "$socket" send-keys -t "$sb" Tab
+    sleep 1.5
+    jl_ahead=$(mark_at)
+
+    assert_ok "$([[ $jl_to != "$jl_from" ]] && echo 0 || echo 1)" 'n jumps somewhere'
+    assert_eq 'C-o comes back to where n left from, and Tab goes where it went' \
+      "$jl_from $jl_to" "$jl_back $jl_ahead"
+
     # What tmux-open's C-o does to the diff: out of copy-mode, then a line and
     # Enter typed into the pane. Both in one invocation, so the list's loop has
     # no turn in between to put copy-mode back first. The word typed is made up
