@@ -72,6 +72,8 @@ stories/issues.
 - destructure-then-tuple-assert — `^\s+%\{[a-z_]+: [a-z_]+, [a-z_]+: [a-z_]+[^}]*\} = [a-z_.]+$`
   on added lines in `test/` (older tests may match, so scan the diff only) — first seen in a
   pre-PR review
+  — false positive in issue-83: test-context destructuring split off a long test head
+  (`%{field: field, scope: scope, ...} = context`); exclude `= context$` before promoting
 
 Format:
 
