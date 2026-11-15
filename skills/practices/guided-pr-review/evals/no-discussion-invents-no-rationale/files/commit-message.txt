@@ -1,0 +1,6 @@
+Retry deliveries that fail with a server error
+
+A receiver outage dropped events because Deliver gave up on the first
+failure. Retry up to three attempts, waiting 1 s and then 2 s.
+
+Closes #140.

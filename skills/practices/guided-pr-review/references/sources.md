@@ -21,6 +21,31 @@ public `rust-lang/rust` PRs: `gh pr view --json files` returned 100 of 283 files
 #165244, and `gh pr diff` on #165234 (306 files) failed with "HTTP 406: Sorry, the diff
 exceeded the maximum number of files (300)".
 
+## The briefing sections
+
+On 2026-11-15 the author compared seven reports this skill wrote that month, on work and
+personal repositories, with what they wanted from a report: the context of the change
+in a minute, the discussion that led to it, the tradeoffs, the assumptions, and a
+challenge to each. The reports ran 470 to 950 lines, and their first 28 to 39 lines held
+heads, CI, and standards, ahead of the summary and the story. "Assum" appeared in one of
+the seven, and the discussion before the change appeared mostly as review threads near
+the end. Two sections
+that worked had been improvised outside the template: a "Why each part is there" table
+(part, why it is needed, what breaks without it), and an options table (option, change,
+gains, costs) written in a separate notes file. The Brief, the trail, the decisions and
+assumptions sections, the reading guide, the options format, and the Provenance section
+came out of that comparison; the two improvised tables became template formats.
+
+The Forgejo path of `fetch-pr.sh` was checked on 2026-11-15 against Codeberg (API
+version `17.0.0-100-2254cb0+gitea-1.22.0` in its `swagger.v1.json`) with a development
+build of `tea`, on public `forgejo/forgejo` PRs. Codeberg serves `refs/pull/<n>/head`;
+`pulls/<n>/files` entries have no `patch` field; inline comments come per review from
+`pulls/<n>/reviews/<id>/comments`; `issues/<n>/comments` takes only `since` and
+`before`; and `tea api` printed the 404 error JSON and exited 0. Posting a review to
+Forgejo was not tried: its comments take `new_position`, whose meaning was not checked.
+Three of five reviews of a personal project that month had reviewed a Codeberg PR, each
+with data fetched by hand in its own layout.
+
 ## Addy Osmani, code-review-and-quality
 
 [`skills/code-review-and-quality/SKILL.md`][addy] in `addyosmani/agent-skills`.
@@ -120,6 +145,22 @@ The viewer's layout follows these patterns. It reuses no code from them, so
   first for intent, production code in dependency order, then tests in full.
 - **Verifier on by default.** It caught real errors in the worked example. `quick` mode
   skips it for a first look and marks the report "Not verified".
+- **A briefing, not a replacement.** The reviewer reads the code anyway. The report gives
+  them the context in one screen, says what to expect in the code and where it departs
+  from the discussion, and keeps provenance detail at the end.
+- **Provenance labels.** A report that explains why a change was made is tempted to
+  supply reasons. Stated, Inferred, and Not found keep the author's reasons apart from
+  the assistant's, and "Not found" turns a missing reason into a question.
+- **Challenger on every full review.** Decisions and assumptions are cheap to list and
+  easy to leave unexamined, and a reader with a fresh context argues against them better
+  than the session that summarized them. It runs whatever the change's size; `quick`
+  mode skips it.
+- **No "Already raised" section.** Review threads are part of the discussion: their
+  decisions go in the trail, and the per-comment detail goes in Provenance, re-fetched
+  before posting.
+- **Rounds rewrite the report.** Reports that stacked delta sections and per-head verdicts
+  at the top were hard to read for the current state. Each round now rewrites the
+  report for the current head and keeps the history in the review log.
 - **Markdown canonical, HTML as a viewer.** Markdown diffs, renders on GitHub, and works
   offline. The viewer embeds the Markdown and renders it in the browser, so there is
   one source and no build step. It sanitizes the rendered HTML because reports quote PR

@@ -4,7 +4,12 @@ Three axes, reviewed independently. A change can pass one and fail another: code
 follows every convention can build the wrong thing, and code that does exactly what the
 issue asked can break the repository's conventions. Tag every finding with its axis,
 keep the axes in separate parts of the report, and name the worst item of each axis in
-the summary. Do not let a pile of findings on one axis bury a single finding on another.
+the Brief. Do not let a pile of findings on one axis bury a single finding on another.
+
+The decisions and assumptions behind the change are not a fourth axis. They are
+challenged in their own sections (see
+[Decisions and assumptions](#decisions-and-assumptions)), and a challenge that holds up
+becomes a finding on one of the three axes.
 
 | Axis | Question | Report section |
 |---|---|---|
@@ -22,6 +27,9 @@ Quote the spec line for each finding.
 - **Looks wrong:** implemented, but the implementation does not do what the spec says.
 - **Not yet wired:** implemented but unreachable because no flow calls it yet. Say so,
   since it changes the severity of everything else in that code.
+- **Departs from the trail:** the code does something the discussion decided against,
+  or something it never discussed that a reader of the discussion would not expect.
+  Quote the decision.
 
 Build the acceptance criteria table from the spec: one row per criterion, a status (Met,
 Partial, Missing, Pending, Not applicable), and the evidence.
@@ -139,7 +147,9 @@ When a finding is structural, propose the move, not only the problem:
 - Delete a pass-through wrapper.
 - Extract a helper, or split a large file.
 
-Prefer the remedy that removes moving parts over one that spreads them around.
+Prefer the remedy that removes moving parts over one that spreads them around. When more
+than one remedy fits, show them as options, each with a snippet, and their tradeoffs
+against leaving the code as it is.
 
 ### Elixir changes
 
@@ -160,6 +170,25 @@ the remedy, so the author can look it up:
 - An entry that changes laziness, recursion shape or process structure (`Enum` to
   `Stream`, body to tail recursion, introducing or removing processes) also gets a
   Behavior-axis check: what changes at runtime, and whether a test would notice.
+
+## Decisions and assumptions
+
+Every change rests on choices someone made and on things it takes for granted. The
+reviewer usually knows the context; what they lack is the time to check whether the
+choices still hold in the code as written. Challenge each one:
+
+- **A decision:** what else was on the table, and what each option gains and costs.
+  Then the strongest case against the choice: which input, load, failure, or later
+  change makes it the wrong one, with evidence. A decision with no recorded alternative
+  is challenged against the most obvious one.
+- **An assumption:** what supports it, what breaks if it is false, and the cheapest
+  check. Look for the ones nobody wrote down: a call that "always" returns one error
+  type, input that "never" arrives twice, a caller that "only" passes valid data, a
+  table that "stays" small, an operation that "cannot" fail halfway.
+
+Map the outcome to an axis: an assumption the spec relies on that does not hold is a
+Spec finding; one the code relies on is a Behavior finding; a decision whose cost lands
+on future changes is a Design finding. An assumption nobody can check yet is a Question.
 
 ## Change-level checks
 
