@@ -133,6 +133,10 @@ The viewer's layout follows these patterns. It reuses no code from them, so
   post, and applying fixes waits for the reviewer as posting does.
 - **No posting script.** `review.json` plus one `gh api` call is short enough to show
   the reviewer in full before posting.
+- **Elixir remedies by name.** For Elixir diffs, structural remedies name an entry from
+  the elixir-refactorings skill, which condenses Lucas Vegi and Marco Tulio Valente's
+  Catalog of Elixir Refactorings (MIT). That skill's own `sources.md` and `LICENSES.md`
+  carry the attribution; nothing from the catalog is copied into this skill.
 
 [addy]: https://github.com/addyosmani/agent-skills/blob/301b02b12bff98e4688e6984af6556802322bbde/skills/code-review-and-quality/SKILL.md
 [addy-license]: https://github.com/addyosmani/agent-skills/blob/301b02b12bff98e4688e6984af6556802322bbde/LICENSE

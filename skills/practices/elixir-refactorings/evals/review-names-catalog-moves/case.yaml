@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: review-names-catalog-moves
+expected_outcome: |
+  A review of lib/invoice.ex that names each remedy with the catalog's refactoring name
+  and shows the change: From meta to normal function application for the apply/3 call,
+  Default value for an absent key in a Map for the Map.has_key?/2 check, Moving a
+  definition for customer_label/1 (Feature Envy on Customer), Remove dead code for the
+  unused legacy_total/1, and a parameter grouping for line_total/6. It does not propose
+  rewriting the notify default with || (Simplifying checks by using truthness
+  condition) or with Map.get(opts, :notify, true) as a safe change: || turns an explicit
+  false into true, and Map.get/3 keeps an explicit nil. Refactoring suggestions are
+  presented as optional, not as required fixes.
+context:
+  scaffold_script: place-files.sh

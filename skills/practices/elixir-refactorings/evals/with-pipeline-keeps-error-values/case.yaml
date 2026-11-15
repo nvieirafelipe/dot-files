@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: with-pipeline-keeps-error-values
+expected_outcome: |
+  lib/game.ex is refactored with Pipeline using "with" (or an equivalent named move from
+  the catalog). The with statement keeps the original error values: an invalid or
+  occupied move still returns {:error, :invalid_move}, not valid_move's own reason, and
+  a wrong player still returns {:error, :not_your_turn}. The redundant inner case on
+  play_turn is removed. The answer names the refactoring as the catalog spells it and
+  the commit message names it too.
+context:
+  scaffold_script: place-files.sh

@@ -151,7 +151,8 @@ and Design and standards. Tag every candidate finding with its axis.
 For a large change in `full` mode, when the host supports sub-agents, run a Spec reader
 and a Standards reader in parallel, each with a fresh context. Give each the diff
 commands and review refs; give the Spec reader the spec text and the Standards reader
-the standards list plus the smell baseline from review-axes.md. Each returns findings
+the standards list plus the smell baseline from review-axes.md, and, when the diff
+touches Elixir files, the path to the elixir-refactorings skill. Each returns findings
 with receipts. Merge them into `notes.md` with their axis tags; do not rerank them.
 
 ### 4. Verify or drop

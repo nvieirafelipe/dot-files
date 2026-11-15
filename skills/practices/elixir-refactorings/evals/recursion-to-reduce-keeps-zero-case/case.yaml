@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: recursion-to-reduce-keeps-zero-case
+expected_outcome: |
+  lib/math_utils.ex has its recursion replaced with Enum calls (Replacing recursion with
+  a higher-level construct) and returns exactly what the original returns:
+  factorial(0) is still 1, count_down(0) is still [0], and negative arguments to
+  factorial/1 and count_down/1 still raise FunctionClauseError, and sum([0.1, 0.2, 0.3])
+  is still 0.6 (a left fold gives 0.6000000000000001). The answer names the
+  refactoring and calls out the empty-range trap (1..0 counts down) or the zero case.
+context:
+  scaffold_script: place-files.sh

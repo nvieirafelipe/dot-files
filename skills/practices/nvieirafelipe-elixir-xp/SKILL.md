@@ -46,6 +46,7 @@ Defer to these for generic discipline; this skill layers personal-specific rules
 - `elixir-crafting` — assertive style, single return shape, typespecs, formatter/credo feedback loop.
 - `tdd` — red-green-refactor cadence.
 - `refactoring` — when code gets messy.
+- `elixir-refactorings` — the named, behavior-preserving moves from the Catalog of Elixir Refactorings, with side-conditions. Pick the move for a smell there and name it in the commit. Where an entry runs both ways, the rules in this skill pick the direction.
 
 If a companion skill is missing, the matching reference file in this skill captures the rule so the practice still applies.
 
@@ -118,7 +119,7 @@ Personal Elixir PR self-review:
 1. Open personal Elixir repo.
 2. Implement change with `tdd` cadence — failing test first.
 3. Apply rules from `references/testing.md` and `references/coding.md`.
-4. Refactor per `xp` and `elixir-crafting`. Personal anti-patterns: `references/anti-patterns.md`.
+4. Refactor per `xp` and `elixir-crafting`, one named move from `elixir-refactorings` at a time, tests green before and after. Personal anti-patterns: `references/anti-patterns.md`.
 5. Documentation: `references/documentation.md` for every public function.
 6. Commits: split by layer per `references/commits-and-prs.md`.
 7. Run pre-PR checklist above. Fix every box before push.

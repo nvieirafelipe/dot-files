@@ -141,6 +141,25 @@ When a finding is structural, propose the move, not only the problem:
 
 Prefer the remedy that removes moving parts over one that spreads them around.
 
+### Elixir changes
+
+When the diff touches `.ex` or `.exs` files, load
+[elixir-refactorings](../../elixir-refactorings/SKILL.md). Its smell map turns a smell
+from the baseline above, or an Elixir anti-pattern, into a named refactoring from the
+Catalog of Elixir Refactorings. Name it in the remedy, so the author can look it up:
+"possible Feature Envy: *Moving a definition* would put `total/1` next to `%Order{}`".
+
+- Check the entry's side-conditions, and its Caution note if it has one, against the
+  code before proposing it. A remedy whose side-conditions fail is not offered; one
+  whose Caution applies is offered only with the fix the Caution names.
+- A refactoring opportunity is Consider, unless a documented standard requires the
+  change. The catalog is a menu of safe moves, not a standard.
+- Some entries run both ways. The repository's standards pick the direction first, then
+  the reviewer's Elixir skills; the skill's direction table marks those entries.
+- An entry that changes laziness, recursion shape or process structure (`Enum` to
+  `Stream`, body to tail recursion, introducing or removing processes) also gets a
+  Behavior-axis check: what changes at runtime, and whether a test would notice.
+
 ## Change-level checks
 
 - **Size:** about 100 changed lines reads in one sitting, about 300 is fine for one
