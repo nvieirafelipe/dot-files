@@ -5,6 +5,9 @@
       "mcp__deciduous",
       "mcp__tidewave"
     ],
+    "deny": [
+      "Skill(caveman:caveman-commit)"
+    ],
     "ask": [
       "Bash(gh pr comment:*)",
       "Bash(gh pr review:*)",
@@ -25,11 +28,9 @@
       "mcp__plugin_Notion_notion__notion-create-pages",
       "mcp__plugin_Notion_notion__notion-update-page",
       "mcp__plugin_Notion_notion__notion-move-pages"
-    ],
-    "deny": [
-      "Skill(caveman:caveman-commit)"
     ]
   },
+  "model": "opus",
   "hooks": {
     "PreToolUse": [
       {
