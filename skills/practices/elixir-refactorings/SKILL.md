@@ -240,9 +240,27 @@ as do 8 entries whose move is unsafe on code their side-conditions do not rule o
 ## Credits
 
 The refactorings, their examples and their side-conditions come from the [Catalog of
-Elixir Refactorings][catalog] (MIT, copyright Lucas Francisco da Matta Vegi), condensed
-at commit `e40dc9e`. The smell map, the direction table and the rules above are this
-skill's own. [references/sources.md](references/sources.md) says what was kept and how
-to update it; [LICENSES.md](LICENSES.md) reproduces the license.
+Elixir Refactorings][catalog] by Lucas Francisco da Matta Vegi and Marco Tulio Valente,
+Department of Computer Science, Federal University of Minas Gerais (UFMG), condensed at
+commit `e40dc9e` under its MIT license (copyright Lucas Francisco da Matta Vegi). The
+catalog is the result of their study. To cite it, use the reference the authors give in
+the repository's [`CITATION.cff`][cff]:
+
+> Vegi, L. F. M., and Valente, M. T. (2025). Understanding refactorings in Elixir
+> functional language. *Empirical Software Engineering*, 30, 108.
+> [doi:10.1007/s10664-025-10652-y][emse]
+
+The study extends their short paper: Vegi, L. F. M., and Valente, M. T. (2023). Towards
+a catalog of refactorings for Elixir. *39th International Conference on Software
+Maintenance and Evolution (ICSME)*, 358–362.
+[doi:10.1109/ICSME58846.2023.00045][icsme]
+
+The smell map, the direction table, the rules above and the Caution notes are this
+skill's own, not the authors'. [references/sources.md](references/sources.md) says what
+was kept, how it was checked against the study and how to update it;
+[LICENSES.md](LICENSES.md) reproduces the license.
 
 [catalog]: https://github.com/lucasvegi/Elixir-Refactorings/blob/e40dc9e5f1b8d775f29dc25c4f47938a9c563770/README.md
+[cff]: https://github.com/lucasvegi/Elixir-Refactorings/blob/e40dc9e5f1b8d775f29dc25c4f47938a9c563770/CITATION.cff
+[emse]: https://doi.org/10.1007/s10664-025-10652-y
+[icsme]: https://doi.org/10.1109/ICSME58846.2023.00045

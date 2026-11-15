@@ -46,7 +46,7 @@ Defer to these for generic discipline; this skill layers personal-specific rules
 - `elixir-crafting` — assertive style, single return shape, typespecs, formatter/credo feedback loop.
 - `tdd` — red-green-refactor cadence.
 - `refactoring` — when code gets messy.
-- `elixir-refactorings` — the named, behavior-preserving moves from the Catalog of Elixir Refactorings, with side-conditions. Pick the move for a smell there and name it in the commit. Where an entry runs both ways, the rules in this skill pick the direction.
+- `elixir-refactorings` — the named, behavior-preserving moves from the Catalog of Elixir Refactorings by Lucas Vegi and Marco Tulio Valente (UFMG), with side-conditions. Pick the move for a smell there and name it in the commit. Where an entry runs both ways, the rules in this skill pick the direction.
 
 If a companion skill is missing, the matching reference file in this skill captures the rule so the practice still applies.
 

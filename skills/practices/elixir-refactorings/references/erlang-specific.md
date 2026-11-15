@@ -3,7 +3,10 @@
 Erlang-specific refactorings use programming features unique to the Erlang ecosystem,
 such as OTP, typespecs, and behaviours. This group has 11 entries. Condensed from the
 [Catalog of Elixir Refactorings](https://github.com/lucasvegi/Elixir-Refactorings/blob/e40dc9e5f1b8d775f29dc25c4f47938a9c563770/README.md)
-by Lucas Vegi and Marco Tulio Valente (MIT). Each entry links to its full text there.
+by Lucas Francisco da Matta Vegi and Marco Tulio Valente (UFMG; MIT license), from
+their study [Understanding refactorings in Elixir functional
+language](https://doi.org/10.1007/s10664-025-10652-y) (Empirical Software Engineering,
+2025). Each entry links to its full text there.
 The examples are upstream's code, trimmed but not corrected: read them as shapes, and
 see "Caution" notes and [sources.md](sources.md#upstream-slips) for known slips.
 

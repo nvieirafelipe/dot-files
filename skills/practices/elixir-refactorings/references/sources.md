@@ -5,8 +5,10 @@ Read this when maintaining the skill, not when using it.
 ## The catalog
 
 [lucasvegi/Elixir-Refactorings][repo], `README.md` at commit [`e40dc9e`][readme]
-(2025-05-08), by Lucas Vegi and Marco Tulio Valente, ASERG/DCC/UFMG. MIT; the notice is
-in [LICENSES.md](../LICENSES.md). Collected on 2026-11-14.
+(2025-05-08), by Lucas Francisco da Matta Vegi and Marco Tulio Valente, ASERG/DCC/UFMG.
+MIT; the notice is in [LICENSES.md](../LICENSES.md). Collected on 2026-11-14. The
+authors ask that uses of the catalog cite their 2025 paper (see "The papers"); the
+citation is in the Credits section of `SKILL.md`.
 
 The catalog holds 82 refactorings in four groups: 14 Elixir-specific, 25 traditional, 32
 functional and 11 Erlang-specific. Its introduction says 55 came from a review of the

@@ -1,7 +1,9 @@
 # Third-party licenses
 
-The reference files condense the work below. [references/sources.md](references/sources.md)
-says what was taken and how it was changed.
+The reference files condense the work below, by Lucas Francisco da Matta Vegi and Marco
+Tulio Valente (UFMG). [references/sources.md](references/sources.md) says what was taken
+and how it was changed, and the Credits section of [SKILL.md](SKILL.md) gives the
+citation the authors ask for.
 
 ## lucasvegi/Elixir-Refactorings
 

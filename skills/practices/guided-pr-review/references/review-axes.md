@@ -146,7 +146,8 @@ Prefer the remedy that removes moving parts over one that spreads them around.
 When the diff touches `.ex` or `.exs` files, load
 [elixir-refactorings](../../elixir-refactorings/SKILL.md). Its smell map turns a smell
 from the baseline above, or an Elixir anti-pattern, into a named refactoring from the
-Catalog of Elixir Refactorings. Name it in the remedy, so the author can look it up:
+Catalog of Elixir Refactorings by Lucas Vegi and Marco Tulio Valente (UFMG). Name it in
+the remedy, so the author can look it up:
 "possible Feature Envy: *Moving a definition* would put `total/1` next to `%Order{}`".
 
 - Check the entry's side-conditions, and its Caution note if it has one, against the
