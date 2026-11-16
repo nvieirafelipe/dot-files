@@ -2,11 +2,11 @@ schema_version: "1.1"
 name: no-discussion-invents-no-rationale
 expected_outcome: |
   With no discussion on record and no issue referenced, review-out/review.md still has a
-  discussion trail. It cites the commit message as Stated and marks the missing reasons
-  as Not found: why retries happen in process rather than from a durable queue, and why
-  three attempts. It attributes no reason to the author that the commits do not state,
-  and labels any reason it offers as inferred. It still challenges the in-process design
-  with a concrete failure, and turns at least one missing reason into a question for the
-  author.
+  discussion trail. The trail cites the commit message as Stated and marks the missing
+  reasons as Not found: why retries happen in process rather than from a durable queue,
+  and why three attempts. It attributes no reason to the author that the commits do not
+  state, and labels any reason it offers as inferred. It still challenges the in-process
+  design with a concrete failure, weighs it against a durable queue as the review's own
+  alternative, and asks the author why the retries run in process.
 context:
   scaffold_script: place-files.sh
