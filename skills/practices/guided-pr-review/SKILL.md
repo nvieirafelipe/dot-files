@@ -180,7 +180,9 @@ From the trail and the spec, list before reading any code:
 
 - **Decisions:** each choice that shaped the change, the alternatives on record with
   their gains and costs, and the stated reason. A choice with no recorded alternative or
-  reason is still listed, as Not found.
+  reason is still listed, as Not found. The change's approach to the problem it solves
+  is a decision too, even when nobody recorded choosing it; list it apart from the
+  smaller choices made inside that approach.
 - **Stated assumptions:** what the spec, the PR, or the thread takes for granted.
 - **Expectations:** what the trail leads a reader to expect in the code ("the importer
   skips rows it has already seen"). Step 3 checks each one.
@@ -430,7 +432,9 @@ Do not commit unless asked.
 - When the evidence cannot settle a point, ask the author instead of asserting.
 - A decision with no recorded reason is a Question when the reason matters, not a
   defect. A challenge that holds up becomes a finding on its axis; one that the evidence
-  answers stays in the decision block as "Holds".
+  answers stays in the decision block as "Holds". When the reason is missing and the
+  challenge holds up, the finding's draft or fix entry still asks the author for the
+  reason: it may be a constraint the reviewer cannot see.
 - Lead with what matters. One structural problem outranks ten nits; zero findings is a
   valid result.
 - In local mode the verdict is "ready for a PR" or "fix first". When the branch mixes

@@ -66,8 +66,10 @@ label:
 - **Stated:** someone wrote it down. Give a short quote and a link or path.
 - **Inferred:** the report concludes it from code, commits, or behavior. Give the
   receipt, and never attribute an inference to the author.
-- **Not found:** the record holds no answer. When the answer matters, it becomes a
-  Question finding with a draft. Do not fill the gap with a plausible reason.
+- **Not found:** the record holds no answer. When the answer matters, a draft asks for
+  it: a Question finding of its own or, when the row links a finding for another reason,
+  a sentence in that finding's draft or fix entry. Do not fill the gap with a plausible
+  reason.
 
 ## Skeleton
 
@@ -115,7 +117,10 @@ Re-fetched <YYYY-MM-DD HH:MM>.
 |---|---|---|
 | Gains | <what it buys> | <what it would buy> |
 | Costs | <what it costs> | <what it would cost> |
-| Source | Stated: [link](<url>) | Stated: <where it was proposed> |
+| Source | Stated: [link](<url>) | Stated: <where it was proposed>, or "Not on record: the review's own" |
+
+<Add an Alternative column per option worth weighing. When none is on record, include one
+that solves the problem in a different way, not only variants of the chosen option.>
 
 <Optional, when the decision has several parts:>
 
@@ -430,6 +435,8 @@ Heads: <repo#pr sha, ...>. CI: <state>. Mode: <full | quick>.
 - Every in-report link resolves: `scripts/check-anchors.sh review.md` prints nothing and
   exits 0.
 - Every row of the trail and every assumption carries Stated, Inferred, or Not found.
+- Every Not found row that links a finding: that finding's draft or fix entry asks for
+  the missing answer.
 - No rationale is attributed to the author without a Stated source.
 - Code lines stay within the repository's line limit. To find long lines, with `98`
   replaced by that limit: `awk '/^```/{c=!c; next} c && length($0)>98' review.md`.

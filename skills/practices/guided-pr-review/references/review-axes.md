@@ -181,7 +181,10 @@ choices still hold in the code as written. Challenge each one:
 - **A decision:** what else was on the table, and what each option gains and costs.
   Then the strongest case against the choice: which input, load, failure, or later
   change makes it the wrong one, with evidence. A decision with no recorded alternative
-  is challenged against the most obvious one.
+  is weighed against the review's own, labelled as such: at least one that solves the
+  problem in a different way, besides any variant of the chosen option. A cache in
+  front of a slow query is weighed against making the query fast, not only against
+  another cache.
 - **An assumption:** what supports it, what breaks if it is false, and the cheapest
   check. Look for the ones nobody wrote down: a call that "always" returns one error
   type, input that "never" arrives twice, a caller that "only" passes valid data, a
