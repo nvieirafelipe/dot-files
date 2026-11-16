@@ -1,15 +1,18 @@
 schema_version: "1.1"
 name: brief-surfaces-rejected-queue
 expected_outcome: |
-  review-out/review.md opens with a Brief of at most 25 lines of text. Its discussion trail
-  records, with provenance, that a durable queue was proposed and rejected for "no new
-  infrastructure this quarter", and that only 5xx responses were to be retried. A decision
-  block weighs in-process retries against the queue and challenges the choice with a
-  concrete failure: retries lost on a deploy or crash, or one failing receiver holding up
-  every other delivery behind the single dispatcher. The report finds that refused
-  connections, which issue 140 describes, are still not retried; that the code also
-  retries 429 although the thread said 5xx only; and, as an inferred assumption, that a
-  5xx is taken to mean the receiver did not process the event. At least one finding or
-  proposal gives options with snippets and their tradeoffs.
+  review-out/review.md opens with a Brief of at most 25 lines of text that points to at
+  most three items and, on its own, says the retries run in process and that a durable
+  queue was proposed and rejected for "no new infrastructure this quarter". Its
+  discussion trail records that with provenance, and that only 5xx responses were to be
+  retried. A decision section, apart from the findings, weighs in-process retries against
+  the queue and challenges the choice with a concrete failure: retries lost on a deploy
+  or crash, or one failing receiver holding up every other delivery behind the single
+  dispatcher. The report finds that the 3 seconds of retries cannot cover the 20-minute
+  outage, so "Closes #140" claims too much; that refused connections, which issue 140
+  describes, are still not retried; that the code also retries 429 although the thread
+  said 5xx only; and, as an inferred assumption, that a 5xx is taken to mean the receiver
+  did not process the event. At least one finding or proposal gives options with
+  snippets and their tradeoffs.
 context:
   scaffold_script: place-files.sh

@@ -77,8 +77,8 @@ rationalization and red-flag tables.
 Adapted:
 
 - Separate Spec and Standards axes that are reported apart and never reranked against
-  each other. Here they are two of three axes, and the summary names the worst item per
-  axis.
+  each other. Here they are two of three axes, and the Brief's "Look at first" list takes
+  the worst item of each axis before a second item from any one axis.
 - Pinning the fixed point and failing early on a bad ref or an empty diff.
 - The order for finding the spec, and the search for standards documents.
 - The code smell baseline as judgment calls that a documented repository standard
@@ -158,6 +158,13 @@ The viewer's layout follows these patterns. It reuses no code from them, so
 - **No "Already raised" section.** Review threads are part of the discussion: their
   decisions go in the trail, and the per-comment detail goes in Provenance, re-fetched
   before posting.
+- **Three items in the Brief.** In the first eval runs of the briefing, the Brief named
+  the worst item per axis and then up to three items to look at first, which sent the
+  reader to four to six items. The worst item of each axis now goes into the
+  look-first list instead.
+- **Corrections checked where they land.** In one eval run the review log recorded a
+  verifier correction to a Spec row that the Spec table did not carry. The log now
+  quotes the corrected text as the report reads, and the lint checks it.
 - **Rounds rewrite the report.** Reports that stacked delta sections and per-head verdicts
   at the top were hard to read for the current state. Each round now rewrites the
   report for the current head and keeps the history in the review log.

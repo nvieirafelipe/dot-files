@@ -3,8 +3,9 @@
 Three axes, reviewed independently. A change can pass one and fail another: code that
 follows every convention can build the wrong thing, and code that does exactly what the
 issue asked can break the repository's conventions. Tag every finding with its axis,
-keep the axes in separate parts of the report, and name the worst item of each axis in
-the Brief. Do not let a pile of findings on one axis bury a single finding on another.
+keep the axes in separate parts of the report, and in the Brief's "Look at first" list,
+take the worst item of each axis before a second item from any one axis. Do not let a
+pile of findings on one axis bury a single finding on another.
 
 The decisions and assumptions behind the change are not a fourth axis. They are
 challenged in their own sections (see

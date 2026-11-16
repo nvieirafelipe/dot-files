@@ -31,7 +31,8 @@ with its "Not found" rows.
 1. **Title and status line:** what the change does, "Local review. Not posted.", the
    current head, the mode, and "Provenance at the end".
 2. **Brief:** at most 25 lines of text. What and why, how the change came about, the
-   verdict, the worst item per axis, and up to three items to look at first.
+   verdict, and up to three items to look at first, which are the only items the Brief
+   points to.
 3. **How we got here:** the discussion trail, one row per thing said or decided, each
    marked with its provenance.
 4. **Decisions and tradeoffs:** one block per decision that shaped the change, with the
@@ -85,13 +86,16 @@ was left open. Say "No recorded discussion" when the trail is empty.>
 
 **Verdict.** <Per PR or branch, one line each: "#77: approve with suggestions".>
 
-**Worst per axis.** Spec: <item or none>. Behavior: <item or none>. Design and
-standards: <item or none>.
-
 **Look at first.**
 
-1. <Up to three items, each a link to a decision, an assumption, or a finding, with
-   one line on why it needs the reviewer's judgment.>
+1. <Up to three items in all, each a link to a decision, an assumption, or a finding,
+   with its axis and one line on why it needs the reviewer's judgment. Take the worst
+   item of each axis before a second item from any one axis.>
+
+<One line for each axis with nothing worth the reviewer's time, such as "Design and
+standards: nothing above a Nit.">
+
+<The rest of the Brief links to none of the other sections' items.>
 
 ## How we got here
 
@@ -245,6 +249,7 @@ All line numbers refer to these heads.
 | ID | Hypothesis or challenge | Check | Outcome |
 |---|---|---|---|
 | H1 | <what might be wrong> | <what was traced or run> | Kept as F2 / Downgraded / Dropped |
+| V1 | Verifier: <the claim it disputed> | <the source re-read> | Now reads "<the corrected text, quoted as it stands in the report>" |
 
 ### Earlier rounds
 
@@ -417,6 +422,11 @@ Heads: <repo#pr sha, ...>. CI: <state>. Mode: <full | quick>.
 
 - The Brief holds at most 25 lines of text, blank lines aside:
   `awk '/^## /{b=($0=="## Brief"); next} b && NF' review.md | wc -l` prints 25 or less.
+- The Brief points to at most three items:
+  `awk '/^## /{b=($0=="## Brief"); next} b' review.md | grep -o '](#[^)]*)' | sort -u | wc -l`
+  prints 3 or less.
+- Every verifier correction landed: for each V row in the review log, the quoted text
+  after "Now reads" is found in the section it corrects, and the old text is gone.
 - Every in-report link resolves: `scripts/check-anchors.sh review.md` prints nothing and
   exits 0.
 - Every row of the trail and every assumption carries Stated, Inferred, or Not found.

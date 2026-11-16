@@ -264,7 +264,8 @@ every outcome in the review log, including the dropped ones.
 ### 5. Write the report
 
 Follow [report-template.md](references/report-template.md). Open with the Brief, at
-most 25 lines of text, so the reviewer has the context in one screen. Then how the
+most 25 lines of text that point to at most three items, so the reviewer has the
+context in one screen and knows where to start. Then how the
 change came about, the decisions and tradeoffs, the assumptions, and a reading guide:
 why, what is new, what does not change yet, how the PRs relate, and where to read with
 what to expect. Then one chapter per PR, or per layer inside a large PR. Heads, CI, and
@@ -304,7 +305,12 @@ every Stated item matches its source, no reason is attributed to the author with
 one, versions come from the lockfile, interpretations are labelled as judgments,
 diagrams match the code, the Brief matches the sections it summarizes, and every
 comment anchor sits inside the PR diff. Without sub-agents, do the same check directly.
-Apply the fixes, re-render, and tell the reviewer what changed.
+
+Apply the fixes, then re-read each corrected passage and every place that repeats it,
+such as a Spec row, a table cell, or the Brief, and correct those too. Log each
+correction as a V row in the review log, quoting the text as the report now reads, not
+the change you meant to make. Run the template's lint again, re-render, and tell the
+reviewer what changed.
 
 ### 7. Steer with the reviewer
 
